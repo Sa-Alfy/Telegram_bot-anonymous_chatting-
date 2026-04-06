@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# Secrets & Environment
+.env
+.env.local
+.env.*.local
+
+# Telegram Sessions
+*.session
+*.session-journal
+
+# Data & Persistence
+data/
+*.json
+*.sqlite
+*.db
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log

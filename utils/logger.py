@@ -1,0 +1,22 @@
+import logging
+import sys
+
+def setup_logger(name: str = "anonymous_bot"):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Console handler with UTF-8 encoding
+    console_handler = logging.StreamHandler(sys.stdout)
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    
+    return logger
+
+logger = setup_logger()
