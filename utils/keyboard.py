@@ -1,8 +1,13 @@
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-def start_menu():
-    return InlineKeyboardMarkup([
+def start_menu(is_guest: bool = False):
+    buttons = [
         [InlineKeyboardButton("🔍 Find Partner", callback_data="search")],
+    ]
+    if is_guest:
+        buttons.append([InlineKeyboardButton("👤 Create Profile (Gain XP/Coins)", callback_data="onboarding_start")])
+    
+    buttons.extend([
         [
             InlineKeyboardButton("📊 Stats", callback_data="stats"),
             InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")
@@ -10,14 +15,73 @@ def start_menu():
         [InlineKeyboardButton("🛍 Seasonal Shop", callback_data="seasonal_shop")],
         [InlineKeyboardButton("ℹ️ How it Works", callback_data="help")]
     ])
+    return InlineKeyboardMarkup(buttons)
 
-def seasonal_shop_menu():
+def onboarding_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✨ 3h XP Booster - 100 coins", callback_data="buy_shop_exp_boost_3h")],
-        [InlineKeyboardButton("💰 3h Coin Booster - 150 coins", callback_data="buy_shop_coin_boost_3h")],
-        [InlineKeyboardButton("⚡ 1h Priority Match - 250 coins", callback_data="buy_shop_priority_1h")],
-        [InlineKeyboardButton("🏅 Seasonal Badge - 500 coins", callback_data="buy_shop_badge_seasonal")],
-        [InlineKeyboardButton("🔙 Back", callback_data="stats")]
+        [InlineKeyboardButton("👤 Create Profile", callback_data="onboarding_start")],
+        [InlineKeyboardButton("⏩ Skip for now", callback_data="onboarding_skip")]
+    ])
+
+def gender_menu():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("👨 Male", callback_data="set_gender_male"),
+            InlineKeyboardButton("👩 Female", callback_data="set_gender_female")
+        ],
+        [InlineKeyboardButton("🌈 Other", callback_data="set_gender_other")]
+    ])
+
+def location_skip_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏩ Skip Location", callback_data="set_location_skip")]
+    ])
+
+def bio_skip_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏩ Skip Bio", callback_data="set_bio_skip")]
+    ])
+
+def stats_menu(has_pending: bool = False):
+    """Profile/Stats menu with friend request alerts."""
+    buttons = [
+        [InlineKeyboardButton("🔍 Find Partner", callback_data="search")]
+    ]
+    if has_pending:
+        buttons.append([InlineKeyboardButton("📬 Pending Requests", callback_data="view_requests")])
+    
+    buttons.append([InlineKeyboardButton("👥 Friends List", callback_data="friends_list")])
+        
+    buttons.extend([
+        [
+            InlineKeyboardButton("🛍 Seasonal Shop", callback_data="seasonal_shop"),
+            InlineKeyboardButton("🔙 Back", callback_data="cancel_search")
+        ]
+    ])
+    return InlineKeyboardMarkup(buttons)
+
+def friends_list_menu(friends_list: list):
+    buttons = []
+    for f in friends_list[:10]: # Limit to 10 for UI layout
+        buttons.append([InlineKeyboardButton(f"👤 {f.get('first_name', 'Friend')}", callback_data=f"friend_action_{f['telegram_id']}")])
+    buttons.append([InlineKeyboardButton("🔙 Back", callback_data="stats")])
+    return InlineKeyboardMarkup(buttons)
+
+def friend_action_menu(friend_id: int):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💬 Send Message", callback_data=f"msg_friend_{friend_id}")],
+        [InlineKeyboardButton("❌ Remove Friend", callback_data=f"remove_friend_{friend_id}")],
+        [InlineKeyboardButton("🔙 Back to Friends", callback_data="friends_list")]
+    ])
+
+def seasonal_shop_menu(user_coins: int = 0):
+    """Temporary Seasonal Shop UI."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"👑 30-Day VIP Subscription (500 coins)", callback_data="buy_shop_vip")],
+        [InlineKeyboardButton(f"🔥 'OG User' Badge (300 coins)", callback_data="buy_shop_og")],
+        [InlineKeyboardButton(f"🐋 'Whale' Badge (1000 coins)", callback_data="buy_shop_whale")],
+        [InlineKeyboardButton("💳 Top-Up Coins (bKash/Card)", url="https://t.me/YourAdminStore")],
+        [InlineKeyboardButton("🔙 Back", callback_data="cancel_search")]
     ])
 
 def event_leaderboard_menu():
@@ -29,9 +93,19 @@ def event_leaderboard_menu():
         [InlineKeyboardButton("🔙 Back", callback_data="leaderboard")]
     ])
 
+def search_pref_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("👫 Anyone", callback_data="search_pref_Any")],
+        [
+            InlineKeyboardButton("👩 Females (Free VIP / 15 Coins)", callback_data="search_pref_Female"),
+            InlineKeyboardButton("👨 Males (Free VIP / 15 Coins)", callback_data="search_pref_Male")
+        ],
+        [InlineKeyboardButton("🔙 Back", callback_data="cancel_search")]
+    ])
+
 def search_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ Priority Match (5 coins)", callback_data="priority_search")],
+        [InlineKeyboardButton("⚡ Priority Match (5 coins)", callback_data="search_pref_Priority")],
         [
             InlineKeyboardButton("💎 Priority Packs", callback_data="priority_packs"),
             InlineKeyboardButton("🚀 Boosters", callback_data="booster_menu")
@@ -70,21 +144,18 @@ def leaderboard_menu():
         [InlineKeyboardButton("🔙 Back", callback_data="cancel_search")]
     ])
 
-def chat_menu(reveal_cost: int = 15, peek_cost: int = 5):
+def chat_menu():
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎲 Send Icebreaker (5 Coins)", callback_data="icebreaker")],
         [
-            InlineKeyboardButton("⏭ Next", callback_data="next"),
-            InlineKeyboardButton("❌ Stop", callback_data="stop")
+            InlineKeyboardButton("🛑 Stop", callback_data="stop"),
+            InlineKeyboardButton("⏭ Next", callback_data="next")
         ],
         [
-            InlineKeyboardButton(f"👤 Reveal ID ({reveal_cost} coins)", callback_data="reveal"),
-            InlineKeyboardButton(f"🔍 Peek Stats ({peek_cost} coins)", callback_data="peek")
+            InlineKeyboardButton("👁️ Reveal Identity", callback_data="reveal"),
+            InlineKeyboardButton("⚠️ Report", callback_data="report")
         ],
-        [
-            InlineKeyboardButton("🚨 Report", callback_data="report"),
-            InlineKeyboardButton("🎭 React", callback_data="open_reactions"),
-            InlineKeyboardButton("💌 Add Friend", callback_data="add_friend")
-        ]
+        [InlineKeyboardButton("❤️ Reactions", callback_data="open_reactions")]
     ])
 
 def reaction_menu():
@@ -127,4 +198,99 @@ def end_menu(can_rematch: bool = False):
             InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")
         ]
     ])
+    return InlineKeyboardMarkup(buttons)
+
+def admin_menu():
+    """Central administrative dashboard with quick-action buttons."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📊 Stats", callback_data="admin_stats"),
+            InlineKeyboardButton("🏥 Health", callback_data="admin_health")
+        ],
+        [
+            InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast_prompt"),
+            InlineKeyboardButton("🚫 Banned List", callback_data="admin_list_banned")
+        ],
+        [
+            InlineKeyboardButton("💰 Gift Coins", callback_data="admin_gift_prompt"),
+            InlineKeyboardButton("💸 Take Coins", callback_data="admin_deduct_prompt")
+        ],
+        [
+            InlineKeyboardButton("✨ Set VIP", callback_data="admin_vip_prompt"),
+            InlineKeyboardButton("👤 Manage User", callback_data="admin_user_manage_prompt")
+        ],
+        [InlineKeyboardButton("🛠 Debug Mode", callback_data="admin_debug")],
+        [InlineKeyboardButton("🔄 FULL SYSTEM RESET", callback_data="admin_reset_confirm")],
+        [InlineKeyboardButton("🔙 Close Admin Console", callback_data="back_to_chat")]
+    ])
+
+def admin_vip_menu(target_id: int):
+    """Menu for toggling VIP status."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Give VIP Status", callback_data=f"admin_set_vip_{target_id}_true"),
+            InlineKeyboardButton("❌ Revoke VIP status", callback_data=f"admin_set_vip_{target_id}_false")
+        ],
+        [InlineKeyboardButton("🔙 Cancel", callback_data="admin_stats")]
+    ])
+
+def admin_action_menu(target_id: int, is_blocked: bool):
+    """Menu for individual user management."""
+    btn_text = "🔓 Unban User" if is_blocked else "🚫 Ban User"
+    callback = f"admin_unban_{target_id}" if is_blocked else f"admin_ban_{target_id}"
+    
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(btn_text, callback_data=callback)],
+        [
+            InlineKeyboardButton("💰 Gift 50", callback_data=f"admin_quick_gift_{target_id}_50"),
+            InlineKeyboardButton("💸 Take 50", callback_data=f"admin_quick_deduct_{target_id}_50")
+        ],
+        [InlineKeyboardButton("🔙 Cancel", callback_data="admin_stats")]
+    ])
+
+def appeal_menu():
+    """Menu shown to banned users allowing them to submit an appeal."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📝 Submit Appeal", callback_data="user_appeal")],
+        [InlineKeyboardButton("🔄 Refresh Status", callback_data="stats")]
+    ])
+
+def banned_list_menu(user_id: int):
+    """Admin menu for an individual banned user."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Unban & Send Message", callback_data=f"admin_unban_{user_id}"),
+            InlineKeyboardButton("❌ Keep Banned", callback_data="admin_list_banned")
+        ]
+    ])
+
+def report_confirm_menu():
+    """Prompt after clicking Report to allow for an optional reason."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚫 Report Immediately", callback_data="report_confirm")],
+        [InlineKeyboardButton("📝 Add Reason & Report", callback_data="report_with_reason")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="back_to_chat")]
+    ])
+def accept_friend_menu(sender_id: int):
+    """Menu sent to the recipient of a friend request."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Accept Friend", callback_data=f"accept_friend_{sender_id}"),
+            InlineKeyboardButton("❌ Ignore", callback_data="back_to_chat")
+        ]
+    ])
+
+def pending_requests_menu(requests: list):
+    """Menu for viewing and managing multiple pending requests."""
+    buttons = []
+    for req in requests:
+        sender_name = req.get('first_name', 'Stranger')
+        sender_id = req.get('telegram_id')
+        buttons.append([
+            InlineKeyboardButton(f"👤 {sender_name}", callback_data=f"peek_detail_{sender_id}"),
+            InlineKeyboardButton("✅", callback_data=f"accept_friend_{sender_id}"),
+            InlineKeyboardButton("❌", callback_data=f"decline_friend_{sender_id}")
+        ])
+    
+    buttons.append([InlineKeyboardButton("🔙 Back to Stats", callback_data="stats")])
     return InlineKeyboardMarkup(buttons)

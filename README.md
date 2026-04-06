@@ -1,80 +1,117 @@
-# 🤖 Anonymous Telegram Chat Bot
+# 🤖 Anonymous Telegram matchmaking Chat Bot
 
-A feature-rich, high-performance anonymous matchmaking bot for Telegram, inspired by platforms like Omegle. Built with Pyrogram, it features a robust economy, tiered leveling, seasonal events, and advanced matchmaking.
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Framework](https://img.shields.io/badge/Framework-Pyrogram-orange?logo=telegram&logoColor=white)](https://docs.pyrogram.org/)
+[![Database](https://img.shields.io/badge/Database-SQLite-lightgrey?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![License](https://img.shields.io/badge/License-GPLv3-green)](LICENSE)
 
-## ✨ Features
+A production-grade, high-performance anonymous matchmaking bot for Telegram. Designed for engagement, safety, and scalability, featuring a robust economy, social connectivity, and automated moderation.
 
-- **Anonymous Matchmaking**: Connect with strangers instantly.
-- **Economy 2.0**: Earn coins/XP, buy boosters, and unlock exclusive badges.
-- **Seasonal Events**: Weekly tournaments and daily mini-events (multipliers).
-- **Social Features**: Friend system, reactions, and identity reveal.
-- **Advanced UX**: Realistic typing simulations, connection animations, and milestones.
-- **Admin Tools**: Real-time monitoring and event management.
+---
 
-## 🛠 Tech Stack
+## ✨ Key Features
 
-- **Language**: Python 3.10+
-- **Framework**: [Pyrogram](https://docs.pyrogram.org/)
-- **Data Storage**: JSON-based persistent storage (expandable to SQLite/PostgreSQL)
-- **Environment**: Dotenv for secure configuration
+### 🔄 Seamless Matchmaking
+- **Instant Connection**: Find and chat with strangers in seconds.
+- **Smart Filtering**: Match based on gender, location, or interests.
+- **Rich Interaction**: Full support for text, media, and interactive buttons.
+
+### 💰 Economy & Progression 2.0
+- **Dynamic Leveling**: Earn XP through active chatting and complete challenges.
+- **Coin System**: Earn coins to unlock premium features and boosters.
+- **Boosters**: 2x XP and Coin multipliers for VIP users and special events.
+- **Streaks**: Daily, Weekly, and Monthly login rewards to drive retention.
+
+### 🤝 Social & Identity
+- **Friend System**: Add favorite partners to your social circle for future chats.
+- **Profile Customization**: Set your gender, location, and a unique bio.
+- **Identity Reveal**: Safely share your profile info with trusted partners.
+
+### 🛡️ Safety & Moderation
+- **Auto-Block**: Users are automatically restricted after reaching report thresholds.
+- **Appeal System**: Transparent process for users to request unblocking.
+- **Admin Audit**: Detailed logs and real-time monitoring for administrators.
+
+---
+
+## 🛠️ Tech Stack
+
+- **Core**: Python 3.10+ utilizing `asyncio` for high concurrency.
+- **Telegram API**: [Pyrogram](https://docs.pyrogram.org/) (MTProto) for speed and flexibility.
+- **Database**: SQLite with an asynchronous repository pattern for data integrity.
+- **State Management**: In-memory tracking for active matches and queues.
+- **Logging**: Comprehensive rotating logs for debugging and analytics.
+
+---
 
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
-- Python 3.10 or higher
-- A Telegram [API ID and Hash](https://my.telegram.org/apps)
-- A Bot Token from [@BotFather](https://t.me/botfather)
+- Python 3.10 or higher.
+- Telegram [API ID and Hash](https://my.telegram.org/apps).
+- A Bot Token from [@BotFather](https://t.me/botfather).
 
 ### 2. Installation
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/anonymous-chat-bot.git
-cd anonymous-chat-bot
+git clone https://github.com/Sa-Alfy/Telegram_bot-anonymous_chatting-.git
+cd "anonymous_chat_bot"
 
 # Create and activate virtual environment
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
 ### 3. Configuration
-Create a `.env` file in the root directory based on `.env.example`:
+Rename `.env.example` to `.env` and fill in your credentials:
 ```env
-API_ID=your_api_id
-API_HASH=your_api_hash
-BOT_TOKEN=your_bot_token
+API_ID=1234567
+API_HASH=your_api_hash_here
+BOT_TOKEN=your_bot_token_here
 ADMIN_ID=your_telegram_id
 ```
 
 ### 4. Running the Bot
 ```bash
-python anonymous_chat_bot/main.py
+python main.py
 ```
+
+---
 
 ## 📂 Project Structure
 
-- `handlers/`: Telegram update handlers (commands, callbacks, messages).
-- `services/`: Core logic (matchmaking, economy, events, sessions).
-- `state/`: Persistence and in-memory state management.
-- `utils/`: UI components (keyboards), logging, and helpers.
-- `data/`: Local storage for user profiles (ignored by git).
+```text
+anonymous_chat_bot/
+├── handlers/          # Telegram update handlers (UI/UX logic)
+│   ├── actions/       # Specific features (matching, social, economy)
+│   └── admin.py       # Admin-only commands
+├── services/          # Business logic & background tasks
+│   ├── matchmaking.py # The matching engine
+│   ├── user_service.py # Economy and profile management
+│   └── event_manager.py# Seasonal triggers and multipliers
+├── database/          # SQLite schema and repositories
+├── data/              # Persistent storage (SQLite DB, sessions, backups)
+├── utils/             # Keyboard builders, formatters, and loggers
+├── state/             # Real-time in-memory match tracking
+└── main.py            # Application entry point
+```
 
-## 🛡 Security & Privacy
-- Chat sessions are completely anonymous.
-- No personal data is stored without explicit "Reveal Identity" actions.
-- Secrets are managed via environment variables.
+---
 
-## 🛡 Ethical Usage & Responsibility
+## 🔒 Security & Privacy
 
-This project was created for **positive social interaction and community building**. By using this code, you agree to:
-- **Respect Privacy**: Never use this bot to harass, dox, or harm individuals.
-- **Moderate Responsibly**: Implement strict reporting and blocking systems to protect users.
-- **Compliance**: Ensure your deployment complies with Telegram's Terms of Service and local laws.
+We prioritize user privacy:
+- **Total Anonymity**: No identity data is shared by default.
+- **Ephemeral Sessions**: Chat records are abstracted and strictly for rewards tracking.
+- **Encryption**: Leverages Telegram's secure MTProto protocol.
 
-The author is not responsible for any misuse of this software.
+---
 
-## 📄 License
+## 📜 License
 
-This project is licensed under the **GNU General Public License v3 (GPLv3)**. This ensures that the software remains free and open-source, and any derivatives must also be released under the same protective terms. See the [LICENSE](LICENSE) file for details.
+Distributed under the **GNU General Public License v3**. See [LICENSE](LICENSE) for more information.
+
+

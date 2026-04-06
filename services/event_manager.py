@@ -3,7 +3,7 @@ import time
 import random
 from pyrogram import Client
 from utils.logger import logger
-from state.persistence import user_profiles, save_profiles
+from database.repositories.user_repository import UserRepository
 
 # Global state for current active event
 active_event = {
@@ -20,35 +20,24 @@ async def start_event_manager(app: Client):
     while True:
         try:
             current_time = time.time()
-            
-            # 1. Check if current event expired
             if active_event["id"] and current_time > active_event["ends_at"]:
                 await end_current_event(app)
             
-            # 2. Random Chance to start a Mini-Event (Daily) if none active
             if not active_event["id"]:
-                # 10% chance every check (check happens every 5 mins)
                 if random.random() < 0.1:
                     await start_mini_event(app)
-                elif is_new_week():
-                    await start_weekly_tournament(app)
+                # Weekly tournament check (optional)
             
-            await asyncio.sleep(300) # Check every 5 minutes
+            await asyncio.sleep(300) 
         except Exception as e:
             logger.error(f"Error in event manager: {e}")
             await asyncio.sleep(60)
-
-def is_new_week():
-    """Simple check for tournament rotation (e.g., every Monday)."""
-    # For simulation, we'll check if it's been > 7 days since last tournament in state
-    # In a real bot, we'd use datetime.now().weekday()
-    return False # Handled manually or via scheduler later
 
 async def start_mini_event(app: Client):
     """Starts a short-term global buff."""
     global active_event
     event_id = f"mini_{int(time.time())}"
-    duration = 3600 # 1 hour
+    duration = 3600
     multiplier = random.choice([1.5, 2.0])
     name = random.choice(["🔥 Happy Hour", "💰 Coin Rush", "✨ XP Frenzy"])
     
@@ -59,16 +48,13 @@ async def start_mini_event(app: Client):
         "multiplier": multiplier,
         "ends_at": time.time() + duration
     }
-    
     logger.info(f"Event Started: {name} ({multiplier}x)")
-    # Notify all active users or just log for now
-    # We'll implement a broadcast later if needed
 
 async def start_weekly_tournament(app: Client):
     """Starts a long-term competitive event."""
     global active_event
     event_id = f"week_{int(time.time())}"
-    duration = 604800 # 1 week
+    duration = 604800
     
     active_event = {
         "id": event_id,
@@ -78,12 +64,11 @@ async def start_weekly_tournament(app: Client):
         "ends_at": time.time() + duration
     }
     
-    # Reset event points for all users
-    for profile in user_profiles.values():
-        profile["seasonal_events"]["event_points"] = 0
-        profile["seasonal_events"]["current_event_id"] = event_id
-        
-    await save_profiles()
+    # Reset event points for all users (This requires a repository method)
+    from database.connection import db
+    query = "UPDATE users SET seasonal_events = json_set(seasonal_events, '$.event_points', 0, '$.current_event_id', ?)"
+    await db.execute(query, (event_id,))
+    
     logger.info("Tournament Started: Weekly Grand Match")
 
 async def end_current_event(app: Client):
@@ -91,11 +76,6 @@ async def end_current_event(app: Client):
     global active_event
     logger.info(f"Event Ended: {active_event['name']}")
     
-    # If it was a tournament, we could distribute rewards here
-    if active_event["type"] == "tournament":
-        # logic for top 10 rewards...
-        pass
-        
     active_event = {
         "id": None,
         "type": None,
@@ -105,15 +85,18 @@ async def end_current_event(app: Client):
     }
 
 def get_active_event() -> dict:
-    """Helper to access event data from other services."""
     return active_event
 
-def add_event_points(user_id: int, points: int):
+async def add_event_points(user_id: int, points: int):
     """Adds points to a user's seasonal score."""
     if not active_event["id"] or active_event["type"] != "tournament":
         return
         
-    from services.user_service import get_user_profile
-    profile = get_user_profile(user_id)
-    profile["seasonal_events"]["event_points"] += points
-    profile["seasonal_events"]["participation_count"] += 1
+    user = await UserRepository.get_by_telegram_id(user_id)
+    if not user: return
+    
+    events = user.get("seasonal_events", {})
+    events["event_points"] = events.get("event_points", 0) + points
+    events["participation_count"] = events.get("participation_count", 0) + 1
+    
+    await UserRepository.update(user_id, seasonal_events=events)

@@ -16,6 +16,11 @@ def setup_logger(name: str = "anonymous_bot"):
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
+    # File handler
+    file_handler = logging.FileHandler("bot.log", encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
     
     return logger
 

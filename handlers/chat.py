@@ -1,32 +1,267 @@
+import time
+import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from services.chat_service import relay_message
-from services.user_service import is_user_blocked, update_last_active, increment_challenge, check_milestone, add_xp, add_coins
+
+from state.match_state import match_state
+from database.repositories.user_repository import UserRepository
+from services.user_service import UserService
+from services.matchmaking import MatchmakingService
+from utils.keyboard import bio_skip_menu, start_menu, end_menu
+from utils.logger import logger
 
 @Client.on_message(~filters.command(["start", "help", "stop", "next", "admin_stats", "stats", "leaderboard", "reveal", "priority", "find", "report"]) & filters.private)
 async def chat_handler(client: Client, message: Message):
     user_id = message.from_user.id
     
+    now = time.time()
+    
+    # Check if muted for spamming
+    mute_until = match_state.mute_until.get(user_id, 0)
+    if now < mute_until:
+        return
+        
+    last_time = match_state.last_message_time.get(user_id, 0)
+    
+    # Advanced Rate limiting & Spam Tracking
+    if now - last_time < 0.75:
+        spam_count = match_state.spam_count.get(user_id, 0) + 1
+        match_state.spam_count[user_id] = spam_count
+        if spam_count == 3:
+            await message.reply_text("⚠️ **Warning:** Please slow down! Sending messages too quickly will get you muted.")
+            return
+        elif spam_count >= 5:
+            match_state.mute_until[user_id] = now + 15  # 15 second mute
+            match_state.spam_count[user_id] = 0
+            await message.reply_text("🚫 **You have been muted for 15 seconds for spamming.**")
+            return
+        return
+    else:
+        if match_state.spam_count.get(user_id, 0) > 0:
+            match_state.spam_count[user_id] = 0
+
+    match_state.last_message_time[user_id] = now
+
     # Update last active
-    update_last_active(user_id)
+    await UserRepository.update(user_id, last_active=int(now))
     
     # Check if blocked
-    if is_user_blocked(user_id):
+    user = await UserRepository.get_by_telegram_id(user_id)
+    if not user:
+        return
+        
+    state = match_state.get_user_state(user_id)
+    if user.get("is_blocked") and state != "awaiting_appeal":
         return
 
+    # --- Onboarding / State Management ---
+    if state:
+        if state == "awaiting_location":
+            if message.text:
+                location = message.text[:50]
+                await UserRepository.update(user_id, location=location)
+                match_state.set_user_state(user_id, "awaiting_bio")
+                await message.reply_text(
+                    f"✅ Location set to **{location}**.\n\n📝 **Tell us a bit about yourself!**\n(Type a short bio in the chat below)",
+                    reply_markup=bio_skip_menu()
+                )
+            else:
+                await message.reply_text("❌ Please send your location as text.")
+            return
+
+        elif state == "awaiting_bio":
+            if message.text:
+                bio = message.text[:200]
+                # Finalize profile
+                await UserService.update_profile(
+                    user_id, 
+                    gender=user.get("gender", "Other"), 
+                    location=user.get("location", "Secret"), 
+                    bio=bio
+                )
+                match_state.set_user_state(user_id, None)
+                await message.reply_text(
+                    "✅ **Profile Complete!**\nYou've unlocked XP and Coins.\n\n(Tip: Send a photo now to set your profile picture!)",
+                    reply_markup=start_menu(False)
+                )
+            else:
+                await message.reply_text("❌ Please send your bio as text.")
+            return
+
+        elif state == "awaiting_appeal":
+            if message.text:
+                from database.repositories.report_repository import ReportRepository
+                await ReportRepository.create_appeal(user_id, message.text[:300])
+                match_state.set_user_state(user_id, None)
+                await message.reply_text("✅ **Appeal Submitted!**\nAdmin will review your case soon. You can check your status with /start.")
+            else:
+                await message.reply_text("❌ Please send your appeal as text.")
+            return
+
+        elif state.startswith("awaiting_report_reason:"):
+            target_id = int(state.split(":")[-1])
+            reason = message.text[:300] if message.text else "No specific context provided."
+            
+            match_state.set_user_state(user_id, None)
+            stats = await MatchmakingService.disconnect(user_id)
+            if stats:
+                is_blocked = await UserService.report_user(user_id, target_id, reason)
+                user = await UserRepository.get_by_telegram_id(user_id)
+                await message.reply_text(f"🚨 **Report Sent.**\nReason: {reason}\n\n💰 **Your Balance:** {user['coins']} coins", reply_markup=end_menu())
+            return
+
+        elif state.startswith("awaiting_unban_msg:"):
+            target_id = int(state.split(":")[-1])
+            unban_msg = message.text if message.text else "You have been unbanned by an admin. Welcome back!"
+            
+            await UserRepository.update(target_id, is_blocked=0)
+            match_state.set_user_state(user_id, None)
+            
+            try:
+                await client.send_message(target_id, f"🔓 **UNBANNED**\n\n{unban_msg}")
+                await message.reply_text(f"✅ User `{target_id}` unbanned and notified.")
+            except:
+                await message.reply_text(f"✅ User `{target_id}` unbanned, but notification failed.")
+            return
+
+        elif state.startswith("awaiting_friend_msg:"):
+            target_id = int(state.split(":")[-1])
+            if message.text or message.photo or message.voice or message.video:
+                from utils.keyboard import start_menu
+                try:
+                    user_doc = await UserRepository.get_by_telegram_id(user_id)
+                    sender_name = user_doc.get("first_name", "A Friend") if user_doc else "A Friend"
+                    
+                    # Forward the message or send completely customized relay
+                    await client.send_message(target_id, f"💌 **Message from {sender_name}:**")
+                    await message.copy(chat_id=target_id)
+                    
+                    await message.reply_text("✅ Message sent to your friend!", reply_markup=start_menu())
+                except Exception as e:
+                    logger.error(f"Friend message failed: {e}")
+                    await message.reply_text("❌ Failed to send message. They might have blocked the bot.", reply_markup=start_menu())
+                
+                match_state.set_user_state(user_id, None)
+            else:
+                await message.reply_text("❌ Unsupported message type.")
+            return
+
+        # --- ADMIN UX STATES ---
+        from config import ADMIN_ID
+        if user_id == ADMIN_ID:
+            from utils.keyboard import admin_menu, admin_vip_menu, admin_action_menu
+            
+            if state == "awaiting_admin_broadcast":
+                if message.text == "cancel":
+                    match_state.set_user_state(user_id, None)
+                    return await message.reply_text("❌ Broadcast cancelled.", reply_markup=admin_menu())
+                
+                # Fetch all user IDs from UserRepository
+                from database.connection import db
+                users = await db.fetchall("SELECT telegram_id FROM users")
+                await message.reply_text(f"🚀 Broadcasting message to {len(users)} users...")
+                
+                count = 0
+                for user in users:
+                    uid = user['telegram_id']
+                    try:
+                        if message.text:
+                            await client.send_message(uid, f"📢 **SYSTEM ANNOUNCEMENT**\n━━━━━━━━━━━━━━━━━━\n\n{message.text}")
+                        else:
+                            await message.copy(chat_id=uid)
+                        count += 1
+                        if count % 20 == 0: await asyncio.sleep(1)
+                    except: pass
+                
+                match_state.set_user_state(user_id, None)
+                return await message.reply_text(f"✅ Success! Sent to {count} users.", reply_markup=admin_menu())
+
+            elif state == "awaiting_gift_target":
+                try:
+                    target_id = int(message.text)
+                    match_state.set_user_state(user_id, f"awaiting_gift_amount:{target_id}")
+                    return await message.reply_text(f"💰 **User ID:** `{target_id}`\nHow many coins do you want to gift?")
+                except: return await message.reply_text("❌ Invalid ID. Send only the numerical ID:")
+
+            elif state.startswith("awaiting_gift_amount:"):
+                target_id = int(state.split(":")[-1])
+                try:
+                    amount = int(message.text)
+                    await UserService.add_coins(target_id, amount)
+                    match_state.set_user_state(user_id, None)
+                    try: await client.send_message(target_id, f"🎁 **Admin gifted you {amount} coins!**")
+                    except: pass
+                    return await message.reply_text(f"✅ Gifted **{amount} coins** to `{target_id}`.", reply_markup=admin_menu())
+                except: return await message.reply_text("❌ Invalid amount. Send a number:")
+
+            elif state == "awaiting_vip_target":
+                try:
+                    target_id = int(message.text)
+                    match_state.set_user_state(user_id, None)
+                    return await message.reply_text(f"✨ **Managing VIP for:** `{target_id}`", reply_markup=admin_vip_menu(target_id))
+                except: return await message.reply_text("❌ Invalid ID.")
+
+            elif state == "awaiting_manage_target":
+                try:
+                    target_id = int(message.text)
+                    target_user = await UserRepository.get_by_telegram_id(target_id)
+                    if not target_user: return await message.reply_text("❌ User not found.")
+                    match_state.set_user_state(user_id, None)
+                    is_blocked = bool(target_user.get("is_blocked", 0))
+                    return await message.reply_text(f"👤 **Managing User:** `{target_id}`", reply_markup=admin_action_menu(target_id, is_blocked))
+                except: return await message.reply_text("❌ Invalid ID.")
+
+            elif state == "awaiting_deduct_target":
+                try:
+                    target_id = int(message.text)
+                    match_state.set_user_state(user_id, f"awaiting_deduct_amount:{target_id}")
+                    return await message.reply_text(f"💸 **User ID:** `{target_id}`\nHow many coins do you want to take away?")
+                except: return await message.reply_text("❌ Invalid ID.")
+
+            elif state.startswith("awaiting_deduct_amount:"):
+                target_id = int(state.split(":")[-1])
+                try:
+                    amount = int(message.text)
+                    await UserRepository.increment_coins(target_id, -amount)
+                    match_state.set_user_state(user_id, None)
+                    try: await client.send_message(target_id, f"💸 **Admin deducted {amount} coins from your balance.**")
+                    except: pass
+                    return await message.reply_text(f"✅ Successfully deducted **{amount} coins** from `{target_id}`.", reply_markup=admin_menu())
+                except: return await message.reply_text("❌ Invalid amount. Send a number:")
+
+    # Handle Photo Upload for Profile
+    if message.photo:
+        if not match_state.is_in_chat(user_id):
+            file_id = message.photo.file_id
+            await UserRepository.update(user_id, profile_photo=file_id)
+            await message.reply_text("📸 **Profile Photo Updated!**\nThis will be shown when you reveal your identity.")
+            return
+
     # Tracking mini-challenges: messages_sent
-    increment_challenge(user_id, "messages_sent")
-    milestone = check_milestone(user_id, "messages_sent")
+    await UserService.increment_challenge(user_id, "messages_sent")
+    milestone = await UserService.check_milestones(user_id, "messages_sent")
     if milestone:
-        m = milestone['milestone']
-        xp = milestone['reward_xp']
-        coins = milestone['reward_coins']
-        add_xp(user_id, xp)
-        add_coins(user_id, coins)
         await message.reply_text(
             f"🎖 **Mini-Challenge Reached!**\n"
-            f"You've sent **{m} messages**!\n"
-            f"🎁 **Reward:** +{xp} XP, +{coins} coins"
+            f"You've sent **{milestone['milestone']} messages**!\n"
+            f"🎁 **Reward:** +{milestone['reward_xp']} XP, +{milestone['reward_coins']} coins"
         )
 
+    # Auto-Moderator filter
+    if message.text:
+        text_lower = message.text.lower()
+        toxic_keywords = ["cp ", "child porn", "t.me/joinchat", "t.me/+", "onlyfans.com", "bitcoin double"]
+        if any(word in text_lower for word in toxic_keywords):
+            await message.reply_text("🚫 **Auto-Moderator:** Your message was blocked for violating safety guidelines.")
+            if match_state.is_in_chat(user_id):
+                partner_id = match_state.get_partner(user_id)
+                await MatchmakingService.disconnect(user_id)
+                await UserService.report_user(user_id, user_id, f"Auto-Mod trigger: {message.text}")
+                from utils.helpers import update_user_ui
+                await update_user_ui(client, partner_id, "❌ **Chat ended.** Your partner was disconnected by the Auto-Moderator.", end_menu())
+                await message.reply_text("Your active session was terminated.", reply_markup=end_menu())
+            return
+
+    # Relay Message
+    from services.chat_service import relay_message
     await relay_message(client, message)

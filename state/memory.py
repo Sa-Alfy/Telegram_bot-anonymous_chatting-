@@ -1,5 +1,9 @@
 from typing import Dict, List, Set
 import asyncio
+import time
+
+# Uptime tracking
+bot_start_time: float = time.time()
 
 # In-memory queue of user IDs waiting for a partner
 waiting_queue: List[int] = []
@@ -11,7 +15,8 @@ active_chats: Dict[int, int] = {}
 user_ui_messages: Dict[int, int] = {}
 
 # User action timestamps for cooldown (user_id -> timestamp)
-user_cooldowns: Dict[int, float] = {}
+last_message_time: Dict[int, float] = {}
+last_button_time: Dict[int, float] = {}
 
 # Mapping of user_id -> chat start timestamp
 chat_start_times: Dict[int, float] = {}
@@ -24,3 +29,6 @@ rematch_requests: Dict[int, int] = {}
 
 # Mutex for thread-safe/async-safe matchmaking
 queue_lock = asyncio.Lock()
+
+# Mapping of user_id -> current onboarding/editing state
+user_states: Dict[int, str] = {}
