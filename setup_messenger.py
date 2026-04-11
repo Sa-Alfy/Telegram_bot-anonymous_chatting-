@@ -1,9 +1,9 @@
-# ═══════════════════════════════════════════════════════════════════════
+# =========================================================================
 # FILE: setup_messenger.py
 # PURPOSE: One-time Messenger profile configuration (run after deployment)
 # STATUS: NEW FILE
 # DEPENDENCIES: requests, python-dotenv
-# ═══════════════════════════════════════════════════════════════════════
+# =========================================================================
 
 import requests
 import os
@@ -42,9 +42,9 @@ def setup_get_started(token: str) -> dict:
     payload = {"get_started": {"payload": "GET_STARTED"}}
     result = _post(payload, token)
     if result["status"] == 200:
-        print("  ✅ Get Started button configured.")
+        print("  [OK] Get Started button configured.")
     else:
-        print(f"  ❌ Get Started failed: {result['body']}")
+        print(f"  [FAIL] Get Started failed: {result['body']}")
     return result
 
 
@@ -58,27 +58,27 @@ def setup_persistent_menu(token: str) -> dict:
                 "call_to_actions": [
                     {
                         "type": "postback",
-                        "title": "▶️ Find Partner",
+                        "title": "Search Partner",
                         "payload": "CMD_START"
                     },
                     {
                         "type": "postback",
-                        "title": "⏭️ Next Person",
+                        "title": "Next Person",
                         "payload": "CMD_NEXT"
                     },
                     {
                         "type": "postback",
-                        "title": "⏹️ Stop Chat",
+                        "title": "Stop Chat",
                         "payload": "CMD_STOP"
                     },
                     {
                         "type": "postback",
-                        "title": "📊 My Stats",
+                        "title": "My Stats",
                         "payload": "CMD_STATS"
                     },
                     {
                         "type": "postback",
-                        "title": "ℹ️ Help",
+                        "title": "Help",
                         "payload": "CMD_HELP"
                     }
                 ]
@@ -87,9 +87,9 @@ def setup_persistent_menu(token: str) -> dict:
     }
     result = _post(payload, token)
     if result["status"] == 200:
-        print("  ✅ Persistent menu configured.")
+        print("  [OK] Persistent menu configured.")
     else:
-        print(f"  ❌ Persistent menu failed: {result['body']}")
+        print(f"  [FAIL] Persistent menu failed: {result['body']}")
     return result
 
 
@@ -100,19 +100,19 @@ def setup_greeting_text(token: str) -> dict:
             {
                 "locale": "default",
                 "text": (
-                    "👋 Welcome to Anonymous Chat Bot!\n\n"
+                    "Welcome to Anonymous Chat Bot!\n\n"
                     "Connect with random strangers anonymously. "
                     "Your identity stays hidden until YOU choose to reveal it.\n\n"
-                    "Press 'Get Started' to find your first match! 🔍"
+                    "Press 'Get Started' to find your first match!"
                 )
             }
         ]
     }
     result = _post(payload, token)
     if result["status"] == 200:
-        print("  ✅ Greeting text configured.")
+        print("  [OK] Greeting text configured.")
     else:
-        print(f"  ❌ Greeting text failed: {result['body']}")
+        print(f"  [FAIL] Greeting text failed: {result['body']}")
     return result
 
 
@@ -120,20 +120,20 @@ def remove_persistent_menu(token: str) -> dict:
     """Remove the persistent menu (useful for debugging or resetting)."""
     result = _delete(["persistent_menu"], token)
     if result["status"] == 200:
-        print("  ✅ Persistent menu removed.")
+        print("  [OK] Persistent menu removed.")
     else:
-        print(f"  ❌ Remove menu failed: {result['body']}")
+        print(f"  [FAIL] Remove menu failed: {result['body']}")
     return result
 
 
 def verify_webhook_subscription(token: str, app_url: str) -> None:
     """Print instructions for subscribing the webhook on Facebook."""
-    print("\n📋 Manual Step Required — Webhook Subscription:")
+    print("\n[!] Manual Step Required - Webhook Subscription:")
     print("  Go to: https://developers.facebook.com/apps/")
-    print("  → Your App → Messenger → Settings → Webhooks")
-    print(f"  → Callback URL: {app_url}/messenger-webhook")
-    print("  → Verify Token: (your VERIFY_TOKEN from .env)")
-    print("  → Subscribe to: messages, messaging_postbacks, messaging_referrals")
+    print("  -> Your App -> Messenger -> Settings -> Webhooks")
+    print(f"  -> Callback URL: {app_url}/messenger-webhook")
+    print("  -> Verify Token: (your VERIFY_TOKEN from .env)")
+    print("  -> Subscribe to: messages, messaging_postbacks, messaging_referrals")
 
 
 if __name__ == "__main__":
