@@ -6,6 +6,7 @@ from state.match_state import match_state
 from database.repositories.user_repository import UserRepository
 from services.user_service import UserService
 from utils.logger import logger
+from database.repositories.report_repository import ReportRepository
 
 def get_start_text(coins: int, is_guest: bool = False) -> str:
     guest_text = "\n\n⚠️ **Guest Mode**: Create a profile to earn XP and Coins!" if is_guest else ""
@@ -30,7 +31,6 @@ async def start_command(client: Client, message: Message):
 
     # 2. Block Check
     if user.get("is_blocked"):
-        from database.repositories.report_repository import ReportRepository
         # Check appeal status (logic simplified: if user has any appeal row)
         appeals = await ReportRepository.get_pending_appeals()
         user_appeal = next((a for a in appeals if a['user_id'] == user_id), None)
@@ -86,7 +86,7 @@ async def start_command(client: Client, message: Message):
         )
         sent = await message.reply_text(text=text, reply_markup=onboarding_menu())
     else:
-        coins = user.get("coins", 0)
+        coins = user.get("coins") or 0
         text = get_start_text(coins, is_guest) + reward_text
         sent = await message.reply_text(text=text, reply_markup=start_menu(is_guest))
         

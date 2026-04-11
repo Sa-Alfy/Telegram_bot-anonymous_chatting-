@@ -1,37 +1,50 @@
-# Python
+# Environment variables (NEVER commit real tokens)
+.env
+
+# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
-.venv/
-env/
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
 venv/
+env/
+.venv/
 ENV/
 
-# Secrets & Environment
-.env
-.env.local
-.env.*.local
-
-# Telegram Sessions
+# Pyrogram session files (contain authentication data)
 *.session
 *.session-journal
 
-# Data & Persistence
-data/
-*.json
-*.sqlite
+# Database files
 *.db
+*.sqlite
+*.sqlite3
+data/
+data/backups/
 
-# OS specific
+# Logs
+*.log
+bot.log
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
 Thumbs.db
 
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
+# Backup files
+*.bak
 
-# Logs
-logs/
-*.log
+# Runtime
+runtime/

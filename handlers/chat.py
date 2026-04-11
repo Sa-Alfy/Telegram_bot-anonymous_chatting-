@@ -7,8 +7,13 @@ from state.match_state import match_state
 from database.repositories.user_repository import UserRepository
 from services.user_service import UserService
 from services.matchmaking import MatchmakingService
-from utils.keyboard import bio_skip_menu, start_menu, end_menu
+from utils.keyboard import bio_skip_menu, start_menu, end_menu, admin_menu, admin_vip_menu, admin_action_menu
 from utils.logger import logger
+from utils.helpers import update_user_ui
+from config import ADMIN_ID
+from database.repositories.report_repository import ReportRepository
+from services.chat_service import relay_message
+from database.connection import db
 
 @Client.on_message(~filters.command(["start", "help", "stop", "next", "admin_stats", "stats", "leaderboard", "reveal", "priority", "find", "report"]) & filters.private)
 async def chat_handler(client: Client, message: Message):
@@ -90,7 +95,6 @@ async def chat_handler(client: Client, message: Message):
 
         elif state == "awaiting_appeal":
             if message.text:
-                from database.repositories.report_repository import ReportRepository
                 await ReportRepository.create_appeal(user_id, message.text[:300])
                 match_state.set_user_state(user_id, None)
                 await message.reply_text("✅ **Appeal Submitted!**\nAdmin will review your case soon. You can check your status with /start.")
@@ -127,7 +131,6 @@ async def chat_handler(client: Client, message: Message):
         elif state.startswith("awaiting_friend_msg:"):
             target_id = int(state.split(":")[-1])
             if message.text or message.photo or message.voice or message.video:
-                from utils.keyboard import start_menu
                 try:
                     user_doc = await UserRepository.get_by_telegram_id(user_id)
                     sender_name = user_doc.get("first_name", "A Friend") if user_doc else "A Friend"
@@ -147,17 +150,13 @@ async def chat_handler(client: Client, message: Message):
             return
 
         # --- ADMIN UX STATES ---
-        from config import ADMIN_ID
-        if user_id == ADMIN_ID:
-            from utils.keyboard import admin_menu, admin_vip_menu, admin_action_menu
-            
+        if str(user_id) == str(ADMIN_ID):
             if state == "awaiting_admin_broadcast":
                 if message.text == "cancel":
                     match_state.set_user_state(user_id, None)
                     return await message.reply_text("❌ Broadcast cancelled.", reply_markup=admin_menu())
                 
                 # Fetch all user IDs from UserRepository
-                from database.connection import db
                 users = await db.fetchall("SELECT telegram_id FROM users")
                 await message.reply_text(f"🚀 Broadcasting message to {len(users)} users...")
                 
@@ -257,11 +256,9 @@ async def chat_handler(client: Client, message: Message):
                 partner_id = match_state.get_partner(user_id)
                 await MatchmakingService.disconnect(user_id)
                 await UserService.report_user(user_id, user_id, f"Auto-Mod trigger: {message.text}")
-                from utils.helpers import update_user_ui
                 await update_user_ui(client, partner_id, "❌ **Chat ended.** Your partner was disconnected by the Auto-Moderator.", end_menu())
                 await message.reply_text("Your active session was terminated.", reply_markup=end_menu())
             return
 
     # Relay Message
-    from services.chat_service import relay_message
     await relay_message(client, message)

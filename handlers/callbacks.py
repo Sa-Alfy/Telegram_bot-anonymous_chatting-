@@ -16,6 +16,7 @@ from services.user_service import UserService
 from utils.helpers import update_user_ui
 from utils.logger import logger
 from utils.keyboard import search_menu, chat_menu, start_menu, admin_menu
+from config import ADMIN_ID
 
 async def handle_help(client: Client, user_id: int) -> Dict[str, Any]:
     """Displays the help and guide menu."""
@@ -43,7 +44,6 @@ async def handle_cancel_reveal(client: Client, user_id: int) -> Dict[str, Any]:
 
 async def handle_admin_broadcast(client: Client, user_id: int) -> Dict[str, Any]:
     """Admin broadcast prompt (actual broadcast is via /broadcast command)."""
-    from config import ADMIN_ID
     if user_id != ADMIN_ID:
         return {"alert": "🚫 Unauthorized!", "show_alert": True}
     return {"alert": "📢 Use the /broadcast <message> command to send a broadcast.", "show_alert": True}

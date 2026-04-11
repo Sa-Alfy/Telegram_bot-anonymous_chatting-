@@ -1,20 +1,39 @@
-import ujson
+import orjson
 from typing import Dict, Any, Optional, List
 from database.connection import db
 
 class UserRepository:
     @staticmethod
     async def get_by_telegram_id(telegram_id: int) -> Optional[Dict[str, Any]]:
-        """Fetch a user profile by Telegram ID."""
+        """Fetch a user profile by Telegram ID with NULL-safety sanitisation."""
         row = await db.fetchone("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
         if not row:
             return None
         
         user_data = dict(row)
+        
+        # --- NULL-Safety Sanitisation ---
+        # Ensure numeric fields are never None
+        numeric_fields = {
+            "coins": 10, "xp": 0, "level": 1, "vip_status": 0,
+            "total_matches": 0, "total_chat_time": 0, "daily_streak": 0,
+            "weekly_streak": 0, "monthly_streak": 0, "last_login": 0,
+            "last_active": 0, "is_blocked": 0, "is_guest": 1, "reports": 0
+        }
+        for field, default in numeric_fields.items():
+            if user_data.get(field) is None:
+                user_data[field] = default
+        
+        # Ensure text fields are never None
+        text_fields = ["gender", "location", "bio"]
+        for field in text_fields:
+            if user_data.get(field) is None:
+                user_data[field] = "None" if field == "bio" else "Secret"
+
         # Unpack JSON data if available
         if user_data.get('json_data'):
             try:
-                extra = ujson.loads(user_data.pop('json_data'))
+                extra = orjson.loads(user_data.pop('json_data'))
                 user_data.update(extra)
             except:
                 pass
@@ -86,7 +105,7 @@ class UserRepository:
                 existing_extra = {k: v for k, v in current.items() if k not in db_columns and k != 'id' and k != 'telegram_id'}
                 existing_extra.update(extra_data)
                 updates.append("json_data = ?")
-                params.append(ujson.dumps(existing_extra))
+                params.append(orjson.dumps(existing_extra).decode())
         
         if not updates:
             return False

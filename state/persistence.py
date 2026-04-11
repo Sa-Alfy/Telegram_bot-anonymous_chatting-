@@ -1,5 +1,5 @@
 import os
-import ujson
+import orjson
 import sqlite3
 import asyncio
 import time
@@ -26,7 +26,7 @@ async def migrate_from_json():
 
     try:
         with open(JSON_DATA_FILE, 'r', encoding='utf-8') as f:
-            data = ujson.load(f)
+            data = orjson.loads(f.read())
             
         logger.info(f"🚚 Migrating {len(data)} profiles from JSON to SQLite...")
         
@@ -61,7 +61,7 @@ async def migrate_from_json():
             # Pack the rest into JSON data
             core_keys = set(fields.keys())
             extra_data = {k: v for k, v in profile.items() if k not in core_keys and k != "user_id"}
-            fields["json_data"] = ujson.dumps(extra_data)
+            fields["json_data"] = orjson.dumps(extra_data).decode()
             
             columns = ", ".join(fields.keys())
             placeholders = ", ".join(["?"] * len(fields))
@@ -84,7 +84,7 @@ def get_user_profile(user_id: int) -> dict:
     if row:
         profile = dict(row)
         # Unpack JSON data
-        extra_data = ujson.loads(profile.pop("json_data", "{}"))
+        extra_data = orjson.loads(profile.pop("json_data", "{}"))
         profile.update(extra_data)
         
         # Convert SQLite integers back to Booleans for compatibility
@@ -169,7 +169,7 @@ async def save_profiles(user_id: int = None):
                     fields["user_id"] = uid
             
             # Pack remaining data
-            fields["json_data"] = ujson.dumps(profile)
+            fields["json_data"] = orjson.dumps(profile).decode()
             
             columns = ", ".join(fields.keys())
             placeholders = ", ".join(["?"] * len(fields))

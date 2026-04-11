@@ -1,6 +1,5 @@
 import sqlite3
 import os
-import ujson
 from utils.logger import logger
 
 DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'users.db')
@@ -60,4 +59,3 @@ def init_db():
 
 # Global connection for reuse in the bot runtime
 db_conn = get_connection()
-init_db()

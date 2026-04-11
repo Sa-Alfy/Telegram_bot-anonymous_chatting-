@@ -22,7 +22,7 @@ class UserService:
         if booster.get("active") and booster.get("expires_at", 0) > time.time():
             amount *= 2
             
-        new_xp = user["xp"] + amount
+        new_xp = (user.get("xp") or 0) + amount
         
         old_level = user.get("level", 1)
         # Level formula: floor(sqrt(xp / 10)) + 1
@@ -55,7 +55,7 @@ class UserService:
     async def deduct_coins(user_id: int, amount: int) -> bool:
         """Deducts coins from a user's balance."""
         user = await UserRepository.get_by_telegram_id(user_id)
-        if not user or user.get("is_guest") or user["coins"] < amount:
+        if not user or user.get("is_guest") or (user.get("coins") or 0) < amount:
             return False
             
         await UserRepository.increment_coins(user_id, -amount)
@@ -70,7 +70,7 @@ class UserService:
             
         now = int(time.time())
         today_date = datetime.fromtimestamp(now).date()
-        last_login_raw = user.get("last_login", 0)
+        last_login_raw = user.get("last_login") or 0
         
         if last_login_raw == 0:
             # First login
@@ -78,7 +78,7 @@ class UserService:
                 "last_login": now,
                 "daily_streak": 1,
                 "weekly_streak": 0,
-                "coins": user["coins"] + 5
+                "coins": (user.get("coins") or 0) + 5
             }
             await UserRepository.update(user_id, **update_data)
             return {"streak": 1, "reward": 5, "vip": False}
@@ -136,7 +136,7 @@ class UserService:
             # Calculate reward
             base_reward = 10 if vip else 2
             reward = base_reward + (daily_streak * 2) + (weekly_streak * 15) + (monthly_streak * 50)
-            update_data["coins"] = user["coins"] + reward
+            update_data["coins"] = (user.get("coins") or 0) + reward
             
             await UserRepository.update(user_id, **update_data)
             return {

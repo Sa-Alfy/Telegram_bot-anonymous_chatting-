@@ -1,27 +1,96 @@
+# ═══════════════════════════════════════════════════════════════════════
+# FILE: main.py  (FULLY REPLACED - Dual-Platform Entry Point)
+# PURPOSE: Application entry point — runs Pyrogram (Telegram) + Flask (Messenger)
+# STATUS: MODIFIED FROM ORIGINAL
+# DEPENDENCIES: All modules in this project + config.py
+# ═══════════════════════════════════════════════════════════════════════
+
 import asyncio
 import os
 import sys
+import logging
+import threading
 import traceback
-from pyrogram import Client
-from config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID
-from database.connection import db
-from utils.logger import logger
-from state.match_state import match_state
 
-def setup_exception_handler(app: Client):
+# ─────────────────────────────────────────────────────────────────────
+# Logging setup (must be first)
+# ─────────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────────────
+# Validate required environment variables
+# ─────────────────────────────────────────────────────────────────────
+from dotenv import load_dotenv
+load_dotenv()
+
+# Patch for Python 3.14+ (ensures an event loop exists before Pyrogram imports)
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
+from config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, MESSENGER_ENABLED, PORT, RENDER_EXTERNAL_URL
+
+def _validate_env():
+    missing = []
+    if not API_ID:    missing.append("API_ID")
+    if not API_HASH:  missing.append("API_HASH")
+    if not BOT_TOKEN: missing.append("BOT_TOKEN")
+    if missing:
+        logger.error(
+            f"Missing required environment variables: {', '.join(missing)}\n"
+            "   Please set them in your .env file or Render dashboard.\n"
+            "   See .env.example for reference."
+        )
+        sys.exit(1)
+    if MESSENGER_ENABLED:
+        logger.info("Messenger integration ENABLED (PAGE_ACCESS_TOKEN + VERIFY_TOKEN found).")
+    else:
+        logger.info("Messenger integration DISABLED (PAGE_ACCESS_TOKEN not set — Telegram-only mode).")
+
+_validate_env()
+
+# ─────────────────────────────────────────────────────────────────────
+# Import core modules
+# ─────────────────────────────────────────────────────────────────────
+from pyrogram import Client
+from database.connection import db
+from utils.logger import logger as bot_logger
+from state.match_state import match_state
+import app_state
+
+# ─────────────────────────────────────────────────────────────────────
+# Crash reporter (sends errors to admin via Telegram)
+# ─────────────────────────────────────────────────────────────────────
+def setup_exception_handler(pyrogram_app: Client):
+    """Attaches a global async exception handler to the event loop."""
     def handle_exception(loop, context):
         msg = context.get("exception", context["message"])
-        logger.error(f"Caught background exception: {msg}")
         exc_info = ""
         if "exception" in context:
-            exc_info = "".join(traceback.format_exception(type(context["exception"]), context["exception"], context["exception"].__traceback__))
-            logger.error(exc_info)
-            
-        if app.is_initialized and getattr(app, "is_connected", True):
+            exc_info = "".join(traceback.format_exception(
+                type(context["exception"]),
+                context["exception"],
+                context["exception"].__traceback__
+            ))
+        logger.error(f"Caught background exception: {msg}\n{exc_info}")
+
+        if pyrogram_app.is_initialized and getattr(pyrogram_app, "is_connected", True):
             async def send_alert():
                 try:
-                    alert = f"🚨 **SYSTEM CRASH** 🚨\n\n**Error:** `{msg}`\n```python\n{exc_info[:3800]}\n```"
-                    await app.send_message(chat_id=int(ADMIN_ID), text=alert)
+                    alert = (
+                        f"🚨 **SYSTEM CRASH** 🚨\n\n"
+                        f"**Error:** `{str(msg)[:500]}`\n"
+                        f"```python\n{exc_info[:3500]}\n```"
+                    )
+                    await pyrogram_app.send_message(chat_id=int(ADMIN_ID), text=alert)
                 except Exception:
                     pass
             try:
@@ -31,26 +100,59 @@ def setup_exception_handler(app: Client):
 
     return handle_exception
 
+
+# ─────────────────────────────────────────────────────────────────────
+# Flask thread runner
+# ─────────────────────────────────────────────────────────────────────
+def run_flask_in_thread():
+    """Start the Flask webhook server in a background daemon thread."""
+    from webhook_server import run_flask
+    flask_thread = threading.Thread(target=run_flask, daemon=True, name="FlaskWebhook")
+    flask_thread.start()
+    logger.info("🌐 Flask webhook thread started.")
+    return flask_thread
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Keep-alive thread
+# ─────────────────────────────────────────────────────────────────────
+def run_keep_alive():
+    """Start keep-alive pinger if running on Render."""
+    if RENDER_EXTERNAL_URL:
+        from keep_alive import start_keep_alive
+        start_keep_alive()
+    else:
+        logger.info("ℹ️ Not on Render — keep-alive not started.")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Main async entry point (Pyrogram + background tasks)
+# ─────────────────────────────────────────────────────────────────────
 async def main():
+    """Primary async routine — initialises DB, bot, and background tasks."""
+
+    # Validate
     if not all([API_ID, API_HASH, BOT_TOKEN]):
-        logger.error("Missing API_ID, API_HASH, or BOT_TOKEN in .env")
+        logger.error("❌ Missing API_ID, API_HASH, or BOT_TOKEN. Cannot start.")
         return
 
-    # Initialize async database
+    # Init databases
+    logger.info("📁 Connecting to databases...")
+    from state.database import init_db
+    init_db()
     await db.connect()
 
-    # Determine script and parent paths for robust plugin loading
+    # Resolve directories for Pyrogram plugin loading
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(script_dir) # Change working directory to ensure plugin root "handlers" is found
-    
+    os.chdir(script_dir)
     parent_dir = os.path.dirname(script_dir)
     if parent_dir not in sys.path:
         sys.path.insert(0, parent_dir)
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)
 
-    # Initialize bot client
-    app = Client(
+    # ── Pyrogram Client ───────────────────────────────────────────────
+    pyrogram_app = Client(
         "anonymous_bot",
         api_id=int(API_ID),
         api_hash=API_HASH,
@@ -59,54 +161,88 @@ async def main():
         workdir=script_dir
     )
 
-    # Start session manager background tasks
-    from services.session_manager import start_session_manager
-    from services.event_manager import start_event_manager
-    from services.backup_service import start_backup_service
-    
-    # Run background tasks with exception handling
+    # Store in shared state so messenger_handlers can send cross-platform TG messages
+    app_state.telegram_app = pyrogram_app
+
+    # ── Exception handler ─────────────────────────────────────────────
     loop = asyncio.get_event_loop()
-    loop.set_exception_handler(setup_exception_handler(app))
-    
-    asyncio.create_task(start_session_manager(app))
-    asyncio.create_task(start_event_manager(app))
+    app_state.bot_loop = loop
+    loop.set_exception_handler(setup_exception_handler(pyrogram_app))
+
+    # ── Background services ───────────────────────────────────────────
+    from services.session_manager import start_session_manager
+    from services.event_manager  import start_event_manager
+    from services.backup_service import start_backup_service
+
+    asyncio.create_task(start_session_manager(pyrogram_app))
+    asyncio.create_task(start_event_manager(pyrogram_app))
     asyncio.create_task(start_backup_service())
 
-    logger.info("🤖 **Production-Grade Anonymous Bot** started successfully!")
-    await app.start()
-    
-    # Keep the bot running
+    # ── Flask webhook server (in thread) ──────────────────────────────
+    run_flask_in_thread()
+
+    # ── Keep-alive pinger (in thread) ─────────────────────────────────
+    run_keep_alive()
+
+    # ── Start Pyrogram ────────────────────────────────────────────────
+    logger.info("🤖 Production-Grade Anonymous Bot (Telegram + Messenger) starting...")
+    await pyrogram_app.start()
+    logger.info("✅ Pyrogram bot started successfully!")
+
+    if MESSENGER_ENABLED:
+        logger.info("💬 Messenger webhook ready at /messenger-webhook")
+
+    # ── Keep running ──────────────────────────────────────────────────
     try:
         await asyncio.Event().wait()
     except (KeyboardInterrupt, SystemExit):
-        logger.info("🛑 Received shutdown signal. Initiating graceful shutdown...")
+        logger.info("🛑 Shutdown signal received. Initiating graceful shutdown...")
     finally:
-        # Graceful Shutdown Sequence: Notify active users
+        # Notify all active users about restart
         active_users = set(match_state.active_chats.keys()) | set(match_state.waiting_queue)
         if active_users:
-            logger.info(f"Notifying {len(active_users)} active users of restart...")
-        
+            logger.info(f"📢 Notifying {len(active_users)} active users of restart...")
+
         for uid in active_users:
             try:
-                await app.send_message(
+                await pyrogram_app.send_message(
                     chat_id=uid,
-                    text="🔄 **Bot Restarting!**\n\nThe bot is restarting for an update or maintenance. Your active chat has been disconnected automatically. Rejoin in a few seconds!"
+                    text=(
+                        "🔄 **Bot Restarting!**\n\n"
+                        "The bot is restarting for maintenance.\n"
+                        "Your active chat has been disconnected. Rejoin in a few seconds!"
+                    )
                 )
             except Exception:
                 pass
-                
-        # End all session records
+
+        # Disconnect all active sessions
         from services.matchmaking import MatchmakingService
-        # Avoid async modification during iteration
         for uid in list(match_state.active_chats.keys()):
-            await MatchmakingService.disconnect(uid)
+            try:
+                await MatchmakingService.disconnect(uid)
+            except Exception:
+                pass
 
-        logger.info("🔌 Closing connections...")
+        logger.info("🔌 Closing database and stopping bot...")
         await db.close()
-        await app.stop()
+        await pyrogram_app.stop()
+        logger.info("✅ Graceful shutdown complete.")
 
+
+# ─────────────────────────────────────────────────────────────────────
+# Entry point
+# ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         pass
+    except Exception as e:
+        logger.critical(f"💥 Fatal startup error: {e}")
+        traceback.print_exc()
+        sys.exit(1)
+
+# ═══════════════════════════════════════════════════════════════════════
+# END OF main.py
+# ═══════════════════════════════════════════════════════════════════════

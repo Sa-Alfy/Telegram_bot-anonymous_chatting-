@@ -20,7 +20,7 @@ class Database:
             # Ensure data directory exists
             os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
             
-            self._connection = await aiosqlite.connect(DB_PATH)
+            self._connection = await aiosqlite.connect(DB_PATH, timeout=30.0)
             self._connection.row_factory = aiosqlite.Row
             # Enable high-concurrency WAL mode for production
             await self._connection.execute("PRAGMA journal_mode=WAL;")
