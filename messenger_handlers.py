@@ -496,6 +496,10 @@ def _notify_user(partner_virtual_id: int, text: str):
 
 def handle_messenger_webhook_get():
     """Facebook webhook verification (GET request)."""
+    # Debug: Log all incoming arguments
+    args = request.args.to_dict()
+    logger.info(f"🔍 Incoming Webhook Verification: {args}")
+
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
@@ -505,7 +509,7 @@ def handle_messenger_webhook_get():
         logger.info("✅ Messenger webhook verified successfully.")
         return challenge, 200
     else:
-        logger.error(f"❌ Webhook verification failed. Received token: {token}")
+        logger.error(f"❌ Webhook verification failed. Expected: '{verify_token}', Received: '{token}'")
         return "Forbidden", 403
 
 
