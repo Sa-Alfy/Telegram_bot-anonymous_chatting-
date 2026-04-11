@@ -146,11 +146,11 @@ if __name__ == "__main__":
     RENDER_URL = os.getenv("RENDER_EXTERNAL_URL", "")
 
     if not PAGE_ACCESS_TOKEN:
-        print("\n❌ PAGE_ACCESS_TOKEN not found in .env")
+        print("\n[!] PAGE_ACCESS_TOKEN not found in .env")
         print("   Add it to your .env file and try again.")
         sys.exit(1)
 
-    print(f"\n🔑 Using token: {PAGE_ACCESS_TOKEN[:20]}...")
+    print(f"\n[*] Using token: {PAGE_ACCESS_TOKEN[:20]}...")
     print()
 
     print("1. Setting up Get Started button...")
@@ -167,11 +167,11 @@ if __name__ == "__main__":
     else:
         verify_webhook_subscription(PAGE_ACCESS_TOKEN, "https://your-app.onrender.com")
 
-    print("\n" + "═" * 60)
-    print("  ✅ Messenger profile setup complete!")
-    print("  Go to your Facebook Page → Send Message to test.")
-    print("═" * 60)
+    print("\n" + "=" * 60)
+    print("  [OK] Messenger profile setup complete!")
+    print("  Go to your Facebook Page -> Send Message to test.")
+    print("=" * 60)
 
-# ═══════════════════════════════════════════════════════════════════════
+# =========================================================================
 # END OF setup_messenger.py
-# ═══════════════════════════════════════════════════════════════════════
+# =========================================================================
