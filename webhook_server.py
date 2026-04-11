@@ -71,7 +71,13 @@ def health():
 # Facebook Messenger Webhook
 # ─────────────────────────────────────────────────────────────────────
 
+@app.before_request
+def log_request_info():
+    if "messenger" in request.path:
+        logger.info(f"🌐 [INCOMING] {request.method} {request.path} | Args: {request.args.to_dict()}")
+
 @app.route("/messenger-webhook", methods=["GET"])
+@app.route("/messenger-webhook/", methods=["GET"])
 def messenger_webhook_verify():
     """Facebook webhook verification (GET)."""
     if not MESSENGER_ENABLED:
@@ -81,6 +87,7 @@ def messenger_webhook_verify():
 
 
 @app.route("/messenger-webhook", methods=["POST"])
+@app.route("/messenger-webhook/", methods=["POST"])
 def messenger_webhook_receive():
     """Receive Messenger events (POST). Always returns 200 per FB requirements."""
     if not MESSENGER_ENABLED:
