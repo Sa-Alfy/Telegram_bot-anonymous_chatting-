@@ -24,6 +24,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Ensure data directory exists before ANY complex imports to prevent early DB crashes
+os.makedirs(os.path.join(os.path.dirname(__file__), 'data'), exist_ok=True)
+
 # ─────────────────────────────────────────────────────────────────────
 # Validate required environment variables
 # ─────────────────────────────────────────────────────────────────────
@@ -137,9 +140,7 @@ async def main():
         return
 
     # Init databases
-    logger.info("📁 Connecting to databases...")
-    from state.database import init_db
-    init_db()
+    logger.info("📁 Connecting to database...")
     await db.connect()
 
     # Resolve directories for Pyrogram plugin loading
