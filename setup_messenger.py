@@ -137,9 +137,9 @@ def verify_webhook_subscription(token: str, app_url: str) -> None:
 
 
 if __name__ == "__main__":
-    print("═" * 60)
-    print("  🔧 Messenger Profile Setup Script")
-    print("═" * 60)
+    print("=" * 60)
+    print("  Messenger Profile Setup Script")
+    print("=" * 60)
 
     load_dotenv()
     PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "")
