@@ -15,7 +15,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 # Facebook Messenger Configuration
 # ═══════════════════════════════════════════════════════
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "")
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "thisismemario")
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "REPLACE_ME_IN_ENV")
 
 # ═══════════════════════════════════════════════════════
 # Server / Deployment Configuration
