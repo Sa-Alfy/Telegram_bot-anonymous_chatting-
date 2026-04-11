@@ -31,6 +31,22 @@ def index():
     }), 200
 
 
+@app.route("/privacy", methods=["GET"])
+def privacy():
+    """Basic privacy policy for Facebook requirements."""
+    return """
+    <html>
+        <head><title>Privacy Policy</title></head>
+        <body>
+            <h1>Privacy Policy</h1>
+            <p>This Anonymous Chat Bot does not store your private Facebook data. 
+            We only process messages to facilitate anonymous chats between users. 
+            No message history is permanently stored in a way that identifies you.</p>
+        </body>
+    </html>
+    """, 200
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Health check (used by Render keep-alive ping and uptime monitors)
 # ─────────────────────────────────────────────────────────────────────
