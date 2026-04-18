@@ -98,41 +98,16 @@ class MatchingHandler:
         
         partner_id = await MatchmakingService.find_partner(client, user_id)
         if partner_id:
-            now = time.time()
-            # Safety logic: Only show full warning once every 24 hours
-            user_last_safety = user.get("safety_last_seen", 0)
-            show_safety = (now - user_last_safety > 86400)
-            
-            if show_safety:
-                _fire(UserRepository.update(user_id, safety_last_seen=int(now)))
-            
-            match_text = get_match_found_text(include_safety=show_safety)
-            
-            # For partner, check their status too
-            partner_user = await UserRepository.get_by_telegram_id(partner_id)
-            p_last_safety = partner_user.get("safety_last_seen", 0) if partner_user else 0
-            p_show_safety = (now - p_last_safety > 86400)
-            if p_show_safety:
-                _fire(UserRepository.update(partner_id, safety_last_seen=int(now)))
-            
-            p_match_text = get_match_found_text(include_safety=p_show_safety)
+            # consolidated setup & notification
+            await MatchmakingService.initialize_match(client, user_id, partner_id)
 
-            # Telegram Persistent UI: Send a new message with the Reply Keyboard to both users
-            # This ensures the buttons are stuck at the bottom during the chat.
-            msg_u = await client.send_message(user_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
-            msg_p = await client.send_message(partner_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
-            await match_state.track_ui_message(user_id, msg_u.id)
-            await match_state.track_ui_message(partner_id, msg_p.id)
-
+            # Return a response that hides the search menu on the initiator's side
+            # The actual "Match Found" UI was already sent as a new message by initialize_match
             return {
-                "text": match_text,
-                "reply_markup": chat_menu(UserState.CHATTING, partner_id),
-                "partner_msg": {
-                    "target_id": partner_id,
-                    "text": p_match_text,
-                    "reply_markup": chat_menu(UserState.CHATTING, user_id)
-                }
+                "text": "✅ **Pairing successful!** Check below for your partner.",
+                "reply_markup": None 
             }
+
             
         # Race condition guard for late-finishing search tasks
         if await match_state.is_in_chat(user_id):
@@ -246,31 +221,12 @@ class MatchingHandler:
             
         new_partner = await MatchmakingService.find_partner(client, user_id)
         if new_partner:
-            now = time.time()
-            from database.repositories.user_repository import UserRepository
-            user_row = await UserRepository.get_by_telegram_id(user_id)
-            user_last_safety = user_row.get("safety_last_seen", 0) if user_row else 0
-            show_safety = (now - user_last_safety > 86400)
-            
-            match_text = get_match_found_text(include_safety=show_safety)
-            if show_safety:
-                _fire(UserRepository.update(user_id, safety_last_seen=int(now)))
-
-            # Telegram Persistent UI: Send a new message with the Reply Keyboard to both users
-            msg_u = await client.send_message(user_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
-            msg_p = await client.send_message(new_partner, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
-            await match_state.track_ui_message(user_id, msg_u.id)
-            await match_state.track_ui_message(new_partner, msg_p.id)
-
+            await MatchmakingService.initialize_match(client, user_id, new_partner)
             return {
-                "text": match_text,
-                "reply_markup": chat_menu(UserState.CHATTING, new_partner),
-                "partner_msg": {
-                    "target_id": new_partner,
-                    "text": get_match_found_text(),
-                    "reply_markup": chat_menu(UserState.CHATTING, user_id)
-                }
+                "text": "✅ **Found a new partner!**",
+                "reply_markup": None
             }
+
         
         # Get intelligent hint
         hint = await behavior_tracker.get_contextual_hint(user_id, "disconnected")
@@ -298,22 +254,12 @@ class MatchingHandler:
             
         success = await MatchmakingService.request_rematch(user_id, partner_id)
         if success:
-            # Telegram Persistent UI: Send a new message with the Reply Keyboard to both users
-            msg_u = await client.send_message(user_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
-            msg_p = await client.send_message(partner_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
-            await match_state.track_ui_message(user_id, msg_u.id)
-            await match_state.track_ui_message(partner_id, msg_p.id)
-
-            match_text = get_match_found_text(is_rematch=True)
+            await MatchmakingService.initialize_match(client, user_id, partner_id)
             return {
-                "text": match_text,
-                "reply_markup": chat_menu(UserState.CHATTING, partner_id),
-                "partner_msg": {
-                    "target_id": partner_id,
-                    "text": match_text,
-                    "reply_markup": chat_menu(UserState.CHATTING, user_id)
-                }
+                "text": "✅ **Rematch successful!**",
+                "reply_markup": None
             }
+
             
         # Notify partner they have a rematch request
         return {

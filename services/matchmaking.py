@@ -44,26 +44,77 @@ class MatchmakingService:
 
     @staticmethod
     async def find_partner(client: Client, user_id: int) -> Optional[int]:
-        """Attempts to match the user with another person in the queue."""
-        partner_id = await match_state.find_match(user_id)
-        if not partner_id:
-            return None
-            
-        # Initialize match logic (award base coins, increment matches)
-        # Wrap in try-except to ensure one user's DB failure doesn't block the entire match flow
+        """Attempts to match the user with another person in the queue.
+        Note: If found, you MUST call initialize_match to set up UI/Rewards.
+        """
+        return await match_state.find_match(user_id)
+
+    @staticmethod
+    async def initialize_match(client: Client, user1_id: int, user2_id: int):
+        """Standardized match setup: Rewards, DB updates, Behavior tracking, and Platform UI."""
+        from services.user_service import UserService
+        from database.repositories.user_repository import UserRepository
+        from utils.ui_formatters import get_match_found_text
+        from utils.helpers import update_user_ui
+        from utils.keyboard import chat_menu, persistent_chat_menu
+        from core.behavior_engine import behavior_engine
+        from state.match_state import UserState
+        import time
+
+        uids = [user1_id, user2_id]
+        now = time.time()
+
+        # 1. DB & Reward Updates
         try:
-            for uid in [user_id, partner_id]:
+            for uid in uids:
                 await UserService.add_coins(uid, 2)
                 user = await UserRepository.get_by_telegram_id(uid)
                 if user:
                     matches = (user.get("total_matches") or 0) + 1
                     await UserRepository.update(uid, total_matches=matches)
                     await UserService.increment_challenge(uid, "matches_completed")
+                    await behavior_engine.record_session_start(uid)
         except Exception as e:
-            logger.error(f"Post-match DB updates failed for {user_id}-{partner_id}: {e}")
-            
-        logger.info(f"📡 Match Established: {user_id} <-> {partner_id}")
-        return partner_id
+            logger.error(f"Post-match DB updates failed for {user1_id}-{user2_id}: {e}")
+
+        # 2. Platform-Specific Notifications
+        for i, uid in enumerate(uids):
+            partner_id = uids[1-i]
+            try:
+                user = await UserRepository.get_by_telegram_id(uid)
+                if not user: continue
+
+                # Safety warning logic
+                last_safety = user.get("safety_last_seen", 0)
+                show_safety = (now - last_safety > 86400)
+                if show_safety:
+                    asyncio.create_task(UserRepository.update(uid, safety_last_seen=int(now)))
+                
+                match_text = get_match_found_text(include_safety=show_safety)
+
+                if uid >= 10**15:
+                    # Messenger Path
+                    from messenger_api import send_quick_replies
+                    from messenger.ui import get_chat_menu_buttons
+                    buttons = get_chat_menu_buttons(UserState.CHATTING)
+                    psid = user.get("username", "")[4:] if user.get("username", "").startswith("msg_") else None
+                    if psid:
+                        send_quick_replies(psid, match_text, buttons)
+                        # Optional: Send contextual hint
+                        hint = await behavior_engine.get_contextual_hint(uid, "connected")
+                        if hint: from messenger_api import send_message; send_message(psid, f"💡 {hint}")
+                else:
+                    # Telegram Path
+                    # Send persistent keyboard first so it's ready
+                    await client.send_message(uid, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
+                    # Send inline match notification
+                    await update_user_ui(client, uid, match_text, chat_menu(UserState.CHATTING, partner_id))
+
+            except Exception as e:
+                logger.error(f"Notification failed for {uid} in match {user1_id}-{user2_id}: {e}")
+
+        logger.info(f"📡 Match Initialized: {user1_id} <-> {user2_id}")
+
 
     @staticmethod
     async def disconnect(user_id: int) -> Optional[Dict[str, Any]]:

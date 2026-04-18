@@ -53,41 +53,43 @@ def _map_reply_markup(reply_markup) -> list:
     # Convert to string and lowercase for matching against callback_data
     str_markup = str(reply_markup).lower()
 
-    # Match against callback_data values — these are stable identifiers
-    # Order matters: check most specific patterns first
+    # 1. Chat menu — contains stop and next
     if "stop" in str_markup:
-        # Chat menu — contains stop and next
         return get_chat_menu_buttons(UserState.CHATTING)
 
+    # 2. Search Preference menu (Anyone, Male, Female)
+    elif "search_pref_any" in str_markup or "search_pref_female" in str_markup or "search_pref_male" in str_markup:
+        return get_search_pref_buttons(UserState.HOME)
+
+    # 3. Active Search menu (Priority Match, Packs, Cancel)
+    elif "priority_packs" in str_markup or "search_pref_priority" in str_markup:
+        # This is the search_menu shown while waiting
+        return [{"title": "⚡ Priority (5 coins)", "payload": "PREF_PRIORITY:0:SEARCHING"},
+                {"title": "❌ Cancel Search", "payload": "CANCEL_SEARCH:0:HOME"}]
+
+    # 4. End menu with voting buttons — extract partner_id
     elif "vote_like" in str_markup or "vote_dislike" in str_markup:
-        # End menu with voting buttons — extract partner_id
         import re
         match = re.search(r"vote_like:(\d+)", str_markup)
         partner_id = int(match.group(1)) if match else None
         return get_end_menu_buttons(UserState.HOME, partner_id=partner_id)
 
-    elif "search" in str_markup:
-        # Could be start menu (has stats) or end menu without partner_id
-        if "stats" in str_markup:
-            return get_start_menu_buttons(UserState.HOME)
-        return get_end_menu_buttons(UserState.HOME)
+    # 5. Start/Home menu (Stats)
+    elif "stats" in str_markup and "search" in str_markup:
+        return get_start_menu_buttons(UserState.HOME)
 
-    elif "search_pref_female" in str_markup or "search_pref_male" in str_markup:
-        # Search preference menu
-        return get_search_pref_buttons(UserState.HOME)
-
-    elif "cancel_search" in str_markup:
-        # Simple cancel button
-        return [{"title": "❌ Cancel", 
-                 "payload": "CANCEL_SEARCH:0:HOME"}]
-
-    elif "rematch" in str_markup:
-        # End menu with rematch option
-        return get_end_menu_buttons(UserState.HOME)
-
-    elif "try_searching" in str_markup or "search_pref_" in str_markup:
-        # Retry search menu shown after cooldown
+    # 6. Retry search menu or generic search-related
+    elif "try_searching" in str_markup:
         return get_retry_search_buttons(UserState.HOME)
+
+    # 7. Cancel search fallback
+    elif "cancel_search" in str_markup:
+        return [{"title": "❌ Cancel", "payload": "CANCEL_SEARCH:0:HOME"}]
+
+    # 8. End menu fallback (if it contains search but not stats/priority)
+    elif "search" in str_markup or "rematch" in str_markup:
+        return get_end_menu_buttons(UserState.HOME)
+
 
     # Unknown markup type — return empty list rather than None
     # so the caller sends a plain text message instead of crashing

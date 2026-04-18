@@ -397,8 +397,11 @@ class TestAdminHandler:
         from handlers.actions.admin import AdminHandler
         from config import ADMIN_ID
         client = AsyncMock()
-        response = await AdminHandler.handle_debug(client, ADMIN_ID)
-        assert "text" in response
+        with patch("state.match_state.match_state.add_to_chat", new_callable=AsyncMock) as MockAdd:
+            response = await AdminHandler.handle_debug(client, ADMIN_ID)
+            assert "text" in response
+            MockAdd.assert_called_once()
+
 
     @pytest.mark.asyncio
     async def test_handle_reset_confirm(self):

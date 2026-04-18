@@ -138,6 +138,7 @@ async def matching_animation(client: Client, user_id: int):
     H6: Uses Redis-backed dedup instead of in-process set for cross-worker correctness.
     """
     from services.distributed_state import distributed_state
+    from state.match_state import UserState
     # Guard against multiple animation tasks per user (works across workers)
     if await distributed_state.is_duplicate_interaction(user_id, "search_anim", ttl=8):
         return
@@ -151,11 +152,18 @@ async def matching_animation(client: Client, user_id: int):
     ]
     
     try:
-        await asyncio.sleep(2)
+        # Initial wait
+        await asyncio.sleep(2.5)
+        
+        # Double check: Is user actually still searching?
+        # Check both the chat pairing and the explicit user state
         if not await match_state.is_in_chat(user_id):
-            await update_user_ui(client, user_id, random.choice(msgs), search_menu())
+            current_state = await match_state.get_user_state(user_id)
+            if current_state == UserState.SEARCHING:
+                await update_user_ui(client, user_id, random.choice(msgs), search_menu())
     except Exception as e:
         logger.debug(f"Matching animation failed for {user_id}: {e}")
+
 
 async def process_response(client: Client, query: CallbackQuery, response: Dict[str, Any]):
     """Unified UI processor for handler responses."""
