@@ -432,7 +432,9 @@ async def handle_messenger_quick_reply(psid: str, virtual_id: int, user: dict, p
 
     # ── Routing ──────────────────────────────────────────────────────
     if action == "SEARCH": await handle_search(psid, virtual_id, user)
-    elif action.startswith("PREF_"): await handle_search_with_pref(psid, virtual_id, user, action.replace("PREF_", "").capitalize())
+    elif action.startswith("PREF_"):
+        logger.info(f"Messenger routing PREF action: {action}")
+        await handle_search_with_pref(psid, virtual_id, user, action.replace("PREF_", "").capitalize())
     elif action == "CANCEL_SEARCH": await handle_cancel_search(psid, virtual_id)
     elif action == "STOP": await handle_stop(psid, virtual_id)
     elif action == "NEXT": await handle_next(psid, virtual_id, user)

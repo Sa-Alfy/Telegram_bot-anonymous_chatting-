@@ -75,7 +75,15 @@ class MatchingHandler:
                     if not await UserService.deduct_coins(user_id, 5):
                         return {"alert": "❌ Not enough coins!", "show_alert": True}
 
-        success = await MatchmakingService.add_to_queue(user_id, gender_pref=pref)
+        from utils.logger import logger
+        logger.info(f"Adding user {user_id} to queue with pref {pref}")
+        try:
+            success = await MatchmakingService.add_to_queue(user_id, gender_pref=pref)
+            logger.info(f"add_to_queue result for {user_id}: {success}")
+        except Exception as e:
+            logger.error(f"EXCEPTION in add_to_queue for {user_id}: {e}", exc_info=True)
+            success = False
+
         if not success:
             return {"alert": "You are already in a chat!", "show_alert": True}
         
