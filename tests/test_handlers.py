@@ -43,7 +43,9 @@ class TestMatchingHandler:
             "total_matches": 3
         }
         with patch("services.matchmaking.MatchmakingService.disconnect") as MockDisconnect, \
-             patch("database.repositories.user_repository.UserRepository.get_by_telegram_id") as MockGet:
+             patch("database.repositories.user_repository.UserRepository.get_by_telegram_id") as MockGet, \
+             patch("state.match_state.match_state.get_user_state") as MockState:
+            MockState.return_value = "CHATTING"
             MockDisconnect.return_value = mock_stats
             MockGet.return_value = {"coins": 50}
             response = await MatchingHandler.handle_stop(client, 100)
@@ -76,9 +78,12 @@ class TestMatchingHandler:
              patch.object(behavior_tracker, 'get_next_cooldown', new_callable=AsyncMock) as mock_cooldown, \
              patch.object(behavior_tracker, 'record_next', new_callable=AsyncMock):
             mock_cooldown.return_value = 5.0
-            response = await MatchingHandler.handle_next(client, user_id)
-            assert "alert" in response
-            assert "slow down" in response["alert"].lower()
+            # Next now checks if in chat; patch get_user_state to pass
+            with patch("state.match_state.match_state.get_user_state", new_callable=AsyncMock) as MockState:
+                MockState.return_value = "CHATTING"
+                response = await MatchingHandler.handle_next(client, user_id)
+                assert "alert" in response
+                assert "slow down" in response["alert"].lower()
 
     @pytest.mark.asyncio
     async def test_handle_icebreaker(self):

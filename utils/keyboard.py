@@ -180,18 +180,21 @@ def leaderboard_menu():
         [InlineKeyboardButton("🔙 Back", callback_data="cancel_search")]
     ])
 
-def chat_menu(current_state: str = UserState.CHATTING):
-    """Redesigned chat menu to prevent misclicks between Stop/Next."""
+def chat_menu(current_state: str = UserState.CHATTING, partner_id: int = 0):
+    """Redesigned chat menu to prevent misclicks between Stop/Next.
+    Session-bound to partner_id to prevent cross-chat button bugs.
+    """
+    state_str = f"{current_state}_{partner_id}" if partner_id else current_state
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⏮ Next (Skip)", callback_data=StateBoundPayload.encode("next", "0", current_state))],
-        [InlineKeyboardButton("🛑 Stop Chatting", callback_data=StateBoundPayload.encode("stop", "0", current_state))],
+        [InlineKeyboardButton("⏮ Next (Skip)", callback_data=StateBoundPayload.encode("next", "0", state_str))],
+        [InlineKeyboardButton("🛑 Stop Chatting", callback_data=StateBoundPayload.encode("stop", "0", state_str))],
         [
-            InlineKeyboardButton("👁️ Reveal Identity", callback_data=StateBoundPayload.encode("reveal", "0", current_state)),
-            InlineKeyboardButton("⚠️ Report", callback_data=StateBoundPayload.encode("report", "0", current_state))
+            InlineKeyboardButton("👁️ Reveal Identity", callback_data=StateBoundPayload.encode("reveal", "0", state_str)),
+            InlineKeyboardButton("⚠️ Report", callback_data=StateBoundPayload.encode("report", "0", state_str))
         ],
         [
-            InlineKeyboardButton("🎲 Icebreaker (5 Coins)", callback_data=StateBoundPayload.encode("icebreaker", "0", current_state)),
-            InlineKeyboardButton("❤️ Reactions", callback_data=StateBoundPayload.encode("open_reactions", "0", current_state))
+            InlineKeyboardButton("🎲 Icebreaker (5 Coins)", callback_data=StateBoundPayload.encode("icebreaker", "0", state_str)),
+            InlineKeyboardButton("❤️ Reactions", callback_data=StateBoundPayload.encode("open_reactions", "0", state_str))
         ]
     ])
 
@@ -221,11 +224,12 @@ def peek_menu():
         [InlineKeyboardButton("🔙 Cancel", callback_data="cancel_reveal")]
     ])
 
-def confirm_reveal_menu(cost: int = 15):
+def confirm_reveal_menu(cost: int = 15, partner_id: int = 0, current_state: str = UserState.CHATTING):
+    state_str = f"{current_state}_{partner_id}" if partner_id else current_state
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(f"✅ Confirm ({cost} coins)", callback_data=f"confirm_reveal_{cost}"),
-            InlineKeyboardButton("❌ Cancel", callback_data="cancel_reveal")
+            InlineKeyboardButton(f"✅ Confirm ({cost} coins)", callback_data=StateBoundPayload.encode(f"confirm_reveal_{cost}", "0", state_str)),
+            InlineKeyboardButton("❌ Cancel", callback_data=StateBoundPayload.encode("cancel_reveal", "0", state_str))
         ]
     ])
 

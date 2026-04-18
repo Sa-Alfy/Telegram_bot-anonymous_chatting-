@@ -96,7 +96,7 @@ class EconomyHandler:
         return {
             "text": f"🔍 **Unmask Partner**\n\nThis will reveal your partner's identity to you for **{cost} coins**.\n"
                     f"(Cost based on partner's Level {partner.get('level', 1)}{' + VIP' if partner.get('vip_status') else ''})\n\nContinue?",
-            "reply_markup": confirm_reveal_menu(cost)
+            "reply_markup": confirm_reveal_menu(cost, partner_id, UserState.CHATTING)
         }
 
     @staticmethod
@@ -147,7 +147,7 @@ class EconomyHandler:
             
             return {
                 "text": "✅ Partner identity revealed above!",
-                "reply_markup": chat_menu(),
+                "reply_markup": chat_menu(UserState.CHATTING, partner_id),
                 "special_action": "send_photo",
                 "photo": partner.get("profile_photo") if partner else None,
                 "caption": reveal_text,

@@ -126,14 +126,18 @@ class MatchingHandler:
 
             return {
                 "text": match_text,
-                "reply_markup": chat_menu(UserState.CHATTING),
+                "reply_markup": chat_menu(UserState.CHATTING, partner_id),
                 "partner_msg": {
                     "target_id": partner_id,
                     "text": p_match_text,
-                    "reply_markup": chat_menu(UserState.CHATTING)
+                    "reply_markup": chat_menu(UserState.CHATTING, user_id)
                 }
             }
             
+        # Race condition guard for late-finishing search tasks
+        if await match_state.is_in_chat(user_id):
+             return None # Silent abort: User was matched by someone else's task.
+             
         from utils.keyboard import search_menu
         return {
             "text": f"⏳ Searching for a partner...\n**Filter:** {pref}",
@@ -158,7 +162,11 @@ class MatchingHandler:
 
     @staticmethod
     async def handle_stop(client: Client, user_id: int) -> Dict[str, Any]:
-        """Disconnects from current chat."""
+        """Disconnects from current chat with session-bound safety."""
+        current_state = await match_state.get_user_state(user_id)
+        if current_state != UserState.CHATTING:
+            return {"alert": "❌ You are not in a chat!", "show_alert": True}
+
         stats = await MatchmakingService.disconnect(user_id)
         if not stats:
             return {"text": "❌ Chat ended.", "reply_markup": end_menu()}
@@ -203,6 +211,10 @@ class MatchingHandler:
         if cooldown > 3.0:
             # Use the behavior engine's value directly — it is the authoritative source
             return {"alert": f"⏳ Please slow down! Wait {cooldown:.0f}s before skipping again.", "show_alert": True}
+
+        # Check if in chat before disconnecting
+        if not await match_state.is_in_chat(user_id):
+            return {"alert": "❌ You are not in a chat!", "show_alert": True}
 
         # Save preference before disconnect — read from Redis when available (C9 fix)
         if distributed_state.redis:
@@ -252,11 +264,11 @@ class MatchingHandler:
 
             return {
                 "text": match_text,
-                "reply_markup": chat_menu(UserState.CHATTING),
+                "reply_markup": chat_menu(UserState.CHATTING, new_partner),
                 "partner_msg": {
                     "target_id": new_partner,
                     "text": get_match_found_text(),
-                    "reply_markup": chat_menu(UserState.CHATTING)
+                    "reply_markup": chat_menu(UserState.CHATTING, user_id)
                 }
             }
         
@@ -295,11 +307,11 @@ class MatchingHandler:
             match_text = get_match_found_text(is_rematch=True)
             return {
                 "text": match_text,
-                "reply_markup": chat_menu(UserState.CHATTING),
+                "reply_markup": chat_menu(UserState.CHATTING, partner_id),
                 "partner_msg": {
                     "target_id": partner_id,
                     "text": match_text,
-                    "reply_markup": chat_menu(UserState.CHATTING)
+                    "reply_markup": chat_menu(UserState.CHATTING, user_id)
                 }
             }
             
@@ -342,10 +354,10 @@ class MatchingHandler:
             "alert": "✅ Icebreaker sent!",
             "show_alert": False,
             "text": f"🎲 **You activated an Icebreaker!**\n\n{question}",
-            "reply_markup": chat_menu(UserState.CHATTING),
+            "reply_markup": chat_menu(UserState.CHATTING, partner_id),
             "partner_msg": {
                 "target_id": partner_id,
                 "text": f"🎲 **Your partner activated an Icebreaker!**\n\n{question}",
-                "reply_markup": chat_menu(UserState.CHATTING)
+                "reply_markup": chat_menu(UserState.CHATTING, user_id)
             }
         }
