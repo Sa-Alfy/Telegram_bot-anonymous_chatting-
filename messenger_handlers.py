@@ -338,8 +338,17 @@ async def _notify_user(partner_virtual_id: int, text: str):
 
     if partner_virtual_id >= 10**15:
         u = await UserRepository.get_by_telegram_id(partner_virtual_id)
+        u = await UserRepository.get_by_telegram_id(partner_virtual_id)
         if u and u.get("username", "").startswith("msg_"):
-            send_message(u["username"][4:], text)
+            psid = u["username"][4:]
+            
+            # If partner is in CHATTING state, always include the chat buttons
+            current_partner_state = await match_state.get_user_state(partner_virtual_id)
+            if current_partner_state == UserState.CHATTING:
+                buttons = get_chat_menu_buttons(UserState.CHATTING)
+                send_quick_replies(psid, text, buttons)
+            else:
+                send_message(psid, text)
     else:
         try:
             import app_state
@@ -434,13 +443,23 @@ async def handle_messenger_quick_reply(psid: str, virtual_id: int, user: dict, p
     action, target_id, parsed_state = StateBoundPayload.decode(payload)
     current_state = await match_state.get_user_state(virtual_id) or UserState.HOME
     
-    # Relaxed state validation: only reject if the source state is actively wrong
-    # (e.g., trying to chat from SEARCHING). Allow HOME->anything freely.
-    if parsed_state not in ("HOME", "") and parsed_state != current_state:
-        # Only reject stale menus if it's a critical mismatch
+    # Loosen stale detection for Messenger to match Telegram
+    is_stale = False
+    if parsed_state and parsed_state != current_state:
+        # Allow transition from HOME to active states
+        if parsed_state == "HOME" and current_state not in {UserState.CONTENT_REVIEW, UserState.MATCHED_PENDING}:
+            is_stale = False
+        elif parsed_state in {"HOME", "SEARCHING"} and current_state == UserState.CHATTING:
+            is_stale = False
+        else:
+            is_stale = True
+
+    if is_stale:
         if parsed_state == "CHATTING" and current_state != "CHATTING":
             send_quick_replies(psid, "❌ That chat has ended.", get_start_menu_buttons(current_state))
             return
+        # Skip other stale actions
+        return
     
     # State transition mapping
     intent_to_state = {

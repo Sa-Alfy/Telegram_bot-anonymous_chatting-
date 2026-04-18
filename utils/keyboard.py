@@ -1,4 +1,4 @@
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from utils.renderer import StateBoundPayload
 from state.match_state import UserState
 
@@ -180,20 +180,27 @@ def leaderboard_menu():
         [InlineKeyboardButton("🔙 Back", callback_data="cancel_search")]
     ])
 
-def chat_menu():
+def chat_menu(current_state: str = UserState.CHATTING):
     """Redesigned chat menu to prevent misclicks between Stop/Next."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⏮ Next (Skip)", callback_data="next")],
-        [InlineKeyboardButton("🛑 Stop Chatting", callback_data="stop")],
+        [InlineKeyboardButton("⏮ Next (Skip)", callback_data=StateBoundPayload.encode("next", "0", current_state))],
+        [InlineKeyboardButton("🛑 Stop Chatting", callback_data=StateBoundPayload.encode("stop", "0", current_state))],
         [
-            InlineKeyboardButton("👁️ Reveal Identity", callback_data="reveal"),
-            InlineKeyboardButton("⚠️ Report", callback_data="report")
+            InlineKeyboardButton("👁️ Reveal Identity", callback_data=StateBoundPayload.encode("reveal", "0", current_state)),
+            InlineKeyboardButton("⚠️ Report", callback_data=StateBoundPayload.encode("report", "0", current_state))
         ],
         [
-            InlineKeyboardButton("🎲 Icebreaker (5 Coins)", callback_data="icebreaker"),
-            InlineKeyboardButton("❤️ Reactions", callback_data="open_reactions")
+            InlineKeyboardButton("🎲 Icebreaker (5 Coins)", callback_data=StateBoundPayload.encode("icebreaker", "0", current_state)),
+            InlineKeyboardButton("❤️ Reactions", callback_data=StateBoundPayload.encode("open_reactions", "0", current_state))
         ]
     ])
+
+def persistent_chat_menu():
+    """Telegram Persistent Reply Keyboard for easier access during chat."""
+    return ReplyKeyboardMarkup([
+        [KeyboardButton("⏮ Next (Skip)"), KeyboardButton("🛑 Stop Chatting")],
+        [KeyboardButton("👤 My Stats"), KeyboardButton("ℹ️ Help")]
+    ], resize_keyboard=True)
 
 def reaction_menu():
     return InlineKeyboardMarkup([
@@ -222,29 +229,29 @@ def confirm_reveal_menu(cost: int = 15):
         ]
     ])
 
-def end_menu(can_rematch: bool = False, partner_id: int = None):
+def end_menu(can_rematch: bool = False, partner_id: int = None, current_state: str = UserState.HOME):
     buttons = [
-        [InlineKeyboardButton("🔍 Find New Partner", callback_data="search")]
+        [InlineKeyboardButton("🔍 Find New Partner", callback_data=StateBoundPayload.encode("search", "0", current_state))]
     ]
     if can_rematch:
-        buttons.append([InlineKeyboardButton("🔄 Rematch (1 coin)", callback_data="rematch")])
+        buttons.append([InlineKeyboardButton("🔄 Rematch (1 coin)", callback_data=StateBoundPayload.encode("rematch", "0", current_state))])
         
     if partner_id:
         buttons.extend([
             [
-                InlineKeyboardButton("👍 Like", callback_data=StateBoundPayload.encode("vote_like", str(partner_id), "END_MENU")),
-                InlineKeyboardButton("👎 Dislike", callback_data=StateBoundPayload.encode("vote_dislike", str(partner_id), "END_MENU"))
+                InlineKeyboardButton("👍 Like", callback_data=StateBoundPayload.encode("vote_like", str(partner_id), current_state)),
+                InlineKeyboardButton("👎 Dislike", callback_data=StateBoundPayload.encode("vote_dislike", str(partner_id), current_state))
             ],
             [
-                InlineKeyboardButton("👨 Boy", callback_data=StateBoundPayload.encode("vote_gender_male", str(partner_id), "END_MENU")),
-                InlineKeyboardButton("👩 Girl", callback_data=StateBoundPayload.encode("vote_gender_female", str(partner_id), "END_MENU"))
+                InlineKeyboardButton("👨 Boy", callback_data=StateBoundPayload.encode("vote_gender_male", str(partner_id), current_state)),
+                InlineKeyboardButton("👩 Girl", callback_data=StateBoundPayload.encode("vote_gender_female", str(partner_id), current_state))
             ]
         ])
     
     buttons.extend([
         [
-            InlineKeyboardButton("📊 My Stats", callback_data="stats"),
-            InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")
+            InlineKeyboardButton("📊 My Stats", callback_data=StateBoundPayload.encode("stats", "0", current_state)),
+            InlineKeyboardButton("🏆 Leaderboard", callback_data=StateBoundPayload.encode("leaderboard", "0", current_state))
         ]
     ])
     return InlineKeyboardMarkup(buttons)

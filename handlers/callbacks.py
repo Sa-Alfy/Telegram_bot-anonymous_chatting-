@@ -3,7 +3,7 @@ import asyncio
 import random
 from typing import Dict, Any, Callable, Coroutine
 from pyrogram import Client, filters
-from pyrogram.types import CallbackQuery
+from pyrogram.types import CallbackQuery, ReplyKeyboardRemove
 
 from handlers.actions.matching import MatchingHandler
 from handlers.actions.economy import EconomyHandler
@@ -198,6 +198,10 @@ async def process_response(client: Client, query: CallbackQuery, response: Dict[
         else:
             await client.send_message(chat_id=user_id, text=response.get("caption"))
 
+    if response.get("special_action") == "remove_keyboard":
+        # Removes Telegram persistent keyboard when returning home/ending chat
+        _fire(client.send_message(user_id, "🏠 **Returning to Dashboard...**", reply_markup=ReplyKeyboardRemove()))
+
     if "set_state" in response:
         await match_state.set_user_state(user_id, response["set_state"])
 
@@ -238,13 +242,18 @@ async def on_callback(client: Client, query: CallbackQuery):
         
         is_stale = False
         if parsed_state and parsed_state != current_state:
-            # Special case: allow HOME buttons only if user is NOT in a critical system state
-            if parsed_state == UserState.HOME and current_state not in UserState.SYSTEM_ONLY_STATES:
+            # HOME state buttons are allowed as long as the user isn't in a critical locking state
+            if parsed_state == UserState.HOME and current_state not in {UserState.CONTENT_REVIEW, UserState.MATCHED_PENDING}:
+                is_stale = False
+            # During transition from HOME to SEARCHING or CHATTING, stay lenient
+            elif parsed_state in {UserState.HOME, UserState.SEARCHING} and current_state == UserState.CHATTING:
                 is_stale = False
             elif action not in state_agnostic_actions:
                 is_stale = True
 
         if is_stale:
+            # Determine if this was a legitimate state change or a retry
+            logger.info(f"Stale UI rejected: {user_id} tried {action} (from {parsed_state}) while in {current_state}")
             await query.answer("❌ This menu has expired.", show_alert=True)
             from utils.renderer import Renderer
             return await process_response(client, query, Renderer.render_profile_menu("telegram", current_state))

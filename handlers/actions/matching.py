@@ -5,7 +5,8 @@ from utils.rate_limiter import rate_limiter
 from pyrogram import Client, types
 from services.matchmaking import MatchmakingService
 from state.match_state import match_state
-from utils.keyboard import search_menu, chat_menu, end_menu, start_menu
+from utils.keyboard import search_menu, chat_menu, end_menu, start_menu, persistent_chat_menu
+from pyrogram.types import ReplyKeyboardRemove
 from utils.helpers import update_user_ui
 from handlers.start import get_start_text
 from services.user_service import UserService
@@ -116,13 +117,18 @@ class MatchingHandler:
             
             p_match_text = get_match_found_text(include_safety=p_show_safety)
 
+            # Telegram Persistent UI: Send a new message with the Reply Keyboard to both users
+            # This ensures the buttons are stuck at the bottom during the chat.
+            _fire(client.send_message(user_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu()))
+            _fire(client.send_message(partner_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu()))
+
             return {
                 "text": match_text,
-                "reply_markup": chat_menu(),
+                "reply_markup": chat_menu(UserState.CHATTING),
                 "partner_msg": {
                     "target_id": partner_id,
                     "text": p_match_text,
-                    "reply_markup": chat_menu()
+                    "reply_markup": chat_menu(UserState.CHATTING)
                 }
             }
             
@@ -144,7 +150,8 @@ class MatchingHandler:
         
         return {
             "text": get_start_text(coins, is_guest),
-            "reply_markup": start_menu(is_guest)
+            "reply_markup": start_menu(is_guest),
+            "special_action": "remove_keyboard" # We will handle this in process_response
         }
 
     @staticmethod
@@ -174,6 +181,7 @@ class MatchingHandler:
         return {
             "text": user_summary,
             "reply_markup": end_menu(can_rematch=True, partner_id=partner_id),
+            "special_action": "remove_keyboard",
             "partner_msg": {
                 "text": partner_summary,
                 "reply_markup": end_menu(can_rematch=True, partner_id=user_id),
@@ -234,13 +242,17 @@ class MatchingHandler:
             if show_safety:
                 _fire(UserRepository.update(user_id, safety_last_seen=int(now)))
 
+            # Telegram Persistent UI: Send a new message with the Reply Keyboard to both users
+            _fire(client.send_message(user_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu()))
+            _fire(client.send_message(new_partner, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu()))
+
             return {
                 "text": match_text,
-                "reply_markup": chat_menu(),
+                "reply_markup": chat_menu(UserState.CHATTING),
                 "partner_msg": {
                     "target_id": new_partner,
                     "text": get_match_found_text(),
-                    "reply_markup": chat_menu()
+                    "reply_markup": chat_menu(UserState.CHATTING)
                 }
             }
         
@@ -270,14 +282,18 @@ class MatchingHandler:
             
         success = await MatchmakingService.request_rematch(user_id, partner_id)
         if success:
+            # Telegram Persistent UI: Send a new message with the Reply Keyboard to both users
+            _fire(client.send_message(user_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu()))
+            _fire(client.send_message(partner_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu()))
+
             match_text = get_match_found_text(is_rematch=True)
             return {
                 "text": match_text,
-                "reply_markup": chat_menu(),
+                "reply_markup": chat_menu(UserState.CHATTING),
                 "partner_msg": {
                     "target_id": partner_id,
                     "text": match_text,
-                    "reply_markup": chat_menu()
+                    "reply_markup": chat_menu(UserState.CHATTING)
                 }
             }
             
@@ -320,10 +336,10 @@ class MatchingHandler:
             "alert": "✅ Icebreaker sent!",
             "show_alert": False,
             "text": f"🎲 **You activated an Icebreaker!**\n\n{question}",
-            "reply_markup": chat_menu(),
+            "reply_markup": chat_menu(UserState.CHATTING),
             "partner_msg": {
                 "target_id": partner_id,
                 "text": f"🎲 **Your partner activated an Icebreaker!**\n\n{question}",
-                "reply_markup": chat_menu()
+                "reply_markup": chat_menu(UserState.CHATTING)
             }
         }

@@ -17,7 +17,33 @@ from services.chat_service import relay_message
 from database.connection import db
 from utils.content_filter import check_message, get_user_warning, SEVERITY_AUTO_BAN, SEVERITY_BLOCK
 
-@Client.on_message(~filters.command(["start", "help", "stop", "next", "admin_stats", "stats", "leaderboard", "reveal", "priority", "find", "report", "terms", "privacy"]) & filters.private)
+@Client.on_message(filters.regex(r"^🛑 Stop Chatting") & filters.private)
+async def stop_button_handler(client: Client, message: Message):
+    from handlers.actions.matching import MatchingHandler
+    resp = await MatchingHandler.handle_stop(client, message.from_user.id)
+    await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
+
+@Client.on_message(filters.regex(r"^⏮ Next") & filters.private)
+async def next_button_handler(client: Client, message: Message):
+    from handlers.actions.matching import MatchingHandler
+    resp = await MatchingHandler.handle_next(client, message.from_user.id)
+    await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
+
+@Client.on_message(filters.regex(r"^👤 My Stats") & filters.private)
+async def stats_button_handler(client: Client, message: Message):
+    from handlers.actions.stats import StatsHandler
+    resp = await StatsHandler.handle_stats(client, message.from_user.id)
+    await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
+
+@Client.on_message(filters.regex(r"^ℹ️ Help") & filters.private)
+async def help_button_handler(client: Client, message: Message):
+    from handlers.callbacks import handle_help
+    resp = await handle_help(client, message.from_user.id)
+    await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
+
+@Client.on_message(~filters.command(["start", "help", "stop", "next", "admin_stats", "stats", "leaderboard", "reveal", "priority", "find", "report", "terms", "privacy"]) & 
+                   ~filters.regex(r"^(🛑 Stop|⏮ Next|👤 My Stats|ℹ️ Help)") & 
+                   filters.private)
 async def chat_handler(client: Client, message: Message):
     user_id = message.from_user.id
     
