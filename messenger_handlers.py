@@ -36,7 +36,10 @@ from database.repositories.user_repository import UserRepository
 # ─────────────────────────────────────────────────────────────────────
 
 def _map_reply_markup(reply_markup) -> list:
-    """Convert Pyrogram InlineKeyboardMarkup to Messenger quick reply buttons."""
+    """Convert Pyrogram InlineKeyboardMarkup to Messenger quick reply 
+    buttons. Matches against callback_data values (lowercase with 
+    underscores) which are stable, rather than display text which changes.
+    """
     from messenger.ui import (
         get_chat_menu_buttons, get_end_menu_buttons,
         get_start_menu_buttons, get_search_pref_buttons,
@@ -46,24 +49,48 @@ def _map_reply_markup(reply_markup) -> list:
 
     if reply_markup is None:
         return None
-    str_markup = str(reply_markup)
-    if "Next" in str_markup and "Stop" in str_markup:
+
+    # Convert to string and lowercase for matching against callback_data
+    str_markup = str(reply_markup).lower()
+
+    # Match against callback_data values — these are stable identifiers
+    # Order matters: check most specific patterns first
+    if "\"stop\"" in str_markup or "'stop'" in str_markup:
+        # Chat menu — contains stop and next
         return get_chat_menu_buttons(UserState.CHATTING)
-    elif "Find New" in str_markup and "Stats" in str_markup:
+
+    elif "vote_like" in str_markup or "vote_dislike" in str_markup:
+        # End menu with voting buttons — extract partner_id
         import re
-        match = re.search(r"vote_like_(\d+)", str_markup)
+        match = re.search(r"vote_like:(\d+)", str_markup)
         partner_id = int(match.group(1)) if match else None
         return get_end_menu_buttons(UserState.HOME, partner_id=partner_id)
-    elif "Find Partner" in str_markup and "Stats" in str_markup:
-        return get_start_menu_buttons(UserState.HOME)
-    elif "Female" in str_markup and "Male" in str_markup and "Cancel" in str_markup:
-        return get_search_pref_buttons(UserState.HOME)
-    elif "Cancel" in str_markup:
-        return [{"title": "❌ Cancel", "payload": "CANCEL_SEARCH:0:HOME"}]
-    elif "Rematch" in str_markup:
+
+    elif "\"search\"" in str_markup or "'search'" in str_markup:
+        # Could be start menu or end menu without partner_id
+        if "\"stats\"" in str_markup or "'stats'" in str_markup:
+            return get_start_menu_buttons(UserState.HOME)
         return get_end_menu_buttons(UserState.HOME)
-    elif "Try Searching Again" in str_markup:
+
+    elif "search_pref_female" in str_markup or "search_pref_male" in str_markup:
+        # Search preference menu
+        return get_search_pref_buttons(UserState.HOME)
+
+    elif "cancel_search" in str_markup:
+        # Simple cancel button
+        return [{"title": "❌ Cancel", 
+                 "payload": "CANCEL_SEARCH:0:HOME"}]
+
+    elif "rematch" in str_markup:
+        # End menu with rematch option
+        return get_end_menu_buttons(UserState.HOME)
+
+    elif "try_searching" in str_markup or "search_pref_" in str_markup:
+        # Retry search menu shown after cooldown
         return get_retry_search_buttons(UserState.HOME)
+
+    # Unknown markup type — return empty list rather than None
+    # so the caller sends a plain text message instead of crashing
     return []
 
 
@@ -440,6 +467,12 @@ async def handle_messenger_quick_reply(psid: str, virtual_id: int, user: dict, p
     elif action == "STOP": await handle_stop(psid, virtual_id)
     elif action == "NEXT": await handle_next(psid, virtual_id, user)
     elif action == "REPORT": await handle_report(psid, virtual_id)
+    elif action == "REVEAL":
+        from handlers.actions.matching import MatchingHandler
+        await _execute_action(psid, virtual_id, MatchingHandler.handle_reveal)
+    elif action == "ICEBREAKER":
+        from handlers.actions.matching import MatchingHandler
+        await _execute_action(psid, virtual_id, MatchingHandler.handle_icebreaker)
     elif action == "BLOCK_PARTNER": await handle_block_partner(psid, virtual_id)
     elif action == "ADD_FRIEND": await handle_add_friend(psid, virtual_id)
     elif action == "CONFIRM_FRIEND": await handle_confirm_friend(psid, virtual_id)
@@ -462,13 +495,12 @@ async def handle_messenger_quick_reply(psid: str, virtual_id: int, user: dict, p
     elif action == "HELP": _handle_help(psid)
     # Shop purchase actions
     elif action in ("BUY_VIP", "BUY_OG", "BUY_WHALE"): await handle_buy_item(psid, virtual_id, action)
-    elif action.startswith("VOTE_"):
+    elif action.startswith("vote_"):
         from handlers.actions.voting import VotingHandler
-        # Parse: VOTE_like_12345 or VOTE_gender_male_12345
-        parts = action.split("_")
-        tid = int(parts[-1])
-        vote_type = "_".join(parts[1:-1])
-        await _execute_action(psid, virtual_id, VotingHandler.handle_vote, tid, vote_type)
+        # Standardized: action='vote_like', target_id=12345
+        # The 'action' here is 'vote_like', we need 'like' for the handler
+        vote_type = action.replace("vote_", "")
+        await _execute_action(psid, virtual_id, VotingHandler.handle_vote, target_id, vote_type)
     elif action == "BACK_HOME":
         await match_state.set_user_state(virtual_id, UserState.HOME)
         send_quick_replies(psid, "🏠 Returned home.", get_start_menu_buttons(UserState.HOME))

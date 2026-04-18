@@ -125,18 +125,22 @@ class UserRepository:
         return True
 
     @staticmethod
-    async def increment_coins(telegram_id: int, amount: int) -> bool:
-        """Atomically increment user coins."""
-        query = "UPDATE users SET coins = coins + $1 WHERE telegram_id = $2"
-        await db.execute(query, (amount, telegram_id))
-        return True
+    async def increment_coins(telegram_id: int, amount: int) -> int:
+        """Atomically increment user coins and return new value."""
+        row = await db.fetchone(
+            "UPDATE users SET coins = coins + $1 WHERE telegram_id = $2 RETURNING coins",
+            (amount, telegram_id)
+        )
+        return row["coins"] if row else 0
 
     @staticmethod
-    async def increment_xp(telegram_id: int, amount: int) -> bool:
-        """Atomically increment user XP."""
-        query = "UPDATE users SET xp = xp + $1 WHERE telegram_id = $2"
-        await db.execute(query, (amount, telegram_id))
-        return True
+    async def increment_xp(telegram_id: int, amount: int) -> int:
+        """Atomically increment user XP and return new value."""
+        row = await db.fetchone(
+            "UPDATE users SET xp = xp + $1 WHERE telegram_id = $2 RETURNING xp",
+            (amount, telegram_id)
+        )
+        return row["xp"] if row else 0
 
     @staticmethod
     async def set_blocked(telegram_id: int, status: bool) -> bool:

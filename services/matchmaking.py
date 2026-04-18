@@ -93,6 +93,10 @@ class MatchmakingService:
         
         # User 1 specific (the one who initiated disconnect)
         u1 = await UserRepository.get_by_telegram_id(user_id)
+        if not u1:
+            logger.warning(f"Disconnect failed: User {user_id} not found in DB.")
+            return None
+            
         u1_coins = int(time_reward * event_mult * u1_b_mult)
         if u1.get("coin_booster", {}).get("active"): u1_coins *= 2
         await UserService.add_coins(user_id, match_reward + u1_coins)

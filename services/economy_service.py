@@ -12,9 +12,9 @@ from services.user_service import UserService
 
 # Configuration for seasonal shop items
 SHOP_ITEMS = {
-    "exp_boost_3h":   {"name": "✨ 3h XP Booster",     "cost": 100,  "duration": 10800, "type": "booster"},
-    "coin_boost_3h":  {"name": "💰 3h Coin Booster",    "cost": 150,  "duration": 10800, "type": "booster"},
-    "priority_1h":    {"name": "⚡ 1h Priority Match",  "cost": 250,  "duration": 3600,  "type": "priority"},
+    "exp_boost_3h":   {"name": "✨ 3h XP Booster",     "cost": 100,  "duration": 10800, "type": "booster", "key": "xp_booster"},
+    "coin_boost_3h":  {"name": "💰 3h Coin Booster",    "cost": 150,  "duration": 10800, "type": "booster", "key": "coin_booster"},
+    "priority_1h":    {"name": "⚡ 1h Priority Match",  "cost": 250,  "duration": 3600,  "type": "priority", "key": "priority_pack"},
     "badge_seasonal": {"name": "🏅 Seasonal Badge",      "cost": 500,                     "type": "cosmetic"}
 }
 
@@ -71,7 +71,10 @@ class EconomyService:
         if not user:
             return False
 
-        expires_at = time.time() + duration_seconds
+        current_booster = user.get("coin_booster", {}) if booster_type == "coin" else user.get("priority_pack", {})
+        current_expires = current_booster.get("expires_at", 0)
+        base_time = max(time.time(), current_expires)
+        expires_at = base_time + duration_seconds
 
         if booster_type == "coin":
             await UserRepository.update(user_id, coin_booster={
@@ -104,14 +107,20 @@ class EconomyService:
         # Apply perk
         update_data = {}
         if item["type"] == "booster":
-            update_data["coin_booster"] = {
+            b_key = item["key"]
+            current = user.get(b_key, {})
+            base = max(time.time(), current.get("expires_at", 0))
+            update_data[b_key] = {
                 "active": True,
-                "expires_at": time.time() + item["duration"]
+                "expires_at": base + item["duration"]
             }
         elif item["type"] == "priority":
-            update_data["priority_pack"] = {
+            b_key = item.get("key", "priority_pack")
+            current = user.get(b_key, {})
+            base = max(time.time(), current.get("expires_at", 0))
+            update_data[b_key] = {
                 "active": True,
-                "expires_at": time.time() + item["duration"]
+                "expires_at": base + item["duration"]
             }
         elif item["type"] == "cosmetic":
             purchases = user.get("coin_shop_purchases", [])

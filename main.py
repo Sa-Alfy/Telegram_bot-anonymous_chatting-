@@ -35,7 +35,7 @@ load_dotenv()
 
 # Patch for Python 3.14+ (ensures an event loop exists before Pyrogram imports)
 try:
-    asyncio.get_event_loop()
+    asyncio.get_running_loop()
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
@@ -216,7 +216,10 @@ async def main():
     app_state.telegram_app = pyrogram_app
 
     # ── Exception handler ─────────────────────────────────────────────
-    loop = asyncio.get_event_loop()
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
     app_state.bot_loop = loop
     loop.set_exception_handler(setup_exception_handler(pyrogram_app))
 

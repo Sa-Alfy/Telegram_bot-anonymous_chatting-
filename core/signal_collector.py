@@ -153,8 +153,8 @@ class SignalCollector:
         """Record an outbound message event with anti-spam and sentiment tracking."""
         s = await self.get_signals(user_id)
         
-        length = len(text) if text else 1
-        s.messages_sent += length
+        length = len(text) if text else 0
+        s.messages_sent += 1
         s.current_session_messages += 1
         s.last_action_time = time.time()
         

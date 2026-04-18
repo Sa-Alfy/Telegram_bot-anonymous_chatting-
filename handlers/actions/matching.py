@@ -46,6 +46,14 @@ class MatchingHandler:
     @staticmethod
     async def handle_search_with_pref(client: Client, user_id: int, pref: str) -> Dict[str, Any]:
         """Starts searching for a partner with explicit filters."""
+        # 1. Check for rapid cycling (Flood protection)
+        if await rate_limiter.check_flood(user_id):
+            return {
+                "alert": "🚫 **Flood Protection:** You are switching partners too quickly. Please wait a minute.",
+                "show_alert": True
+            }
+
+        # 2. Check standard matchmaking cooldown
         if not await rate_limiter.can_matchmake(user_id):
             remaining = await rate_limiter.get_cooldown_remaining(user_id, "matchmake") or 0
             return {

@@ -120,11 +120,13 @@ def get_search_pref_buttons(state: str = UserState.HOME):
 
 def get_chat_menu_buttons(state: str = UserState.HOME):
     return [
-        {"title": "⏭ Next",     "payload": StateBoundPayload.encode("NEXT", "0", state)},
-        {"title": "🛑 Stop",     "payload": StateBoundPayload.encode("STOP", "0", state)},
-        {"title": "⚠️ Report",  "payload": StateBoundPayload.encode("REPORT", "0", state)},
-        {"title": "🚫 Block",   "payload": StateBoundPayload.encode("BLOCK_PARTNER", "0", state)},
-        {"title": "💌 Friend",  "payload": StateBoundPayload.encode("ADD_FRIEND", "0", state)},
+        {"title": "⏭ Next",        "payload": StateBoundPayload.encode("NEXT", "0", state)},
+        {"title": "🛑 Stop",        "payload": StateBoundPayload.encode("STOP", "0", state)},
+        {"title": "👁 Reveal",      "payload": StateBoundPayload.encode("REVEAL", "0", state)},
+        {"title": "⚠️ Report",      "payload": StateBoundPayload.encode("REPORT", "0", state)},
+        {"title": "🚫 Block",       "payload": StateBoundPayload.encode("BLOCK_PARTNER", "0", state)},
+        {"title": "💌 Add Friend",  "payload": StateBoundPayload.encode("ADD_FRIEND", "0", state)},
+        {"title": "🎲 Icebreaker",  "payload": StateBoundPayload.encode("ICEBREAKER", "0", state)},
     ]
 
 def get_end_menu_buttons(state: str = UserState.HOME, partner_id: int = None):
@@ -134,10 +136,10 @@ def get_end_menu_buttons(state: str = UserState.HOME, partner_id: int = None):
     
     if partner_id:
         buttons.extend([
-            {"title": "👍 Like", "payload": StateBoundPayload.encode(f"VOTE_like_{partner_id}", "0", state)},
-            {"title": "👎 Dislike", "payload": StateBoundPayload.encode(f"VOTE_dislike_{partner_id}", "0", state)},
-            {"title": "👨 Boy", "payload": StateBoundPayload.encode(f"VOTE_gender_male_{partner_id}", "0", state)},
-            {"title": "👩 Girl", "payload": StateBoundPayload.encode(f"VOTE_gender_female_{partner_id}", "0", state)}
+            {"title": "👍 Like", "payload": StateBoundPayload.encode("vote_like", str(partner_id), state)},
+            {"title": "👎 Dislike", "payload": StateBoundPayload.encode("vote_dislike", str(partner_id), state)},
+            {"title": "👨 Boy", "payload": StateBoundPayload.encode("vote_gender_male", str(partner_id), state)},
+            {"title": "👩 Girl", "payload": StateBoundPayload.encode("vote_gender_female", str(partner_id), state)}
         ])
         
     buttons.extend([

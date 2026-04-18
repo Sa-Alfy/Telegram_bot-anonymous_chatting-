@@ -114,7 +114,10 @@ async def _process_messaging_event(messaging: dict):
         logger.info(f"TRACE: Processing {_event_type} from PSID ...{sender_id[-4:]}: {_event_payload}")
 
         # Record interaction for 24h window (H2: run in executor to avoid blocking the event loop)
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, record_user_interaction, sender_id)
         await loop.run_in_executor(None, mark_seen, sender_id)
 

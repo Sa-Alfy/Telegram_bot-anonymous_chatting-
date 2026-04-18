@@ -11,6 +11,7 @@ from handlers.actions.admin import AdminHandler
 from handlers.actions.social import SocialHandler
 from handlers.actions.stats import StatsHandler
 from handlers.actions.onboarding import OnboardingHandler
+from handlers.actions.voting import VotingHandler
 from state.match_state import match_state
 from database.repositories.user_repository import UserRepository
 from services.user_service import UserService
@@ -307,13 +308,12 @@ async def on_callback(client: Client, query: CallbackQuery):
                         if prefix == "buy_pack_":
                             handler = lambda c, uid, p: EconomyHandler.handle_buy_pack(c, uid, int(p))
                         elif prefix == "vote_":
-                            from handlers.actions.voting import VotingHandler
                             parts = action.split("_")
                             # Robust ID extraction: use target_id if provided, else last part of action
                             tid = target_id if target_id != 0 else (int(parts[-1]) if parts[-1].isdigit() else 0)
                             # Robust vote_type: everything between 'vote_' and the ID
-                            vote_type = "_".join(parts[1:-1]) if target_id == 0 else "_".join(parts[1:])
-                            handler = lambda c, uid, _: VotingHandler.handle_vote(c, uid, tid, vote_type)
+                            v_type = "_".join(parts[1:-1]) if target_id == 0 else "_".join(parts[1:])
+                            handler = lambda c, uid, _, t=tid, vt=v_type: VotingHandler.handle_vote(c, uid, t, vt)
                         elif prefix == "admin_set_vip_":
                             parts = action.split("_")
                             try:

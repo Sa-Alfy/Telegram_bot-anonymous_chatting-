@@ -19,23 +19,22 @@ class UserService:
             return None
 
         # Check for boosters
-        booster = user.get("coin_booster", {})
+        booster = user.get("xp_booster", {})
         if booster.get("active") and booster.get("expires_at", 0) > time.time():
             amount *= 2
             
-        new_xp = (user.get("xp") or 0) + amount
+        # Atomic increment
+        new_xp = await UserRepository.increment_xp(user_id, amount)
         
         old_level = user.get("level", 1)
         # Level formula: floor(sqrt(xp / 10)) + 1
         new_level = int(math.floor(math.sqrt(new_xp / 10))) + 1
         
-        update_data = {"xp": new_xp}
         level_up = None
         if new_level > old_level:
-            update_data["level"] = new_level
+            await UserRepository.update(user_id, level=new_level)
             level_up = new_level
             
-        await UserRepository.update(user_id, **update_data)
         return level_up
 
     @staticmethod

@@ -55,14 +55,21 @@ async def broadcast_command(client: Client, message: Message):
         uid = user['telegram_id']
         try:
             if is_reply:
-                await message.reply_to_message.copy(chat_id=uid)
+                # Media copy only works for Telegram users (uid < 10^15)
+                if uid < 10**15:
+                    await message.reply_to_message.copy(chat_id=uid)
+                    count += 1
             else:
-                await client.send_message(uid, f"📢 **SYSTEM ANNOUNCEMENT**\n━━━━━━━━━━━━━━━━━━\n\n{broadcast_msg}")
+                from utils.helpers import send_cross_platform
+                success = await send_cross_platform(client, uid, f"📢 **SYSTEM ANNOUNCEMENT**\n━━━━━━━━━━━━━━━━━━\n\n{broadcast_msg}")
+                if success:
+                    count += 1
             
-            count += 1
             if count % 20 == 0: await asyncio.sleep(1) # Rate limiting
         except Exception as e:
-            logger.debug(f"Broadcast send failed for {uid}: {e}")
+            # Prevent log flooding, only log critical errors
+            if "PEER_ID_INVALID" not in str(e):
+                logger.debug(f"Broadcast delivery issue for {uid}: {e}")
             pass
             
     await message.reply_text(f"✅ **Broadcast Complete!** Successfully delivered to {count} users.")
