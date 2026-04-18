@@ -58,6 +58,7 @@ class MatchState:
         
         # Transient ID-based tracking (Preserved for backward compatibility with tests/handlers)
         self.user_ui_messages: Dict[int, int] = {}
+        self.ui_history: Dict[int, List[int]] = {} # Tracks multiple message IDs for bulk cleanup
         self.searching_users: Set[int] = set()
         self.rematch_requests: Dict[int, int] = {}
         self.user_states: Dict[int, str] = {}
@@ -270,6 +271,7 @@ class MatchState:
             self.searching_users.clear()
             self.rematch_requests.clear()
             self.user_ui_messages.clear()
+            self.ui_history.clear()
             self.user_states.clear()
             self.last_button_time.clear()
             self.last_message_time.clear()
@@ -327,5 +329,21 @@ class MatchState:
         except Exception as e:
             logger.warning(f"validate_target({target_id}) failed: {e}")
             return True, ""  # Fail-open: don't break unrelated flows on DB blip
+
+    async def track_ui_message(self, user_id: int, message_id: int):
+        """Adds a message ID to the user's cleanup history."""
+        if user_id not in self.ui_history:
+            self.ui_history[user_id] = []
+        self.ui_history[user_id].append(message_id)
+        # Keep local backward compatibility
+        self.user_ui_messages[user_id] = message_id
+
+    async def get_ui_history(self, user_id: int) -> List[int]:
+        """Returns the list of message IDs to clean up."""
+        return self.ui_history.get(user_id, [])
+
+    async def clear_ui_history(self, user_id: int):
+        """Clears the tracked history for a user."""
+        self.ui_history[user_id] = []
 
 match_state = MatchState()

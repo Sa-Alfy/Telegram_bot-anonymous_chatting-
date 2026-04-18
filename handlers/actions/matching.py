@@ -119,8 +119,10 @@ class MatchingHandler:
 
             # Telegram Persistent UI: Send a new message with the Reply Keyboard to both users
             # This ensures the buttons are stuck at the bottom during the chat.
-            _fire(client.send_message(user_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu()))
-            _fire(client.send_message(partner_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu()))
+            msg_u = await client.send_message(user_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
+            msg_p = await client.send_message(partner_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
+            await match_state.track_ui_message(user_id, msg_u.id)
+            await match_state.track_ui_message(partner_id, msg_p.id)
 
             return {
                 "text": match_text,
@@ -243,8 +245,10 @@ class MatchingHandler:
                 _fire(UserRepository.update(user_id, safety_last_seen=int(now)))
 
             # Telegram Persistent UI: Send a new message with the Reply Keyboard to both users
-            _fire(client.send_message(user_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu()))
-            _fire(client.send_message(new_partner, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu()))
+            msg_u = await client.send_message(user_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
+            msg_p = await client.send_message(new_partner, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
+            await match_state.track_ui_message(user_id, msg_u.id)
+            await match_state.track_ui_message(new_partner, msg_p.id)
 
             return {
                 "text": match_text,
@@ -283,8 +287,10 @@ class MatchingHandler:
         success = await MatchmakingService.request_rematch(user_id, partner_id)
         if success:
             # Telegram Persistent UI: Send a new message with the Reply Keyboard to both users
-            _fire(client.send_message(user_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu()))
-            _fire(client.send_message(partner_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu()))
+            msg_u = await client.send_message(user_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
+            msg_p = await client.send_message(partner_id, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
+            await match_state.track_ui_message(user_id, msg_u.id)
+            await match_state.track_ui_message(partner_id, msg_p.id)
 
             match_text = get_match_found_text(is_rematch=True)
             return {

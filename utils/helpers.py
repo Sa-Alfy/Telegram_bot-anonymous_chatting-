@@ -60,7 +60,7 @@ async def update_user_ui(client: Client, user_id: int, text: str, reply_markup, 
             text=text,
             reply_markup=reply_markup
         )
-        match_state.user_ui_messages[user_id] = sent.id
+        await match_state.track_ui_message(user_id, sent.id)
     except Exception as e:
         logger.debug(f"UI fallback send failed for {user_id}: {e}")
         pass

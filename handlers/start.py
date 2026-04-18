@@ -48,14 +48,20 @@ async def start_command(client: Client, message: Message):
         match_state.user_ui_messages[user_id] = sent.id
         return
 
-    # 3. UI Cleanup (Delete previous message if exists)
-    prev_msg_id = match_state.user_ui_messages.get(user_id)
-    if prev_msg_id:
+    # 3. UI Cleanup (Full History Sweep)
+    history = await match_state.get_ui_history(user_id)
+    # Include current start command for deletion
+    targets = history + [message.id]
+    
+    if targets:
         try:
-            await client.delete_messages(user_id, prev_msg_id)
+            # Telegram accepts up to 100 IDs at a once
+            await client.delete_messages(user_id, targets[:100])
         except Exception as e:
-            logger.debug(f"UI cleanup failed for {user_id}: {e}")
+            logger.debug(f"Bulk cleanup failed for {user_id}: {e}")
             pass
+    
+    await match_state.clear_ui_history(user_id)
 
     # 4. Consent Gate (Meta Compliance)
     if not user.get("consent_given_at"):

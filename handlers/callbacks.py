@@ -199,7 +199,13 @@ async def process_response(client: Client, query: CallbackQuery, response: Dict[
             await client.send_message(chat_id=user_id, text=response.get("caption"))
 
     if response.get("special_action") == "remove_keyboard":
-        # Removes Telegram persistent keyboard when returning home/ending chat
+        # Removes Telegram persistent keyboard and cleans up history when returning home/ending chat
+        history = await match_state.get_ui_history(user_id)
+        if history:
+            try:
+                await client.delete_messages(user_id, history[:100])
+            except: pass
+        await match_state.clear_ui_history(user_id)
         _fire(client.send_message(user_id, "🏠 **Returning to Dashboard...**", reply_markup=ReplyKeyboardRemove()))
 
     if "set_state" in response:
