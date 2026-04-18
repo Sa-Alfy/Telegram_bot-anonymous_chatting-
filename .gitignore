@@ -1,0 +1,50 @@
+# Environment variables (NEVER commit real tokens)
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+
+# Pyrogram session files (contain authentication data)
+*.session
+*.session-journal
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+data/
+data/backups/
+
+# Logs
+*.log
+bot.log
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+
+# Runtime
+runtime/

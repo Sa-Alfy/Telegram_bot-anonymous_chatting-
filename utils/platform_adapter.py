@@ -1,0 +1,47 @@
+from pyrogram import Client
+from utils.logger import logger
+
+class PlatformAdapter:
+    @staticmethod
+    async def send_cross_platform(client: Client, target_id: int, text: str, reply_markup=None):
+        if target_id >= 10**15:
+            from database.repositories.user_repository import UserRepository
+            user = await UserRepository.get_by_telegram_id(target_id)
+            if user and user.get("username", "").startswith("msg_"):
+                psid = user["username"][4:]
+                from messenger_api import send_quick_replies, send_message
+                from messenger.ui import (
+                    get_chat_menu_buttons, get_end_menu_buttons,
+                    get_start_menu_buttons, get_search_pref_buttons
+                )
+                from state.match_state import UserState
+
+                buttons = []
+                if reply_markup is not None:
+                    str_markup = str(reply_markup)
+                    if "Next" in str_markup and "Stop" in str_markup:
+                        buttons = get_chat_menu_buttons(UserState.CHATTING)
+                    elif "My Stats" in str_markup and "Find Partner" in str_markup:
+                        buttons = get_start_menu_buttons(UserState.HOME)
+                    elif "Find New" in str_markup and "My Stats" in str_markup:
+                        buttons = get_end_menu_buttons(UserState.HOME)
+                    elif "Female" in str_markup and "Male" in str_markup:
+                        buttons = get_search_pref_buttons(UserState.HOME)
+                
+                try:
+                    if buttons:
+                        send_quick_replies(psid, text, buttons)
+                    else:
+                        send_message(psid, text)
+                    return True
+                except Exception as e:
+                    logger.error(f"Messenger API Error for {psid}: {e}")
+                    return False
+            return False
+        else:
+            try:
+                await client.send_message(chat_id=target_id, text=text, reply_markup=reply_markup)
+                return True
+            except Exception as e:
+                logger.error(f"Telegram API Error for {target_id}: {e}")
+                return False
