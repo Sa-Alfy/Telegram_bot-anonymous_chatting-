@@ -162,12 +162,6 @@ async def _process_messaging_event(messaging: dict):
                 # Deduplicate quick-reply clicks (prevent double-tap)
                 if await distributed_state.is_duplicate_interaction(virtual_id, f"qr:{payload}"):
                     return
-                # C13: Only apply matchmake cooldown for search-related actions, not ALL buttons
-                SEARCH_ACTIONS = {"SEARCH", "PREF_ANY", "PREF_MALE", "PREF_FEMALE",
-                                  "PREF_PRIORITY", "NEXT", "STOP", "CANCEL_SEARCH"}
-                action_key = payload.split(":")[0]  # strip :target:state suffix
-                if action_key in SEARCH_ACTIONS and not await rate_limiter.can_matchmake(virtual_id):
-                    return
                 await handle_messenger_quick_reply(sender_id, virtual_id, user, payload)
 
             elif "text" in message:
@@ -180,11 +174,6 @@ async def _process_messaging_event(messaging: dict):
             payload = messaging["postback"]["payload"]
             # Deduplicate postback clicks (prevent double-tap)
             if await distributed_state.is_duplicate_interaction(virtual_id, f"pb:{payload}"):
-                return
-            # C13: Only apply matchmake cooldown for search-related postbacks
-            SEARCH_POSTBACKS = {"SEARCH", "CMD_NEXT", "CMD_STOP"}
-            action_key = payload.split(":")[0]
-            if action_key in SEARCH_POSTBACKS and not await rate_limiter.can_matchmake(virtual_id):
                 return
             await handle_messenger_postback(sender_id, virtual_id, user, payload)
 
