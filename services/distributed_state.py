@@ -27,7 +27,7 @@ class DistributedState:
                 import redis.asyncio as redis
                 self.redis = redis.from_url(redis_url, decode_responses=True)
                 await self.redis.ping()
-                logger.info("✅ Redis connected successfully for DistributedState.")
+                logger.info("Redis connected successfully for DistributedState.")
             except ImportError:
                 logger.warning("redis-py not installed. Falling back to memory state.")
                 self.redis = None

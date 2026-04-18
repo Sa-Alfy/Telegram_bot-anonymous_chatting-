@@ -55,7 +55,7 @@ def _map_reply_markup(reply_markup) -> list:
 
     # Match against callback_data values — these are stable identifiers
     # Order matters: check most specific patterns first
-    if "\"stop\"" in str_markup or "'stop'" in str_markup:
+    if "stop" in str_markup:
         # Chat menu — contains stop and next
         return get_chat_menu_buttons(UserState.CHATTING)
 
@@ -66,9 +66,9 @@ def _map_reply_markup(reply_markup) -> list:
         partner_id = int(match.group(1)) if match else None
         return get_end_menu_buttons(UserState.HOME, partner_id=partner_id)
 
-    elif "\"search\"" in str_markup or "'search'" in str_markup:
-        # Could be start menu or end menu without partner_id
-        if "\"stats\"" in str_markup or "'stats'" in str_markup:
+    elif "search" in str_markup:
+        # Could be start menu (has stats) or end menu without partner_id
+        if "stats" in str_markup:
             return get_start_menu_buttons(UserState.HOME)
         return get_end_menu_buttons(UserState.HOME)
 

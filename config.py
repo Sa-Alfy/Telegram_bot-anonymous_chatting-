@@ -27,6 +27,8 @@ PORT = int(os.getenv("PORT", 10000))
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "")
 DATABASE_URL = os.getenv("DATABASE_URL")
 REDIS_URL = os.getenv("REDIS_URL")
+NGROK_AUTHTOKEN = os.getenv("NGROK_AUTHTOKEN", "")
+USE_NGROK = os.getenv("USE_NGROK", "False").lower() == "true"
 
 # ═══════════════════════════════════════════════════════
 # Logging

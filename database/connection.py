@@ -29,9 +29,11 @@ class Database:
                 db_url,
                 min_size=1,
                 max_size=10,
-                ssl=ssl_mode
+                ssl=ssl_mode,
+                command_timeout=30,
+                max_inactive_connection_lifetime=300,
             )
-            logger.info("📁 Connected to PostgreSQL database pool (Supabase)")
+            logger.info("Connected to PostgreSQL database pool (Supabase)")
             await self._init_db()
 
     async def _init_db(self):
@@ -44,7 +46,7 @@ class Database:
             schema = f.read()
             async with self._pool.acquire() as conn:
                 await conn.execute(schema)
-            logger.info("✅ Database schema initialized.")
+            logger.info("Database schema initialized.")
 
     async def execute(self, query: str, params: tuple = ()):
         """Executes a query.
@@ -84,7 +86,7 @@ class Database:
         if self._pool:
             await self._pool.close()
             self._pool = None
-            logger.info("🔌 Database connection pool closed.")
+            logger.info("Database connection pool closed.")
 
     @asynccontextmanager
     async def transaction(self):

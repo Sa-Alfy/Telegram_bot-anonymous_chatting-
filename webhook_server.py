@@ -322,7 +322,8 @@ def health():
     try:
         if app_state.telegram_app and app_state.telegram_app.is_connected:
             tg_connected = True
-    except: pass
+    except Exception as e:
+        logger.debug(f"Health check: Pyrogram liveness probe failed: {e}")
 
     # Fetch real-time stats from the bot loop if possible
     bot_stats = {"active_chats": 0, "queue_length": 0}
@@ -335,12 +336,45 @@ def health():
     except Exception as e:
         logger.debug(f"Health check could not fetch live stats: {e}")
 
+    # Redis liveness check
+    redis_status = "not_configured"
+    try:
+        import asyncio
+        from services.distributed_state import distributed_state
+        if distributed_state.redis and app_state.bot_loop and app_state.bot_loop.is_running():
+            async def _ping_redis():
+                return await distributed_state.redis.ping()
+            future = asyncio.run_coroutine_threadsafe(_ping_redis(), app_state.bot_loop)
+            pong = future.result(timeout=3)
+            redis_status = "connected" if pong else "error"
+    except Exception as e:
+        logger.debug(f"Health check: Redis liveness probe failed: {e}")
+        redis_status = "error"
+
+    # Database liveness check
+    db_status = "unknown"
+    try:
+        import asyncio
+        from database.connection import db
+        if db._pool and app_state.bot_loop and app_state.bot_loop.is_running():
+            async def _ping_db():
+                async with db._pool.acquire() as conn:
+                    return await conn.fetchval("SELECT 1")
+            future = asyncio.run_coroutine_threadsafe(_ping_db(), app_state.bot_loop)
+            result = future.result(timeout=5)
+            db_status = "connected" if result == 1 else "error"
+    except Exception as e:
+        logger.debug(f"Health check: DB liveness probe failed: {e}")
+        db_status = "error"
+
     # Build response — no sensitive data exposed
     status = {
         "status": "online",
         "telegram": "connected" if tg_connected else "disconnected",
         "messenger": "ENABLED" if MESSENGER_ENABLED else "DISABLED",
         "bot_loop": "running" if (app_state.bot_loop and app_state.bot_loop.is_running()) else "stopped",
+        "redis": redis_status,
+        "database": db_status,
         "stats": bot_stats,
     }
         

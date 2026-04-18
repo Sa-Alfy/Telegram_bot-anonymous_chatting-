@@ -39,7 +39,8 @@ try:
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-from config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, MESSENGER_ENABLED, PORT, RENDER_EXTERNAL_URL, DATABASE_URL
+from config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, MESSENGER_ENABLED, PORT, RENDER_EXTERNAL_URL, DATABASE_URL, USE_NGROK
+from utils.ngrok_utils import start_ngrok_tunnel, stop_ngrok_tunnel
 
 def _validate_env():
     missing = []
@@ -113,7 +114,7 @@ def run_flask_in_thread():
     from webhook_server import run_flask
     flask_thread = threading.Thread(target=run_flask, daemon=True, name="FlaskWebhook")
     flask_thread.start()
-    logger.info("🌐 Flask webhook thread started.")
+    logger.info("Flask webhook thread started.")
     return flask_thread
 
 
@@ -126,7 +127,7 @@ def run_keep_alive():
         from keep_alive import start_keep_alive
         start_keep_alive()
     else:
-        logger.info("ℹ️ Not on Render — keep-alive not started.")
+        logger.info("Not on Render - keep-alive not started.")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -141,7 +142,7 @@ async def main():
         return
 
     # Init databases
-    logger.info("📁 Connecting to database...")
+    logger.info("Connecting to database...")
     await db.connect()
 
     # Connect Redis for distributed state
@@ -152,9 +153,9 @@ async def main():
     from core.behavior_engine import behavior_engine
     if distributed_state.redis:
         behavior_engine.collector.configure(distributed_state.redis)
-        logger.info("🧠 Behavioral Engine initialized with Redis storage.")
+        logger.info("Behavioral Engine initialized with Redis storage.")
     else:
-        logger.info("🧠 Behavioral Engine running with InMemory storage (shared state disabled).")
+        logger.info("Behavioral Engine running with InMemory storage (shared state disabled).")
 
     # ── Schema migration for new compliance columns ─────────────────
     try:
@@ -180,7 +181,7 @@ async def main():
                 );
                 CREATE INDEX IF NOT EXISTS idx_blocked_users ON blocked_users(blocker_id, blocked_id);
             """)
-        logger.info("✅ Compliance schema migration complete.")
+        logger.info("Compliance schema migration complete.")
     except Exception as e:
         logger.warning(f"Schema migration note: {e}")
 
@@ -189,7 +190,7 @@ async def main():
         from database.repositories.user_repository import UserRepository
         count = await UserRepository.grandfather_existing_users()
         if count > 0:
-            logger.info(f"✅ Grandfathered {count} existing users (consent marked).")
+            logger.info(f"Grandfathered {count} existing users (consent marked).")
     except Exception as e:
         logger.warning(f"Grandfathering note: {e}")
 
@@ -238,8 +239,15 @@ async def main():
     # ── Keep-alive pinger (in thread) ─────────────────────────────────
     run_keep_alive()
 
+    # ── Ngrok Tunnel (Development Only) ───────────────────────────────
+    base_url = RENDER_EXTERNAL_URL
+    if USE_NGROK:
+        ngrok_url = start_ngrok_tunnel()
+        if ngrok_url:
+            base_url = ngrok_url
+            
     # ── Start Pyrogram ────────────────────────────────────────────────
-    logger.info("🤖 Production-Grade Anonymous Bot (Telegram + Messenger) starting...")
+    logger.info("Production-Grade Anonymous Bot (Telegram + Messenger) starting...")
     await pyrogram_app.start()
 
     # ── Flask webhook server (in thread) ──────────────────────────────
@@ -247,16 +255,20 @@ async def main():
     # app_state.telegram_app is fully connected before Messenger
     # webhooks arrive and try to use it.
     run_flask_in_thread()
-    logger.info("✅ Pyrogram bot started successfully!")
+    logger.info("Pyrogram bot started successfully!")
 
     if MESSENGER_ENABLED:
-        logger.info("💬 Messenger webhook ready at /messenger-webhook")
+        webhook_path = "/messenger-webhook"
+        full_webhook_url = f"{base_url}{webhook_path}" if base_url else f"http://localhost:{PORT}{webhook_path}"
+        logger.info(f"Messenger webhook ready at {full_webhook_url}")
+        if USE_NGROK:
+            logger.info("PRO TIP: Don't forget to update your Webhook URL in the Meta Developer Dashboard!")
 
     # ── Keep running ──────────────────────────────────────────────────
     try:
         await asyncio.Event().wait()
     except (KeyboardInterrupt, SystemExit):
-        logger.info("🛑 Shutdown signal received. Initiating graceful shutdown...")
+        logger.info("Shutdown signal received. Initiating graceful shutdown...")
     finally:
         # Notify all active users about restart
         active_users = set(match_state.active_chats.keys()) | set(match_state.waiting_queue)
@@ -287,6 +299,8 @@ async def main():
         logger.info("🔌 Closing database and stopping bot...")
         await db.close()
         await pyrogram_app.stop()
+        if USE_NGROK:
+            stop_ngrok_tunnel()
         logger.info("✅ Graceful shutdown complete.")
 
 

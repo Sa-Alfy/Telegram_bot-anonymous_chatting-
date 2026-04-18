@@ -9,6 +9,8 @@ import os
 import sys
 import logging
 from dotenv import load_dotenv
+from config import USE_NGROK
+from utils.ngrok_utils import start_ngrok_tunnel
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -20,7 +22,7 @@ sys.path.append(os.getcwd())
 try:
     from messenger_api import set_messenger_profile
 except ImportError:
-    logger.error("❌ Could not import messenger_api. Ensure it's in the same directory.")
+    logger.error("Could not import messenger_api. Ensure it's in the same directory.")
     sys.exit(1)
 
 def run_setup():
@@ -29,12 +31,16 @@ def run_setup():
     
     token = os.getenv("PAGE_ACCESS_TOKEN")
     if not token or len(token) < 20:
-        logger.error("❌ PAGE_ACCESS_TOKEN is missing or too short. Check your .env file.")
+        logger.error("PAGE_ACCESS_TOKEN is missing or too short. Check your .env file.")
         return
+
+    # Start ngrok if requested for standalone setup
+    if USE_NGROK:
+        start_ngrok_tunnel()
 
     render_url = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
 
-    logger.info("🛠 Starting Messenger Profile Setup...")
+    logger.info("Messenger Profile Setup starting...")
 
     # 1. Setting the 'Get Started' button
     logger.info("🔘 Setting 'Get Started' button...")
@@ -43,9 +49,9 @@ def run_setup():
     }
     res = set_messenger_profile(gs_payload)
     if res and "error" in res:
-        logger.error(f"❌ Failed to set 'Get Started' button: {res['error']}")
+        logger.error(f"Failed to set 'Get Started' button: {res['error']}")
     else:
-        logger.info("✅ 'Get Started' button activated.")
+        logger.info("'Get Started' button activated.")
 
     # 2. Setting Greeting Text
     logger.info("👋 Setting Welcome Greeting...")
@@ -59,9 +65,9 @@ def run_setup():
     }
     res = set_messenger_profile(greeting_payload)
     if res and "error" in res:
-        logger.error(f"❌ Failed to set Greeting text: {res['error']}")
+        logger.error(f"Failed to set Greeting text: {res['error']}")
     else:
-        logger.info("✅ Welcome Greeting configured.")
+        logger.info("Welcome Greeting configured.")
 
     # 3. Setting Persistent Menu
     logger.info("📋 Setting Persistent Menu...")
@@ -102,9 +108,9 @@ def run_setup():
     }
     res = set_messenger_profile(menu_payload)
     if res and "error" in res:
-        logger.error(f"❌ Failed to set Persistent Menu: {res['error']}")
+        logger.error(f"Failed to set Persistent Menu: {res['error']}")
     else:
-        logger.info("✅ Persistent Menu configured.")
+        logger.info("Persistent Menu configured.")
 
     # 4. Whitelisted Domains (required for URL buttons and webviews)
     if render_url:
@@ -117,9 +123,9 @@ def run_setup():
         }
         res = set_messenger_profile(domain_payload)
         if res and "error" in res:
-            logger.error(f"❌ Failed to set Whitelisted Domains: {res['error']}")
+            logger.error(f"Failed to set Whitelisted Domains: {res['error']}")
         else:
-            logger.info("✅ Whitelisted Domains configured.")
+            logger.info("Whitelisted Domains configured.")
     else:
         logger.warning("⚠️ RENDER_EXTERNAL_URL not set — skipping whitelisted_domains.")
 
@@ -143,9 +149,9 @@ def run_setup():
     }
     res = set_messenger_profile(ice_payload)
     if res and "error" in res:
-        logger.error(f"❌ Failed to set Ice Breakers: {res['error']}")
+        logger.error(f"Failed to set Ice Breakers: {res['error']}")
     else:
-        logger.info("✅ Ice Breakers configured.")
+        logger.info("Ice Breakers configured.")
 
     logger.info("=" * 60)
     logger.info("✨ Messenger profile setup complete!")
