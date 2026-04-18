@@ -208,11 +208,14 @@ async def on_callback(client: Client, query: CallbackQuery):
     # 1. Decode payload (action, target, state-hint)
     action, target_str, parsed_state = StateBoundPayload.decode(raw_data)
     target_id = int(target_str) if target_str.isdigit() else 0
+    
+    # Normalize action for matching
+    data = action.lower()
 
     # 2. Global rate limit (UI-layer debounce, not the concurrency lock)
     now = time.time()
     last_time = match_state.last_button_time.get(user_id, 0)
-    if now - last_time < 1.5:
+    if now - last_time < 1.0:
         return await query.answer("Please wait...", show_alert=False)
     match_state.last_button_time[user_id] = now
 
@@ -305,64 +308,64 @@ async def on_callback(client: Client, query: CallbackQuery):
                             handler = lambda c, uid, p: EconomyHandler.handle_buy_pack(c, uid, int(p))
                         elif prefix == "vote_":
                             from handlers.actions.voting import VotingHandler
-                            parts = data.split("_")
-                            tid = int(parts[-1])
-                            vote_type = "_".join(parts[1:-1])
+                            parts = action.split("_")
+                            # Robust ID extraction: use target_id if provided, else last part of action
+                            tid = target_id if target_id != 0 else (int(parts[-1]) if parts[-1].isdigit() else 0)
+                            # Robust vote_type: everything between 'vote_' and the ID
+                            vote_type = "_".join(parts[1:-1]) if target_id == 0 else "_".join(parts[1:])
                             handler = lambda c, uid, _: VotingHandler.handle_vote(c, uid, tid, vote_type)
                         elif prefix == "admin_set_vip_":
-                            parts = raw_data.split("_") if ":" not in raw_data else data.split("_")
+                            parts = action.split("_")
                             try:
                                 tid = int(parts[3])
                                 status = parts[4]
-                            except (IndexError, ValueError) as parse_err:
-                                logger.error(f"Malformed admin_set_vip payload '{data}': {parse_err}")
-                                await query.answer("❌ Malformed action.", show_alert=True)
-                                return
+                            except (IndexError, ValueError):
+                                continue
                             handler = lambda c, uid, p: AdminHandler.handle_set_vip_button(c, uid, tid, status)
                         elif prefix == "admin_quick_gift_":
-                            parts = raw_data.split("_") if ":" not in raw_data else data.split("_")
+                            parts = action.split("_")
                             try:
                                 tid = int(parts[3])
                                 amount = int(parts[4])
-                            except (IndexError, ValueError) as parse_err:
-                                logger.error(f"Malformed admin_quick_gift payload '{data}': {parse_err}")
-                                await query.answer("❌ Malformed action.", show_alert=True)
-                                return
+                            except (IndexError, ValueError):
+                                continue
                             handler = lambda c, uid, p: AdminHandler.handle_quick_gift(c, uid, tid, amount)
                         elif prefix == "admin_quick_deduct_":
-                            parts = raw_data.split("_") if ":" not in raw_data else data.split("_")
+                            parts = action.split("_")
                             try:
                                 tid = int(parts[3])
                                 amount = int(parts[4])
-                            except (IndexError, ValueError) as parse_err:
-                                logger.error(f"Malformed admin_quick_deduct payload '{data}': {parse_err}")
-                                await query.answer("❌ Malformed action.", show_alert=True)
-                                return
+                            except (IndexError, ValueError):
+                                continue
                             handler = lambda c, uid, p: AdminHandler.handle_quick_deduct(c, uid, tid, amount)
-                        elif prefix == "admin_ban_":
-                            handler = lambda c, uid, p: AdminHandler.handle_manage_ban(c, uid, int(p))
                         elif prefix == "buy_shop_":
-                            handler = lambda c, uid, p: EconomyHandler.handle_buy_shop_badge(c, uid, p)
+                            handler = lambda c, uid, p, val=action[len(prefix):]: EconomyHandler.handle_buy_shop_badge(c, uid, val)
+                        elif prefix == "react_":
+                            handler = lambda c, uid, p, val=action[len(prefix):]: SocialHandler.handle_reaction(c, uid, val)
+                        elif prefix == "lb_":
+                            handler = lambda c, uid, p, val=action[len(prefix):]: StatsHandler.handle_leaderboard_category(c, uid, val)
+                        elif prefix == "buy_booster_":
+                            handler = lambda c, uid, p, val=action[len(prefix):]: EconomyHandler.handle_buy_booster(c, uid, int(val))
+                        elif prefix == "buy_timed_priority_":
+                            handler = lambda c, uid, p, val=action[len(prefix):]: EconomyHandler.handle_buy_timed_priority(c, uid, int(val))
+                        elif prefix == "set_gender_":
+                            handler = lambda c, uid, p, val=action[len(prefix):]: OnboardingHandler.handle_set_gender(c, uid, val)
+                        elif prefix == "set_age_":
+                            handler = lambda c, uid, p, val=action[len(prefix):]: OnboardingHandler.handle_set_age(c, uid, val)
+                        elif prefix == "set_goal_":
+                            handler = lambda c, uid, p, val=action[len(prefix):]: OnboardingHandler.handle_set_goal(c, uid, val.capitalize())
+                        elif prefix == "peek_detail_":
+                            handler = lambda c, uid, p, val=action[len(prefix):]: SocialHandler.handle_peek_detail(c, uid, val)
+                        elif prefix == "search_pref_":
+                            handler = lambda c, uid, p, val=action[len(prefix):]: MatchingHandler.handle_search_with_pref(c, uid, val)
+                        elif prefix == "admin_ban_":
+                            tid = target_id if target_id != 0 else (int(action.split("_")[-1]) if action.split("_")[-1].isdigit() else 0)
+                            handler = lambda c, uid, p, t=tid: AdminHandler.handle_manage_ban(c, uid, t)
                         elif prefix == "admin_manage_ban_":
-                            handler = lambda c, uid, p: AdminHandler.handle_manage_ban(c, uid, int(p))
+                            tid = target_id if target_id != 0 else (int(action.split("_")[-1]) if action.split("_")[-1].isdigit() else 0)
+                            handler = lambda c, uid, p, t=tid: AdminHandler.handle_manage_ban(c, uid, t)
                         elif prefix == "confirm_reveal_":
                             handler = lambda c, uid, p: EconomyHandler.handle_confirm_reveal(c, uid, int(p))
-                        elif prefix == "react_":
-                            handler = lambda c, uid, p: SocialHandler.handle_reaction(c, uid, p)
-                        elif prefix == "lb_":
-                            handler = lambda c, uid, p: StatsHandler.handle_leaderboard_category(c, uid, p)
-                        elif prefix == "buy_booster_":
-                            handler = lambda c, uid, p: EconomyHandler.handle_buy_booster(c, uid, int(p))
-                        elif prefix == "buy_timed_priority_":
-                            handler = lambda c, uid, p: EconomyHandler.handle_buy_timed_priority(c, uid, int(p))
-                        elif prefix == "set_gender_":
-                            handler = lambda c, uid, p: OnboardingHandler.handle_set_gender(c, uid, p)
-                        elif prefix == "set_age_":
-                            handler = lambda c, uid, p: OnboardingHandler.handle_set_age(c, uid, p)
-                        elif prefix == "set_goal_":
-                            handler = lambda c, uid, p: OnboardingHandler.handle_set_goal(c, uid, p.capitalize())
-                        elif prefix == "peek_detail_":
-                            handler = lambda c, uid, p: SocialHandler.handle_peek_detail(c, uid, p)
                         elif prefix == "accept_friend_":
                             handler = lambda c, uid, p: SocialHandler.handle_accept_friend(c, uid, int(p))
                         elif prefix == "decline_friend_":
@@ -374,10 +377,8 @@ async def on_callback(client: Client, query: CallbackQuery):
                         elif prefix == "remove_friend_":
                             handler = lambda c, uid, p: SocialHandler.handle_remove_friend(c, uid, int(p))
                         elif prefix == "admin_unban_":
-                            handler = lambda c, uid, p: AdminHandler.handle_unban_request(c, uid, int(p))
-                        elif prefix == "search_pref_":
-                            pref_value = data[len("search_pref_"):]  # Extract "Any"/"Male"/"Female"/"Priority"
-                            handler = lambda c, uid, p, pv=pref_value: MatchingHandler.handle_search_with_pref(c, uid, pv)
+                            tid = target_id if target_id != 0 else (int(action.split("_")[-1]) if action.split("_")[-1].isdigit() else 0)
+                            handler = lambda c, uid, p, t=tid: AdminHandler.handle_unban_request(c, uid, t)
 
                         if handler:
                             response = await handler(client, user_id, param)

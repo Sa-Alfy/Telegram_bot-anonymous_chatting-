@@ -14,7 +14,7 @@ class VoteRepository:
             )
             return dict(record) if record else None
         except Exception as e:
-            logger.error(f"Error fetching vote: {e}")
+            logger.error(f"Error fetching vote: {e}", exc_info=True)
             return None
 
     @staticmethod
@@ -42,7 +42,7 @@ class VoteRepository:
             await VoteRepository._recalculate_aggregates(voted_id)
             return True
         except Exception as e:
-            logger.error(f"Error submitting vote: {e}")
+            logger.error(f"Error submitting vote from {voter_id} to {voted_id}: {e}", exc_info=True)
             return False
 
     @staticmethod

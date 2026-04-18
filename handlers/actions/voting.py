@@ -10,6 +10,8 @@ class VotingHandler:
         Process a vote from voter (user_id) for target (target_id).
         Vote string format expected: 'like', 'dislike', 'gender_male', 'gender_female'
         """
+        from utils.logger import logger
+        logger.info(f"VOTE ATTEMPT: voter={user_id}, target={target_id}, vote_str='{vote}'")
         if user_id == target_id:
             return {"alert": "❌ You cannot vote for yourself!", "show_alert": True}
             

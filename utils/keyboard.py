@@ -232,12 +232,12 @@ def end_menu(can_rematch: bool = False, partner_id: int = None):
     if partner_id:
         buttons.extend([
             [
-                InlineKeyboardButton("👍 Like", callback_data=f"vote_like_{partner_id}"),
-                InlineKeyboardButton("👎 Dislike", callback_data=f"vote_dislike_{partner_id}")
+                InlineKeyboardButton("👍 Like", callback_data=StateBoundPayload.encode("vote_like", str(partner_id), "END_MENU")),
+                InlineKeyboardButton("👎 Dislike", callback_data=StateBoundPayload.encode("vote_dislike", str(partner_id), "END_MENU"))
             ],
             [
-                InlineKeyboardButton("👨 Boy", callback_data=f"vote_gender_male_{partner_id}"),
-                InlineKeyboardButton("👩 Girl", callback_data=f"vote_gender_female_{partner_id}")
+                InlineKeyboardButton("👨 Boy", callback_data=StateBoundPayload.encode("vote_gender_male", str(partner_id), "END_MENU")),
+                InlineKeyboardButton("👩 Girl", callback_data=StateBoundPayload.encode("vote_gender_female", str(partner_id), "END_MENU"))
             ]
         ])
     
