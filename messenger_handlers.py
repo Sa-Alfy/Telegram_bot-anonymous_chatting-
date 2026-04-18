@@ -76,6 +76,7 @@ async def _execute_action(psid: str, virtual_id: int, action_coro_fn, *args):
     if client is None:
         logger.warning(f"_execute_action: telegram_app is None — cross-platform relay unavailable")
     response = await action_coro_fn(client, virtual_id, *args)
+    logger.info(f"TRACE _execute_action: response keys = {list(response.keys()) if response else 'None'}")
     if not response:
         return
     if "alert" in response and "text" not in response:

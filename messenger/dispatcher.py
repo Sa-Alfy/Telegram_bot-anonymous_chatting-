@@ -92,7 +92,26 @@ async def _process_messaging_event(messaging: dict):
         )
         sender_id = messaging.get("sender", {}).get("id")
         if not sender_id:
+            logger.warning("TRACE: No sender_id in messaging event")
             return
+
+        # Determine event type for logging
+        _event_type = "unknown"
+        _event_payload = ""
+        if "postback" in messaging:
+            _event_type = "postback"
+            _event_payload = messaging["postback"].get("payload", "")
+        elif "message" in messaging:
+            msg = messaging["message"]
+            if "quick_reply" in msg:
+                _event_type = "quick_reply"
+                _event_payload = msg["quick_reply"].get("payload", "")
+            elif "text" in msg:
+                _event_type = "text"
+                _event_payload = msg["text"][:50]
+            elif "attachments" in msg:
+                _event_type = "attachment"
+        logger.info(f"TRACE: Processing {_event_type} from PSID ...{sender_id[-4:]}: {_event_payload}")
 
         # Record interaction for 24h window (H2: run in executor to avoid blocking the event loop)
         loop = asyncio.get_event_loop()
@@ -102,17 +121,21 @@ async def _process_messaging_event(messaging: dict):
         # Get/create user record (async)
         user_data = await _get_or_create_messenger_user(sender_id)
         if not user_data:
+            logger.warning(f"TRACE: _get_or_create_messenger_user returned None for PSID ...{sender_id[-4:]}")
             return
         user, virtual_id = user_data
+        logger.info(f"TRACE: VirtualID=...{str(virtual_id)[-4:]} for PSID ...{sender_id[-4:]}")
 
         # Block Check
         if user and user.get("is_blocked"):
-            send_message(sender_id, "🚫 Your account has been blocked.")
+            logger.info(f"TRACE: User ...{str(virtual_id)[-4:]} is BLOCKED, rejecting")
+            send_message(sender_id, "\U0001f6ab Your account has been blocked.")
             return
 
         # ── Consent Gate ──────────────────────────────────────────────
         has_consent = user and user.get("consent_given_at")
         if not has_consent:
+            logger.info(f"TRACE: User ...{str(virtual_id)[-4:]} has NO CONSENT, showing consent screen")
             payload = None
             text_cmd = ""
             
@@ -154,17 +177,22 @@ async def _process_messaging_event(messaging: dict):
             
             # Deduplicate Messages (using built-in mid)
             if mid and await distributed_state.is_duplicate_message(mid):
-                logger.debug(f"Skipping duplicate message: {mid}")
+                logger.info(f"TRACE: DROPPED duplicate message mid={mid[:20]}...")
                 return
 
             if "quick_reply" in message:
                 payload = message["quick_reply"]["payload"]
                 # Deduplicate quick-reply clicks (prevent double-tap)
-                if await distributed_state.is_duplicate_interaction(virtual_id, f"qr:{payload}"):
+                is_dup = await distributed_state.is_duplicate_interaction(virtual_id, f"qr:{payload}")
+                if is_dup:
+                    logger.info(f"TRACE: DROPPED duplicate quick_reply: {payload}")
                     return
+                logger.info(f"TRACE: Dispatching quick_reply: {payload} for VID ...{str(virtual_id)[-4:]}")
                 await handle_messenger_quick_reply(sender_id, virtual_id, user, payload)
+                logger.info(f"TRACE: quick_reply handler COMPLETED for {payload}")
 
             elif "text" in message:
+                logger.info(f"TRACE: Dispatching text message for VID ...{str(virtual_id)[-4:]}")
                 await handle_messenger_text(sender_id, virtual_id, user, message["text"])
 
             elif "attachments" in message:
@@ -173,17 +201,17 @@ async def _process_messaging_event(messaging: dict):
         elif "postback" in messaging:
             payload = messaging["postback"]["payload"]
             # Deduplicate postback clicks (prevent double-tap)
-            if await distributed_state.is_duplicate_interaction(virtual_id, f"pb:{payload}"):
+            is_dup = await distributed_state.is_duplicate_interaction(virtual_id, f"pb:{payload}")
+            if is_dup:
+                logger.info(f"TRACE: DROPPED duplicate postback: {payload}")
                 return
+            logger.info(f"TRACE: Dispatching postback: {payload} for VID ...{str(virtual_id)[-4:]}")
             await handle_messenger_postback(sender_id, virtual_id, user, payload)
+            logger.info(f"TRACE: postback handler COMPLETED for {payload}")
 
         elif "call" in messaging:
             await handle_messenger_call(sender_id, virtual_id, user, messaging["call"])
 
-        # Consent calls also need await if they are from messenger_handlers
-        # But here they are from messenger.handlers.profile. 
-        # I'll convert those next.
-
     except Exception as e:
-        logger.exception(f"Error in _process_messaging_event: {e}")
+        logger.exception(f"TRACE-ERROR in _process_messaging_event: {e}")
 
