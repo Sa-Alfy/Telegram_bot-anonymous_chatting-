@@ -416,7 +416,6 @@ async def handle_messenger_quick_reply(psid: str, virtual_id: int, user: dict, p
     
     # State transition mapping
     intent_to_state = {
-        "SEARCH": UserState.SEARCHING,
         "CANCEL_SEARCH": UserState.HOME,
         "BACK_HOME": UserState.HOME,
         "CMD_PROFILE": UserState.PROFILE_EDIT,
@@ -426,6 +425,10 @@ async def handle_messenger_quick_reply(psid: str, virtual_id: int, user: dict, p
         target_state = intent_to_state[action]
         if UserState.is_valid_transition(current_state, target_state):
             await match_state.set_user_state(virtual_id, target_state)
+            
+    if action.startswith("PREF_"):
+        if UserState.is_valid_transition(current_state, UserState.SEARCHING):
+            await match_state.set_user_state(virtual_id, UserState.SEARCHING)
 
     # ── Routing ──────────────────────────────────────────────────────
     if action == "SEARCH": await handle_search(psid, virtual_id, user)
