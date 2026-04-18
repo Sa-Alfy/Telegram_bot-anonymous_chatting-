@@ -376,7 +376,8 @@ async def on_callback(client: Client, query: CallbackQuery):
                         elif prefix == "admin_unban_":
                             handler = lambda c, uid, p: AdminHandler.handle_unban_request(c, uid, int(p))
                         elif prefix == "search_pref_":
-                            handler = lambda c, uid, p: MatchingHandler.handle_search_with_pref(c, uid, str(p))
+                            pref_value = data[len("search_pref_"):]  # Extract "Any"/"Male"/"Female"/"Priority"
+                            handler = lambda c, uid, p, pv=pref_value: MatchingHandler.handle_search_with_pref(c, uid, pv)
 
                         if handler:
                             response = await handler(client, user_id, param)
