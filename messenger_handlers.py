@@ -389,6 +389,11 @@ async def _notify_media(partner_virtual_id: int, media_type: str, url: str, capt
 
 async def handle_messenger_text(psid: str, virtual_id: int, user: dict, text: str):
     """Route text messages (Async)."""
+    # 1. NEW: Invariant Recovery Hook
+    if not await distributed_state.validate_session(virtual_id, repair=True):
+        send_quick_replies(psid, "⚠️ **Session inconsistency detected.**\nYou have been returned to the main menu.", get_start_menu_buttons(UserState.HOME))
+        return
+
     if not await rate_limiter.can_send_message(virtual_id):
         remaining = await rate_limiter.get_cooldown_remaining(virtual_id, "message") or 0
         send_message(psid, f"⏳ Please wait {remaining:.0f}s.")
@@ -442,6 +447,11 @@ async def handle_messenger_quick_reply(psid: str, virtual_id: int, user: dict, p
     from utils.renderer import StateBoundPayload
     from state.match_state import UserState
     
+    # 1. NEW: Invariant Recovery Hook
+    if not await distributed_state.validate_session(virtual_id, repair=True):
+        send_quick_replies(psid, "🔄 Syncing your session...", get_start_menu_buttons(UserState.HOME))
+        return
+
     action, target_id, parsed_state = StateBoundPayload.decode(payload)
     current_state = await match_state.get_user_state(virtual_id) or UserState.HOME
     
@@ -534,6 +544,13 @@ async def handle_messenger_quick_reply(psid: str, virtual_id: int, user: dict, p
 async def handle_messenger_postback(psid: str, virtual_id: int, user: dict, payload: str):
     """Handle postback events (Async)."""
     from utils.renderer import StateBoundPayload
+    
+    # 1. NEW: Invariant Recovery Hook
+    from state.match_state import UserState
+    if not await distributed_state.validate_session(virtual_id, repair=True):
+        send_quick_replies(psid, "🔄 Refreshing...", get_start_menu_buttons(UserState.HOME))
+        return
+
     action, target_id, parsed_state = StateBoundPayload.decode(payload)
 
     if action == "GET_STARTED":
@@ -561,6 +578,12 @@ async def handle_messenger_postback(psid: str, virtual_id: int, user: dict, payl
 
 async def handle_messenger_attachment(psid: str, virtual_id: int, attachments: list):
     """Handle media attachments (Async)."""
+    # 1. NEW: Invariant Recovery Hook
+    from state.match_state import UserState
+    if not await distributed_state.validate_session(virtual_id, repair=True):
+        send_quick_replies(psid, "⚠️ Session reset.", get_start_menu_buttons(UserState.HOME))
+        return
+
     state = await match_state.get_user_state(virtual_id)
     partner_id = await match_state.get_partner(virtual_id)
     

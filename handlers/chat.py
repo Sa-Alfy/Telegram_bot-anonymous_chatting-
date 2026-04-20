@@ -47,6 +47,12 @@ async def help_button_handler(client: Client, message: Message):
 async def chat_handler(client: Client, message: Message):
     user_id = message.from_user.id
     
+    # 1. NEW: Message-level Invariant Recovery (Self-Healing)
+    from services.distributed_state import distributed_state
+    if not await distributed_state.validate_session(user_id, repair=True):
+        await message.reply_text("⚠️ **Session inconsistency detected.**\nYou have been returned to the main menu.", reply_markup=start_menu())
+        return
+
     now = time.time()
     
     # Check if muted for spamming

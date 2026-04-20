@@ -226,7 +226,15 @@ async def on_callback(client: Client, query: CallbackQuery):
     user_id = query.from_user.id
     raw_data = query.data
 
-    # 1. Decode payload (action, target, state-hint)
+    # 1. NEW: Invariant Recovery Hook (Self-Healing)
+    from services.distributed_state import distributed_state
+    if not await distributed_state.validate_session(user_id, repair=True):
+        # validate_session already called force_disconnect if mismatch found
+        await query.answer("🔄 Session sync fixed.", show_alert=False)
+        from utils.renderer import Renderer
+        return await process_response(client, query, Renderer.render_profile_menu("telegram", UserState.HOME))
+
+    # 2. Decode payload (action, target, state-hint)
     action, target_str, parsed_state = StateBoundPayload.decode(raw_data)
     target_id = int(target_str) if target_str.isdigit() else 0
     

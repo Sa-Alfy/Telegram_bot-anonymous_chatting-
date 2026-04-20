@@ -240,7 +240,7 @@ class MatchingHandler:
 
     @staticmethod
     async def handle_rematch(client: Client, user_id: int) -> Dict[str, Any]:
-        """Requests a rematch with the last partner."""
+        """Requests a rematch with the last partner (Atomic claim)."""
         from database.repositories.user_repository import UserRepository
         user = await UserRepository.get_by_telegram_id(user_id)
         partner_id = user.get("last_partner_id")
@@ -248,27 +248,36 @@ class MatchingHandler:
         if not partner_id:
             return {"alert": "❌ Rematch no longer available!", "show_alert": True}
             
-        # Deduct 1 coin for rematch
+        # 1. Deduct 1 coin for rematch attempt
         if not await UserService.deduct_coins(user_id, 1):
             return {"alert": "❌ Not enough coins (1 required)!", "show_alert": True}
             
-        success = await MatchmakingService.request_rematch(user_id, partner_id)
-        if success:
+        # 2. Atomic attempt
+        success, code = await MatchmakingService.request_rematch(user_id, partner_id)
+        
+        if code == 1: # REMATCH_SUCCESS
             await MatchmakingService.initialize_match(client, user_id, partner_id)
             return {
                 "text": "✅ **Rematch successful!**",
                 "reply_markup": None
             }
-
-            
-        # Notify partner they have a rematch request
-        return {
-            "alert": "🔄 Rematch requested! Waiting for partner...",
-            "show_alert": True,
-            "notify_partner": {
-                "target_id": partner_id,
-                "text": "🔄 **Your last partner wants a rematch!**\nClick 'Rematch' in your summary to reconnect."
+        
+        if code == 2: # WAITING_FOR_PARTNER / ALREADY_WAITING
+            # Notify partner they have a rematch request
+            return {
+                "alert": "🔄 Rematch requested! Waiting for partner...",
+                "show_alert": True,
+                "notify_partner": {
+                    "target_id": partner_id,
+                    "text": "🔄 **Your last partner wants a rematch!**\nClick 'Rematch' in your summary to reconnect."
+                }
             }
+
+        # code == 0: Failure (Refund coins)
+        await UserRepository.increment_coins(user_id, 1) # Direct refund without boosters
+        return {
+            "alert": "❌ Partner is currently in another chat or unavailable. Coin refunded.",
+            "show_alert": True
         }
 
     @staticmethod

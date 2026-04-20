@@ -111,13 +111,12 @@ class MatchState:
                 u_data = await distributed_state.get_user_queue_data(user_id)
             else:
                 if user_id not in self.waiting_queue: return None
-                candidates = [c for c in self.waiting_queue] # Copy to avoid mutation issues
+                candidates = [c for c in self.waiting_queue] # Copy
                 u_data = self.user_preferences.get(user_id, {})
 
             u_gender = u_data.get("gender", "Not specified")
             u_pref = u_data.get("pref", "Any")
             
-            # Find partner
             for partner_id in candidates:
                 if partner_id == user_id: continue
                 
@@ -129,42 +128,37 @@ class MatchState:
                 p_gender = p_data.get("gender", "Not specified")
                 p_pref = p_data.get("pref", "Any")
                 
-                # Check compatibility
                 u_likes_p = (u_pref.lower() == "any") or (u_pref.lower() == p_gender.lower())
                 p_likes_u = (p_pref.lower() == "any") or (p_pref.lower() == u_gender.lower())
                 
                 if u_likes_p and p_likes_u:
-                    # Block check (H7: use specific exception type instead of bare except)
                     try:
                         from database.repositories.blocked_repository import BlockedRepository
                         if await BlockedRepository.is_mutually_blocked(user_id, partner_id):
                             continue
                     except Exception as e:
-                        logger.warning(f"Block check failed for {user_id}-{partner_id}: {e}")
-                        continue  # Fail-safe: skip this pair if block status unknown
+                        logger.warning(f"Block check failed: {e}")
+                        continue
 
-                    # C8: Atomic Match Claim via Lua (prevents double-match across workers)
+                    # INVARIANT: Atomic Claim + State Initialize
                     if distributed_state.redis:
-                        claimed = await distributed_state.atomic_claim_match(user_id, partner_id)
-                        if not claimed:
-                            continue  # Snatched by another worker — try next candidate
-                        # atomic_claim_match already set chat: keys in Redis
+                        success, reason = await distributed_state.atomic_claim_match(user_id, partner_id)
+                        if not success:
+                            logger.info(f"Match claim failed: {reason}")
+                            continue
                     else:
-                        # Fallback: single-worker path, manual queue removal
                         await self.remove_from_queue(user_id)
                         await self.remove_from_queue(partner_id)
                         await distributed_state.set_partner(user_id, partner_id)
+                        await distributed_state.set_user_state(user_id, UserState.CHATTING)
+                        await distributed_state.set_user_state(partner_id, UserState.CHATTING)
 
-                    # Set state for both users
-                    await distributed_state.set_user_state(user_id, UserState.CHATTING)
-                    await distributed_state.set_user_state(partner_id, UserState.CHATTING)
-                    await distributed_state.set_session_state(user_id, partner_id, UserState.Session.ACTIVE)
-                    
-                    # C6: Store start time in Redis (visible to all workers)
+                    # Update local/distributed start times (C6)
                     now = time.time()
-                    await distributed_state.set_chat_start(user_id, now)
-                    await distributed_state.set_chat_start(partner_id, now)
-                    # Keep local dict as fallback for single-worker mode
+                    if not distributed_state.redis:
+                        await distributed_state.set_chat_start(user_id, now)
+                        await distributed_state.set_chat_start(partner_id, now)
+                    
                     self.chat_start_times[user_id] = now
                     self.chat_start_times[partner_id] = now
                     
@@ -175,22 +169,28 @@ class MatchState:
     async def disconnect(self, user_id: int) -> Optional[Tuple[int, int]]:
         """Disconnects a user and returns (partner_id, duration_seconds)."""
         async with self._lock:
-            partner_id = await distributed_state.clear_partner(user_id)
+            partner_id = await distributed_state.get_partner(user_id)
             if partner_id:
-                # C6: Read start time from Redis first, fall back to local dict
-                start_time = await distributed_state.pop_chat_start(user_id)
-                await distributed_state.pop_chat_start(partner_id)  # cleanup partner too
-                # Also clean local dict in case single-worker set it
-                self.chat_start_times.pop(user_id, None)
-                self.chat_start_times.pop(partner_id, None)
+                if distributed_state.redis:
+                    success, start_u, start_p = await distributed_state.atomic_disconnect(user_id, partner_id)
+                    if not success:
+                        return None
+                    # We use start_u as the authoritative snapshot
+                    start_time = start_u
+                else:
+                    partner_id = await distributed_state.clear_partner(user_id)
+                    if not partner_id:
+                        return None
+                    start_time = self.chat_start_times.get(user_id, time.time())
+                    await distributed_state.set_user_state(user_id, UserState.HOME)
+                    await distributed_state.set_user_state(partner_id, UserState.HOME)
+
                 duration = int(time.time() - start_time)
                 
                 self.rematch_requests.pop(user_id, None)
                 self.rematch_requests.pop(partner_id, None)
-                
-                await distributed_state.set_user_state(user_id, UserState.HOME)
-                await distributed_state.set_user_state(partner_id, UserState.HOME)
-                await distributed_state.clear_session_state(user_id, partner_id)
+                self.chat_start_times.pop(user_id, None)
+                self.chat_start_times.pop(partner_id, None)
                 
                 logger.info(f"💔 Match Ended: {user_id} | {partner_id} after {duration}s")
                 return partner_id, duration
@@ -198,36 +198,18 @@ class MatchState:
             await self.remove_from_queue(user_id)
             return None
 
-    async def set_rematch(self, user_id: int, partner_id: int) -> bool:
-        """Sets a rematch request. Uses Redis when available for atomic cross-worker claim (M3 fix)."""
+    async def set_rematch(self, user_id: int, partner_id: int) -> tuple[bool, int]:
+        """Sets a rematch request via atomic Lua claim. Returns (success, code)."""
         if distributed_state.redis:
-            # Canonical key — order-independent so both sides find it
-            rkey = f"rematch:{min(user_id, partner_id)}:{max(user_id, partner_id)}"
-            # Try to set as the first requester (NX = only if absent)
-            set_result = await distributed_state.redis.set(rkey, str(user_id), nx=True, ex=300)
-            if set_result:
-                # We were first — waiting for partner
-                return False
-            else:
-                # Partner already set this key — check it's really a mutual request
-                existing = await distributed_state.redis.get(rkey)
-                if existing and existing != str(user_id):
-                    # Confirmed mutual — clean up and create the match
-                    await distributed_state.redis.delete(rkey)
-                    if await distributed_state.is_in_chat(partner_id) or await distributed_state.is_in_chat(user_id):
-                        return False
-                    await distributed_state.set_partner(user_id, partner_id)
-                    now = time.time()
-                    await distributed_state.set_chat_start(user_id, now)
-                    await distributed_state.set_chat_start(partner_id, now)
-                    self.chat_start_times[user_id] = now
-                    self.chat_start_times[partner_id] = now
-                    # FIX: set both users to CHATTING so message handlers work
-                    await distributed_state.set_user_state(user_id, UserState.CHATTING)
-                    await distributed_state.set_user_state(partner_id, UserState.CHATTING)
-                    logger.info(f"🔄 Rematch Successful: {user_id} <-> {partner_id}")
-                    return True
-                return False
+            code, reason = await distributed_state.atomic_rematch(user_id, partner_id)
+            if code == 1:
+                # Sync local start times for consistency if needed (legacy compat)
+                now = time.time()
+                self.chat_start_times[user_id] = now
+                self.chat_start_times[partner_id] = now
+                logger.info(f"🔄 Rematch Successful: {user_id} <-> {partner_id}")
+                return True, code
+            return False, code
         else:
             # Single-worker fallback — original in-memory logic
             async with self._lock:
@@ -286,6 +268,13 @@ class MatchState:
         partner = await distributed_state.get_partner(user_id)
         if partner is not None: return partner
         return self.active_chats.get(user_id)
+
+    async def get_chat_start(self, user_id: int) -> float:
+        """Returns chat start time without removing it (Snapshot)."""
+        if distributed_state.redis:
+            val = await distributed_state.redis.get(f"chat_start:{user_id}")
+            return float(val) if val else time.time()
+        return self.chat_start_times.get(user_id, time.time())
 
     async def set_user_state(self, user_id: int, state: Optional[str]):
         await distributed_state.set_user_state(user_id, state)

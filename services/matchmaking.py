@@ -118,59 +118,75 @@ class MatchmakingService:
 
     @staticmethod
     async def disconnect(user_id: int) -> Optional[Dict[str, Any]]:
-        """Ends a chat session and calculates rewards."""
-        result = await match_state.disconnect(user_id)
-        if not result:
+        """Ends a chat session and calculates rewards (Atomic Disconnect -> Calc -> DB)."""
+        from core.behavior_engine import behavior_engine
+        
+        # 1. ATOMIC DISCONNECT FIRST (Provides Idempotency)
+        stats = await match_state.disconnect(user_id)
+        if not stats:
+            await match_state.remove_from_queue(user_id)
             return None
             
-        from core.behavior_engine import behavior_engine
-        await behavior_engine.record_disconnect(user_id)
-            
-        partner_id, duration_seconds = result
+        partner_id, duration_seconds = stats
         duration_minutes = duration_seconds // 60
         
-        # Base rewards
+        u1 = await UserRepository.get_by_telegram_id(user_id)
+        u2 = await UserRepository.get_by_telegram_id(partner_id)
+        
+        if not u1:
+            logger.warning(f"Disconnect failed: User {user_id} not found in DB.")
+            return None
+
+        # 2. CALCULATION
         match_reward = 5
         time_reward = duration_minutes * 2
         xp_reward = max(2, duration_minutes * 2)
         
-        # Event multipliers
         active_event = get_active_event()
         event_mult = active_event.get("multiplier", 1.0)
         
-        # Behavior multipliers
         u1_b_mult = await behavior_engine.get_reward_multiplier(user_id)
         u2_b_mult = await behavior_engine.get_reward_multiplier(partner_id)
-        
-        # User 1 specific (the one who initiated disconnect)
-        u1 = await UserRepository.get_by_telegram_id(user_id)
-        if not u1:
-            logger.warning(f"Disconnect failed: User {user_id} not found in DB.")
-            return None
-            
+
         u1_coins = int(time_reward * event_mult * u1_b_mult)
         if u1.get("coin_booster", {}).get("active"): u1_coins *= 2
-        await UserService.add_coins(user_id, match_reward + u1_coins)
-        u1_levelup = await UserService.add_xp(user_id, int(xp_reward * event_mult * u1_b_mult))
         
-        # User 2 specific — initialise before the if block to avoid NameError
-        u2_levelup = None
         u2_coins = int(time_reward * event_mult * u2_b_mult)
-        u2 = await UserRepository.get_by_telegram_id(partner_id)
-        if u2:
-            if u2.get("coin_booster", {}).get("active"): u2_coins *= 2
-            await UserService.add_coins(partner_id, match_reward + u2_coins)
-            u2_levelup = await UserService.add_xp(partner_id, int(xp_reward * event_mult * u2_b_mult))
+        if u2 and u2.get("coin_booster", {}).get("active"): u2_coins *= 2
+
+        u1_coins_total = match_reward + u1_coins
+        u2_coins_total = match_reward + u2_coins
+        u1_xp_total = int(xp_reward * event_mult * u1_b_mult)
+        u2_xp_total = int(xp_reward * event_mult * u2_b_mult)
+
+        u1_levelup = u2_levelup = False
+
+        # 3. DB COMMIT (Best effort)
+        try:
+            await UserService.add_coins(user_id, u1_coins_total)
+            u1_levelup = await UserService.add_xp(user_id, u1_xp_total)
             
-            # C12: Use atomic create_and_end to prevent orphaned sessions on crash
-            await SessionRepository.create_and_end(
-                user_id, partner_id, duration_seconds,
-                match_reward + u1_coins, match_reward + u2_coins,
-                int(xp_reward * event_mult * u1_b_mult), int(xp_reward * event_mult * u2_b_mult)
-            )
-            # Save last partner so rematch works
-            await UserRepository.update(user_id, last_partner_id=partner_id)
-            await UserRepository.update(partner_id, last_partner_id=user_id)
+            if u2:
+                await UserService.add_coins(partner_id, u2_coins_total)
+                u2_levelup = await UserService.add_xp(partner_id, u2_xp_total)
+            
+                await SessionRepository.create_and_end(
+                    user_id, partner_id, duration_seconds,
+                    u1_coins_total, u2_coins_total, u1_xp_total, u2_xp_total
+                )
+                await UserRepository.update(user_id, last_partner_id=partner_id)
+                await UserRepository.update(partner_id, last_partner_id=user_id)
+        except Exception as e:
+            logger.error(f"Disconnect DB batch failed for {user_id}-{partner_id}: {e}")
+
+        # 4. ALWAYS CLEAR STATE (Invariant Enforcement)
+        try:
+            # This is the most critical step: atomic Redis cleanup
+            await match_state.disconnect(user_id)
+            await behavior_engine.record_disconnect(user_id)
+            await behavior_engine.record_disconnect(partner_id)
+        except Exception as e:
+            logger.critical(f"CRITICAL: Redis cleanup failed after DB commit: {e}")
         
         # Challenge updates
         # (Assuming messages_sent is tracked elsewhere in message handlers)
@@ -180,13 +196,13 @@ class MatchmakingService:
             "partner_id": partner_id,
             "duration_seconds": duration_seconds,
             "duration_minutes": duration_minutes,
-            "coins_earned": match_reward + u1_coins,
-            "xp_earned": int(xp_reward * event_mult * u1_b_mult),
-            "u2_coins_earned": match_reward + u2_coins,
-            "u2_xp_earned": int(xp_reward * event_mult * u2_b_mult),
+            "coins_earned": u1_coins_total,
+            "xp_earned": u1_xp_total,
+            "u2_coins_earned": u2_coins_total,
+            "u2_xp_earned": u2_xp_total,
             "u1_levelup": u1_levelup,
             "u2_levelup": u2_levelup,
-            "total_matches": u1.get("total_matches", 0)
+            "total_matches": u1.get("total_matches", 0) if u1 else 0
         }
 
     @staticmethod
@@ -194,6 +210,6 @@ class MatchmakingService:
         await match_state.remove_from_queue(user_id)
 
     @staticmethod
-    async def request_rematch(user_id: int, partner_id: int) -> bool:
-        """Handles rematch logic via MatchState."""
+    async def request_rematch(user_id: int, partner_id: int) -> tuple[bool, int]:
+        """Handles rematch logic via MatchState. Returns (success, code)."""
         return await match_state.set_rematch(user_id, partner_id)
