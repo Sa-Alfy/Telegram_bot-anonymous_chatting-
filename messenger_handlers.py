@@ -30,6 +30,10 @@ from messenger.utils import _uid, _raw, _platform, _send_to, _send_menu_to, _get
 from state.match_state import match_state
 from services.distributed_state import distributed_state
 from database.repositories.user_repository import UserRepository
+from handlers.actions.economy import EconomyHandler
+from handlers.actions.matching import MatchingHandler
+from handlers.actions.voting import VotingHandler
+
 import app_state
 
 
@@ -106,7 +110,7 @@ async def _execute_action(psid: str, virtual_id: int, action_coro_fn, *args):
     client = app_state.telegram_app
     if client is None:
         logger.warning(f"_execute_action: telegram_app is None — cross-platform relay unavailable")
-    response = await action_coro_fn(client, virtual_id, *args, platform="messenger")
+    response = await action_coro_fn(client, virtual_id, *args)
     logger.info(f"TRACE _execute_action: response keys = {list(response.keys()) if response else 'None'}")
     if not response:
         return
@@ -524,6 +528,28 @@ async def _handle_legacy_messenger_action(psid: str, virtual_id: int, user: dict
     elif action in ("ADD_FRIEND",): await handle_add_friend(psid, virtual_id)
     elif action == "REPORT": await handle_report(psid, virtual_id)
     elif action == "BLOCK_PARTNER": await handle_block_partner(psid, virtual_id)
+    elif action == "REVEAL":
+        partner_id = await match_state.get_partner(virtual_id)
+        if not partner_id:
+            send_message(psid, "❌ You are not in a chat.")
+            return
+        await _execute_action(psid, virtual_id, lambda c, uid: EconomyHandler.handle_reveal(c, uid))
+    elif action == "ICEBREAKER":
+        await _execute_action(psid, virtual_id, lambda c, uid: MatchingHandler.handle_icebreaker(c, uid))
+    elif action == "CONFIRM_FRIEND":
+        await handle_confirm_friend(psid, virtual_id)
+    elif action in ("vote_like", "vote_dislike", "vote_gender_male", "vote_gender_female"):
+        vote_map = {
+            "vote_like": "like",
+            "vote_dislike": "dislike",
+            "vote_gender_male": "gender_male",
+            "vote_gender_female": "gender_female"
+        }
+        vote_str = vote_map[action]
+        if not target_id:
+            send_message(psid, "❌ Vote target missing.")
+            return
+        await _execute_action(psid, virtual_id, lambda c, uid, t=target_id, v=vote_str: VotingHandler.handle_vote(c, uid, t, v))
     elif action in ("BACK_HOME",):
         send_quick_replies(psid, "🏠 Main Menu", get_start_menu_buttons(current_state))
     # ── Unknown action: re-render current state instead of forcing HOME ──────────

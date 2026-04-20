@@ -6,9 +6,9 @@
 from messenger_api import send_message, send_quick_replies
 from messenger.ui import (
     IDLE_MENU_BUTTONS, FRIEND_CONFIRM_BUTTONS, CHAT_MENU_BUTTONS,
-    START_MENU_BUTTONS, END_MENU_BUTTONS
+    START_MENU_BUTTONS, END_MENU_BUTTONS, get_chat_menu_buttons
 )
-from state.match_state import match_state
+from state.match_state import match_state, UserState
 from utils.behavior_tracker import behavior_tracker
 
 from handlers.actions.social import SocialHandler
@@ -42,7 +42,7 @@ async def handle_confirm_friend(psid: str, virtual_id: int):
     from messenger_handlers import _notify_user
     
     await FriendRepository.add_friend(virtual_id, partner_id)
-    send_quick_replies(psid, "✅ Friend request sent!", { "text": "CHAT" }) # Simplified buttons
+    send_quick_replies(psid, "✅ Friend request sent!", get_chat_menu_buttons(UserState.CHATTING))
     await _notify_user(partner_id, "💌 Your partner sent you a friend request!")
 
 

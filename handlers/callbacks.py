@@ -12,6 +12,8 @@ from handlers.actions.social import SocialHandler
 from handlers.actions.stats import StatsHandler
 from handlers.actions.onboarding import OnboardingHandler
 from handlers.actions.voting import VotingHandler
+from handlers.actions.matching import _fire
+
 from state.match_state import match_state
 from database.repositories.user_repository import UserRepository
 from services.user_service import UserService
@@ -282,11 +284,15 @@ async def _handle_legacy_tg_callback(client: Client, query: CallbackQuery):
         is_stale = False
         
         # Session Binding Logic: Check if the state contains a partner ID (e.g., CHATTING_12345)
-        parsed_session_id = 0
-        canonical_parsed_state = parsed_state
+        current_partner = await match_state.get_partner(user_id)
         if parsed_state and "_" in parsed_state:
-                logger.warning(f"Session Mismatch! User {user_id} clicked button for {parsed_session_id} but is chatting with {current_partner}")
-                is_stale = True
+            try:
+                embedded_partner_id = int(parsed_state.split("_")[-1])
+                if current_partner is not None and embedded_partner_id != current_partner:
+                    logger.warning(f"Session Mismatch! User {user_id} clicked button for {embedded_partner_id} but is chatting with {current_partner}")
+                    is_stale = True
+            except ValueError:
+                is_stale = False
 
         if is_stale:
             # Determine if this was a legitimate state change or a retry

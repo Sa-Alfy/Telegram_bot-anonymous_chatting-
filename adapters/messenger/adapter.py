@@ -1,4 +1,6 @@
+from utils.logger import logger
 # adapters/messenger/adapter.py
+
 
 from typing import Dict, Any, Optional
 from adapters.base import BaseAdapter

@@ -7,6 +7,9 @@ from services.user_service import UserService
 from services.economy_service import EconomyService
 from utils.keyboard import start_menu, priority_pack_menu, booster_menu, confirm_reveal_menu, chat_menu, peek_menu, seasonal_shop_menu
 from handlers.start import get_start_text
+from utils.ui_formatters import get_match_found_text
+from state.match_state import UserState
+
 
 class EconomyHandler:
     @staticmethod
@@ -39,7 +42,14 @@ class EconomyHandler:
             from utils.renderer import Renderer
             if partner_id:
                 # Notify partner is handled by initialize_match usually, but for Priority we do it here too
-                return Renderer.render_match_found("telegram", partner_id, is_rematch=False, show_safety=True)
+                return {
+                    **Renderer.render_match_found("telegram", partner_id, is_rematch=False, show_safety=True),
+                    "notify_partner": {
+                        "target_id": partner_id,
+                        "text": get_match_found_text(is_rematch=False, include_safety=False),
+                        "reply_markup": None
+                    }
+                }
             
             response = Renderer.render_searching_ui("telegram", UserState.HOME)
             response["start_animation"] = True
