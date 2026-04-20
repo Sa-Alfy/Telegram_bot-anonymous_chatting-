@@ -86,8 +86,8 @@ class DistributedState:
         if self.redis:
             # 1. Store preferences/metadata in a hash
             if data:
-                await self.redis.hset(f"match:pref:{user_id}", mapping={k: str(v) for k, v in data.items()})
-                await self.redis.expire(f"match:pref:{user_id}", 3600) # Auto-cleanup after 1hr
+                await self.redis.hset(f"sm:match:pref:{user_id}", mapping={k: str(v) for k, v in data.items()})
+                await self.redis.expire(f"sm:match:pref:{user_id}", 3600) # Auto-cleanup after 1hr
             
             # 2. Add to waiting list (LPUSH for priority, RPUSH for normal)
             # Remove first to prevent duplicates
@@ -107,15 +107,15 @@ class DistributedState:
     async def remove_from_queue(self, user_id: int):
         """Remove a user from the global matchmaking queue."""
         if self.redis:
-            await self.redis.lrem("queue:waiting", 0, str(user_id))
-            await self.redis.delete(f"match:pref:{user_id}")
+            await self.redis.lrem("sm:queue", 0, str(user_id))
+            await self.redis.delete(f"sm:match:pref:{user_id}")
         else:
             pass
 
     async def get_queue_candidates(self) -> list[int]:
         """Fetch all user IDs currently in the queue."""
         if self.redis:
-            members = await self.redis.lrange("queue:waiting", 0, -1)
+            members = await self.redis.lrange("sm:queue", 0, -1)
             return [int(m) for m in members]
         return []
 
@@ -137,9 +137,9 @@ class DistributedState:
     async def clear_queue(self):
         """Wipe the entire global queue (admin action)."""
         if self.redis:
-            keys = await self.redis.keys("match:pref:*")
+            keys = await self.redis.keys("sm:match:pref:*")
             if keys: await self.redis.delete(*keys)
-            await self.redis.delete("queue:waiting")
+            await self.redis.delete("sm:queue")
 
     _VALIDATE_SESSION_LUA = """
         -- KEYS: 1:state:uA, 2:state:uB, 3:chat:uA, 4:chat:uB
@@ -187,7 +187,7 @@ class DistributedState:
             return False
         if self.redis:
             # SET NX EX is a single atomic command — no GET+SET race condition (C3 fix)
-            result = await self.redis.set(f"msg_id:{message_id}", "1", nx=True, ex=300)
+            result = await self.redis.set(f"sm:msg_id:{message_id}", "1", nx=True, ex=300)
             return result is None  # None = key already existed = duplicate
         else:
             async with self._lock:
@@ -206,7 +206,7 @@ class DistributedState:
                 
     async def is_duplicate_interaction(self, user_id: int, action_key: str, ttl: int = 5) -> bool:
         """Deduplicate generic actions/interactions within a TTL window (C4 fix: atomic)."""
-        key = f"interact:{user_id}:{action_key}"
+        key = f"sm:interact:{user_id}:{action_key}"
         if self.redis:
             # Atomic SET NX EX — no race between GET and SET
             result = await self.redis.set(key, "1", nx=True, ex=ttl)
@@ -229,7 +229,7 @@ class DistributedState:
         Returns True if acquired (safe to proceed), False if already locked.
         TTL auto-expires the lock to prevent deadlocks.
         """
-        key = f"action_lock:{user_id}"
+        key = f"sm:lock:action:{user_id}"
         if self.redis:
             # SET NX EX is atomic — safe for concurrent Redis calls
             result = await self.redis.set(key, "1", nx=True, ex=ttl)
@@ -245,7 +245,7 @@ class DistributedState:
 
     async def release_action_lock(self, user_id: int):
         """Release action lock early (after handler completes)."""
-        key = f"action_lock:{user_id}"
+        key = f"sm:lock:action:{user_id}"
         if self.redis:
             await self.redis.delete(key)
         else:
@@ -257,7 +257,7 @@ class DistributedState:
     # ─────────────────────────────────────────────────────────────────────
 
     _CLAIM_AND_INITIALIZE_LUA = """
-        -- KEYS: 1:state:uA, 2:state:uB, 3:chat:uA, 4:chat:uB, 5:start:uA, 6:start:uB, 7:queue
+        -- KEYS: 1:state:uA, 2:state:uB, 3:partner:uA, 4:partner:uB, 5:start:uA, 6:start:uB, 7:queue
         -- ARGV: 1:uA_id, 2:uB_id, 3:timestamp
         
         local uA = ARGV[1]
@@ -270,7 +270,7 @@ class DistributedState:
         if redis.call("EXISTS", KEYS[3]) == 1 then return {0, "USER_A_HAS_PARTNER"} end
         if redis.call("EXISTS", KEYS[4]) == 1 then return {0, "USER_B_HAS_PARTNER"} end
 
-        -- 2. REMOVE FROM QUEUE (Safe for List or ZSet)
+        -- 2. REMOVE FROM QUEUE (Standard sm:queue)
         redis.call("LREM", KEYS[7], 0, uA)
         redis.call("LREM", KEYS[7], 0, uB)
 
@@ -290,7 +290,7 @@ class DistributedState:
     """
 
     _ATOMIC_DISCONNECT_LUA = """
-        -- KEYS: 1:state:uA, 2:state:uB, 3:chat:uA, 4:chat:uB, 5:start:uA, 6:start:uB
+        -- KEYS: 1:state:uA, 2:state:uB, 3:partner:uA, 4:partner:uB, 5:start:uA, 6:start:uB
         -- ARGV: 1:uA_id, 2:uB_id
 
         if redis.call("EXISTS", KEYS[3]) == 0 then
@@ -316,7 +316,7 @@ class DistributedState:
     """
 
     _FORCE_DISCONNECT_SINGLE_LUA = """
-        -- KEYS: 1:state:user, 2:chat:user, 3:start:user
+        -- KEYS: 1:state:user, 2:partner:user, 3:start:user
         redis.call("DEL", KEYS[2])
         redis.call("SET", KEYS[1], "HOME")
         redis.call("DEL", KEYS[3])
@@ -325,13 +325,13 @@ class DistributedState:
 
     _ATOMIC_REMATCH_LUA = """
         -- KEYS: 
-        -- 1: state:userA
-        -- 2: state:userB
-        -- 3: chat:userA
-        -- 4: chat:userB
-        -- 5: chat_start:userA
-        -- 6: chat_start:userB
-        -- 7: rematch_key (rematch:min:max)
+        -- 1: sm:state:userA
+        -- 2: sm:state:userB
+        -- 3: sm:partner:userA
+        -- 4: sm:partner:userB
+        -- 5: sm:chat_start:userA
+        -- 6: sm:chat_start:userB
+        -- 7: rematch_key (sm:rematch:min:max)
 
         -- ARGV: 
         -- 1: userA_id (caller)
@@ -343,11 +343,9 @@ class DistributedState:
         local now = ARGV[3]
 
         -- 1. Validate both users are HOME
-        -- Note: We use Lua's falsy check for GET since the state might be null or HOME
         local sA = redis.call("GET", KEYS[1])
         local sB = redis.call("GET", KEYS[2])
         
-        -- If state is not HOME (and not null), they are busy
         if sA and sA ~= "HOME" then return {0, "CALLER_NOT_HOME"} end
         if sB and sB ~= "HOME" then return {0, "PARTNER_NOT_HOME"} end
 
@@ -388,7 +386,7 @@ class DistributedState:
             return {1, "REMATCH_SUCCESS"}
         end
 
-        -- Case D: Unexpected state (e.g. someone else's request somehow)
+        -- Case D: Unexpected state
         redis.call("SET", KEYS[7], caller, "EX", 30)
         return {2, "RESET_WAITING"}
     """
@@ -404,7 +402,7 @@ class DistributedState:
 
     async def set_session_state(self, user1: int, user2: int, state: str):
         """Set pair-level session state. Authoritative for chat lifecycle."""
-        key = self._session_key(user1, user2)
+        key = f"sm:{self._session_key(user1, user2)}"
         if self.redis:
             await self.redis.set(key, state)
         else:
@@ -426,7 +424,7 @@ class DistributedState:
 
     async def clear_session_state(self, user1: int, user2: int):
         """Clear pair-level session state on chat end."""
-        key = self._session_key(user1, user2)
+        key = f"sm:{self._session_key(user1, user2)}"
         if self.redis:
             await self.redis.delete(key)
         else:
@@ -439,7 +437,7 @@ class DistributedState:
 
     async def set_chat_start(self, user_id: int, ts: float):
         """Store chat start timestamp in Redis so any worker can read it."""
-        key = f"chat_start:{user_id}"
+        key = f"sm:chat_start:{user_id}"
         if self.redis:
             await self.redis.set(key, str(ts), ex=86400)  # auto-expire after 24h
         else:
@@ -448,7 +446,7 @@ class DistributedState:
 
     async def pop_chat_start(self, user_id: int) -> float:
         """Retrieve and delete chat start timestamp. Returns now() if not found."""
-        key = f"chat_start:{user_id}"
+        key = f"sm:chat_start:{user_id}"
         if self.redis:
             val = await self.redis.getdel(key)
             return float(val) if val else time.time()
@@ -460,10 +458,10 @@ class DistributedState:
         """Atomically claim a match and initialize states via Lua."""
         if self.redis:
             keys = [
-                f"state:{user_id}", f"state:{partner_id}",
-                f"chat:{user_id}", f"chat:{partner_id}",
-                f"chat_start:{user_id}", f"chat_start:{partner_id}",
-                "queue:waiting"
+                f"sm:state:{user_id}", f"sm:state:{partner_id}",
+                f"sm:partner:{user_id}", f"sm:partner:{partner_id}",
+                f"sm:chat_start:{user_id}", f"sm:chat_start:{partner_id}",
+                "sm:queue"
             ]
             result = await self.redis.eval(
                 self._CLAIM_AND_INITIALIZE_LUA,
@@ -478,9 +476,9 @@ class DistributedState:
         """Atomically disconnect a pair via Lua."""
         if self.redis:
             keys = [
-                f"state:{user_id}", f"state:{partner_id}",
-                f"chat:{user_id}", f"chat:{partner_id}",
-                f"chat_start:{user_id}", f"chat_start:{partner_id}"
+                f"sm:state:{user_id}", f"sm:state:{partner_id}",
+                f"sm:partner:{user_id}", f"sm:partner:{partner_id}",
+                f"sm:chat_start:{user_id}", f"sm:chat_start:{partner_id}"
             ]
             result = await self.redis.eval(
                 self._ATOMIC_DISCONNECT_LUA,
@@ -500,7 +498,7 @@ class DistributedState:
     async def force_disconnect_single(self, user_id: int):
         """Emergency reset for a single user via Lua."""
         if self.redis:
-            keys = [f"state:{user_id}", f"chat:{user_id}", f"chat_start:{user_id}"]
+            keys = [f"sm:state:{user_id}", f"sm:partner:{user_id}", f"sm:chat_start:{user_id}"]
             await self.redis.eval(self._FORCE_DISCONNECT_SINGLE_LUA, len(keys), *keys)
         else:
             async with self._lock:
@@ -521,7 +519,7 @@ class DistributedState:
             if repair: await self.force_disconnect_single(user_id)
             return False
             
-        keys = [f"state:{user_id}", f"state:{partner_id}", f"chat:{user_id}", f"chat:{partner_id}"]
+        keys = [f"sm:state:{user_id}", f"sm:state:{partner_id}", f"sm:partner:{user_id}", f"sm:partner:{partner_id}"]
         result = await self.redis.eval(self._VALIDATE_SESSION_LUA, len(keys), *keys, str(user_id), str(partner_id))
         
         if int(result[0]) == 0:
@@ -540,11 +538,11 @@ class DistributedState:
         """Atomically claim a rematch via Lua."""
         if self.redis:
             # Canonical rematch key
-            rkey = f"rematch:{min(user_id, partner_id)}:{max(user_id, partner_id)}"
+            rkey = f"sm:rematch:{min(user_id, partner_id)}:{max(user_id, partner_id)}"
             keys = [
-                f"state:{user_id}", f"state:{partner_id}",
-                f"chat:{user_id}", f"chat:{partner_id}",
-                f"chat_start:{user_id}", f"chat_start:{partner_id}",
+                f"sm:state:{user_id}", f"sm:state:{partner_id}",
+                f"sm:partner:{user_id}", f"sm:partner:{partner_id}",
+                f"sm:chat_start:{user_id}", f"sm:chat_start:{partner_id}",
                 rkey
             ]
             result = await self.redis.eval(

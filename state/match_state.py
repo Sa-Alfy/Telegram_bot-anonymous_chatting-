@@ -285,7 +285,7 @@ class MatchState:
     async def get_chat_start(self, user_id: int) -> float:
         """Returns chat start time without removing it (Snapshot)."""
         if distributed_state.redis:
-            val = await distributed_state.redis.get(f"chat_start:{user_id}")
+            val = await distributed_state.redis.get(f"sm:chat_start:{user_id}")
             return float(val) if val else time.time()
         return self.chat_start_times.get(user_id, time.time())
 

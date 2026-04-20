@@ -485,6 +485,8 @@ async def _handle_legacy_messenger_action(psid: str, virtual_id: int, user: dict
         await handle_search(psid, virtual_id, user)
     elif action in ("PREF_ANY", "SEARCH_PREF_ANY"):
         await handle_search_with_pref(psid, virtual_id, user, "Any")
+    elif action == "CMD_STATS":
+        await _handle_stats(psid, virtual_id, user)
     elif action in ("PREF_MALE", "SEARCH_PREF_MALE"):
         await handle_search_with_pref(psid, virtual_id, user, "Male")
     elif action in ("PREF_FEMALE", "SEARCH_PREF_FEMALE"):
