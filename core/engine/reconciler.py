@@ -61,7 +61,7 @@ class Reconciler:
                 logger.warning(f"Symmetry breach for {user_id} <-> {partner_id}. Forcing CHAT_END.")
                 # Force both to CHAT_END/VOTING if they are in active states
                 await redis.set(f"sm:state:{user_id}", UnifiedState.VOTING)
-                await redis.del(f"sm:partner:{user_id}")
+                await redis.delete(f"sm:partner:{user_id}")
                 return UnifiedState.VOTING, None
 
         # 3. Validation: If in CHAT_END, force move to VOTING (NO BYPASS)
