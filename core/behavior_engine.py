@@ -112,5 +112,18 @@ class BehaviorEngine:
             return "⚠️ Please be respectful. Repeated reports may result in a ban."
         return None
 
+    @staticmethod
+    async def is_new_user(user_id: int) -> bool:
+        """Legacy stub to determine if the user is new (for typing delays etc)."""
+        from database.repositories.user_repository import UserRepository
+        user = await UserRepository.get_by_telegram_id(user_id)
+        return user is not None and user.get("total_matches", 0) <= 2
+
+    @staticmethod
+    async def get_typing_delay() -> float:
+        """Legacy stub for realistic typing indicators."""
+        import random
+        return random.uniform(1.0, 2.5)
+
 # Global singleton replacement
 behavior_engine = BehaviorEngine()

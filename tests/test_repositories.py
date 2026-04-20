@@ -60,9 +60,10 @@ class TestUserRepository:
     async def test_increment_coins(self):
         from database.repositories.user_repository import UserRepository
         with patch("database.repositories.user_repository.db") as mock_db:
-            mock_db.execute = AsyncMock()
-            await UserRepository.increment_coins(123, 10)
-            mock_db.execute.assert_called_once()
+            mock_db.fetchone = AsyncMock(return_value={"coins": 110})
+            new_val = await UserRepository.increment_coins(123, 10)
+            assert new_val == 110
+            mock_db.fetchone.assert_called_once()
 
 
 # ═══════════════════════════════════════════════════════

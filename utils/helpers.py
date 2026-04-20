@@ -27,7 +27,7 @@ async def send_cross_platform(client: Client, target_id: int, text: str, reply_m
     from utils.platform_adapter import PlatformAdapter
     return await PlatformAdapter.send_cross_platform(client, target_id, text, reply_markup)
 
-async def update_user_ui(client: Client, user_id: int, text: str, reply_markup, force_new: bool = True):
+async def update_user_ui(client: Client, user_id: int, text: str, reply_markup, force_new: bool = False):
     """Refined UI update helper using MatchState for production tracking."""
     # Virtual Echo Partner check
     if user_id == 1:
@@ -71,6 +71,9 @@ def is_vip_active(user: dict) -> bool:
     if not user or not user.get("vip_status"):
         return False
     expires_at = user.get("vip_expires_at")
-    if not expires_at or expires_at < time.time():
+    # If expires_at is missing or 0, we treat it as a permanent VIP status
+    if not expires_at:
+        return True
+    if expires_at < time.time():
         return False
     return True

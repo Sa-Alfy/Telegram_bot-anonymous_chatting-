@@ -41,7 +41,6 @@ class UserState:
 
 class MatchState:
     _instance = None
-    _lock = asyncio.Lock()
 
     def __new__(cls):
         if cls._instance is None:
@@ -50,6 +49,8 @@ class MatchState:
         return cls._instance
 
     def _init_state(self):
+        # Create per-instance lock so tests (each with their own event loop) get a fresh lock
+        self._lock = asyncio.Lock()
         # Queues and Active Chats (Local fallbacks / legacy support)
         # Note: Production now uses DistributedState (Redis) for these.
         self.waiting_queue: List[int] = []
@@ -147,8 +148,12 @@ class MatchState:
                             logger.info(f"Match claim failed: {reason}")
                             continue
                     else:
-                        await self.remove_from_queue(user_id)
-                        await self.remove_from_queue(partner_id)
+                        if user_id in self.waiting_queue:
+                            self.waiting_queue.remove(user_id)
+                            self.user_preferences.pop(user_id, None)
+                        if partner_id in self.waiting_queue:
+                            self.waiting_queue.remove(partner_id)
+                            self.user_preferences.pop(partner_id, None)
                         await distributed_state.set_partner(user_id, partner_id)
                         await distributed_state.set_user_state(user_id, UserState.CHATTING)
                         await distributed_state.set_user_state(partner_id, UserState.CHATTING)
@@ -194,8 +199,14 @@ class MatchState:
                 
                 logger.info(f"💔 Match Ended: {user_id} | {partner_id} after {duration}s")
                 return partner_id, duration
-            
-            await self.remove_from_queue(user_id)
+
+            # No active chat — remove from queue inline (lock already held)
+            if not distributed_state.redis:
+                if user_id in self.waiting_queue:
+                    self.waiting_queue.remove(user_id)
+                    self.user_preferences.pop(user_id, None)
+            else:
+                await distributed_state.remove_from_queue(user_id)
             return None
 
     async def set_rematch(self, user_id: int, partner_id: int) -> tuple[bool, int]:
@@ -241,7 +252,9 @@ class MatchState:
             if partner_id != 1:
                 await distributed_state.set_chat_start(partner_id, now)
                 self.chat_start_times[partner_id] = now
-            await self.remove_from_queue(user_id)
+            if user_id in self.waiting_queue:
+                self.waiting_queue.remove(user_id)
+                self.user_preferences.pop(user_id, None)
 
     async def clear_all(self):
         """Clears global and local state."""

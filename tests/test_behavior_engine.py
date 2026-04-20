@@ -69,7 +69,7 @@ async def test_signal_collector_integration():
     # Send a message
     await collector.record_message_sent(user_id, text="Hello world, this is a test message.")
     s = await collector.get_signals(user_id) # Refresh
-    assert s.messages_sent == len("Hello world, this is a test message.")
+    assert s.messages_sent == 1
     assert s.current_session_messages == 1
     
     # Disconnect

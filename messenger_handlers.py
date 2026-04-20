@@ -67,7 +67,7 @@ def _map_reply_markup(reply_markup) -> list:
     elif "priority_packs" in str_markup or "search_pref_priority" in str_markup:
         # This is the search_menu shown while waiting
         return [{"title": "⚡ Priority (5 coins)", "payload": "PREF_PRIORITY:0:SEARCHING"},
-                {"title": "❌ Cancel Search", "payload": "CANCEL_SEARCH:0:HOME"}]
+                {"title": "❌ Cancel Search", "payload": "CANCEL_SEARCH:0:SEARCHING"}]
 
     # 4. End menu with voting buttons — extract partner_id
     elif "vote_like" in str_markup or "vote_dislike" in str_markup:
@@ -391,9 +391,12 @@ async def _notify_media(partner_virtual_id: int, media_type: str, url: str, capt
 
 async def handle_messenger_text(psid: str, virtual_id: int, user: dict, text: str):
     """Route text messages (Async)."""
-    # 1. NEW: Invariant Recovery Hook
+    # 1. Invariant Recovery Hook — re-render CURRENT state, never force HOME
     if not await distributed_state.validate_session(virtual_id, repair=True):
-        send_quick_replies(psid, "⚠️ **Session inconsistency detected.**\nYou have been returned to the main menu.", get_start_menu_buttons(UserState.HOME))
+        current_state = await match_state.get_user_state(virtual_id) or UserState.HOME
+        logger.warning(f"TRACE: validate_session failed for {virtual_id}, re-rendering state={current_state}")
+        send_quick_replies(psid, "⚠️ **Session sync issue detected. Re-syncing your UI...**",
+                           get_start_menu_buttons(current_state))
         return
 
     if not await rate_limiter.can_send_message(virtual_id):
@@ -474,24 +477,64 @@ async def _handle_legacy_messenger_action(psid: str, virtual_id: int, user: dict
     from state.match_state import UserState
     action, target_id, parsed_state = StateBoundPayload.decode(payload)
     current_state = await match_state.get_user_state(virtual_id) or UserState.HOME
+    logger.info(f"TRACE _handle_legacy: action={action} parsed_state={parsed_state} current_state={current_state}")
 
-    # [Existing routing logic for non-matchmaking actions moved here...]
-    if action == "CMD_PROFILE": await handle_profile_setup(psid, virtual_id)
+    # ── Matchmaking actions (all live-session payloads must be handled here) ────
+    if action in ("SEARCH", "CMD_START"):
+        # Safe to call even while SEARCHING/CHATTING — guarded internally
+        await handle_search(psid, virtual_id, user)
+    elif action in ("PREF_ANY", "SEARCH_PREF_ANY"):
+        await handle_search_with_pref(psid, virtual_id, user, "Any")
+    elif action in ("PREF_MALE", "SEARCH_PREF_MALE"):
+        await handle_search_with_pref(psid, virtual_id, user, "Male")
+    elif action in ("PREF_FEMALE", "SEARCH_PREF_FEMALE"):
+        await handle_search_with_pref(psid, virtual_id, user, "Female")
+    elif action in ("PREF_PRIORITY",):
+        await handle_search_with_pref(psid, virtual_id, user, "Priority")
+    elif action in ("CANCEL_SEARCH", "STOP_SEARCH"):
+        await handle_cancel_search(psid, virtual_id)
+    elif action in ("NEXT", "CMD_NEXT"):
+        await handle_next(psid, virtual_id, user)
+    elif action in ("STOP", "CMD_STOP"):
+        await handle_stop(psid, virtual_id)
+    # ── Profile / Account actions ────────────────────────────────────────────────
+    elif action == "CMD_PROFILE": await handle_profile_setup(psid, virtual_id)
+    elif action == "EDIT_PROFILE": await handle_edit_profile(psid, virtual_id)
+    elif action == "SET_PHOTO": await handle_set_photo_prompt(psid, virtual_id)
     elif action == "STATS": await _handle_stats(psid, virtual_id, user)
-    # ... (omitting rest for brevity in this chunk)
+    elif action == "SEASONAL_SHOP": await handle_seasonal_shop(psid, virtual_id)
+    elif action == "HELP": _handle_help(psid)
+    elif action == "SETTINGS_MENU": _handle_settings_menu(psid)
+    elif action == "DELETE_DATA": await handle_delete_data(psid, virtual_id)
+    elif action in ("ADD_FRIEND",): await handle_add_friend(psid, virtual_id)
+    elif action == "REPORT": await handle_report(psid, virtual_id)
+    elif action == "BLOCK_PARTNER": await handle_block_partner(psid, virtual_id)
+    elif action in ("BACK_HOME",):
+        send_quick_replies(psid, "🏠 Main Menu", get_start_menu_buttons(current_state))
+    # ── Unknown action: re-render current state instead of forcing HOME ──────────
     else:
-        await app_state.msg_adapter.render_state(f"msg_{psid}", current_state)
+        logger.warning(f"TRACE _handle_legacy: Unknown action '{action}'. Re-rendering current_state={current_state} (not HOME).")
+        if current_state == UserState.CHATTING:
+            send_quick_replies(psid, "💬 You are in a chat. Use the buttons below.",
+                               get_chat_menu_buttons(UserState.CHATTING))
+        elif current_state == UserState.SEARCHING:
+            send_quick_replies(psid, "🔍 Still searching...",
+                               [{"title": "❌ Cancel Search", "payload": "CANCEL_SEARCH:0:SEARCHING"}])
+        else:
+            send_quick_replies(psid, "🏠 Main Menu", get_start_menu_buttons(current_state))
 
 
 
 async def handle_messenger_postback(psid: str, virtual_id: int, user: dict, payload: str):
     """Handle postback events (Async)."""
     from utils.renderer import StateBoundPayload
-    
-    # 1. NEW: Invariant Recovery Hook
     from state.match_state import UserState
+
+    # 1. Invariant Recovery Hook — re-render CURRENT state, never force HOME
     if not await distributed_state.validate_session(virtual_id, repair=True):
-        send_quick_replies(psid, "🔄 Refreshing...", get_start_menu_buttons(UserState.HOME))
+        current_state = await match_state.get_user_state(virtual_id) or UserState.HOME
+        logger.warning(f"TRACE: validate_session failed for {virtual_id}, re-rendering state={current_state}")
+        send_quick_replies(psid, "🔄 Refreshing your session...", get_start_menu_buttons(current_state))
         return
 
     action, target_id, parsed_state = StateBoundPayload.decode(payload)
@@ -521,10 +564,12 @@ async def handle_messenger_postback(psid: str, virtual_id: int, user: dict, payl
 
 async def handle_messenger_attachment(psid: str, virtual_id: int, attachments: list):
     """Handle media attachments (Async)."""
-    # 1. NEW: Invariant Recovery Hook
     from state.match_state import UserState
+    # 1. Invariant Recovery Hook — re-render CURRENT state, never force HOME
     if not await distributed_state.validate_session(virtual_id, repair=True):
-        send_quick_replies(psid, "⚠️ Session reset.", get_start_menu_buttons(UserState.HOME))
+        current_state = await match_state.get_user_state(virtual_id) or UserState.HOME
+        logger.warning(f"TRACE: validate_session failed for {virtual_id}, re-rendering state={current_state}")
+        send_quick_replies(psid, "⚠️ Session sync issue.", get_start_menu_buttons(current_state))
         return
 
     state = await match_state.get_user_state(virtual_id)

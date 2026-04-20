@@ -35,11 +35,12 @@ class TestUserServiceAddXP:
                 "is_guest": False, "xp": 0, "level": 1,
                 "coin_booster": {}
             })
+            MockRepo.increment_xp = AsyncMock(return_value=5)
             MockRepo.update = AsyncMock()
             from services.user_service import UserService
             result = await UserService.add_xp(100, 5)
             assert result is None  # 5 XP is level floor(sqrt(0.5))+1 = 1, no change
-            MockRepo.update.assert_called_once()
+            MockRepo.update.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_add_xp_with_levelup(self):
@@ -48,6 +49,7 @@ class TestUserServiceAddXP:
                 "is_guest": False, "xp": 0, "level": 1,
                 "coin_booster": {}
             })
+            MockRepo.increment_xp = AsyncMock(return_value=10)
             MockRepo.update = AsyncMock()
             from services.user_service import UserService
             # Need enough XP to reach level 2: floor(sqrt(xp/10)) + 1 ≥ 2
@@ -62,6 +64,7 @@ class TestUserServiceAddXP:
                 "is_guest": False, "xp": 0, "level": 1,
                 "coin_booster": {"active": True, "expires_at": time.time() + 1000}
             })
+            MockRepo.increment_xp = AsyncMock(return_value=10)
             MockRepo.update = AsyncMock()
             from services.user_service import UserService
             # 5 XP doubled to 10 → level 2
