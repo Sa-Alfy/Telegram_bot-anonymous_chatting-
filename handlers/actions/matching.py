@@ -38,11 +38,9 @@ class MatchingHandler:
                 "reply_markup": retry_search_menu(UserState.HOME)
             }
             
-        from utils.keyboard import search_pref_menu
-        return {
-            "text": "🔍 **Matchmaking Preferences**\n\nWho are you looking for today?",
-            "reply_markup": search_pref_menu()
-        }
+        from utils.renderer import Renderer
+        current_state = await match_state.get_user_state(user_id) or UserState.HOME
+        return Renderer.render_preferences_menu("telegram", current_state)
 
     @staticmethod
     async def handle_search_with_pref(client: Client, user_id: int, pref: str) -> Dict[str, Any]:
@@ -105,7 +103,8 @@ class MatchingHandler:
             # The actual "Match Found" UI was already sent as a new message by initialize_match
             return {
                 "text": "✅ **Pairing successful!** Check below for your partner.",
-                "reply_markup": None 
+                "reply_markup": None,
+                "delete_prev": True
             }
 
             
@@ -113,12 +112,11 @@ class MatchingHandler:
         if await match_state.is_in_chat(user_id):
              return None # Silent abort: User was matched by someone else's task.
              
-        from utils.keyboard import search_menu
-        return {
-            "text": f"⏳ Searching for a partner...\n**Filter:** {pref}",
-            "reply_markup": search_menu(),
-            "start_animation": True
-        }
+        from utils.renderer import Renderer
+        response = Renderer.render_searching_ui("telegram", UserState.SEARCHING)
+        response["start_animation"] = True
+        response["delete_prev"] = True
+        return response
 
     @staticmethod
     async def handle_cancel(client: Client, user_id: int) -> Dict[str, Any]:

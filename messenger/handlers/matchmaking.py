@@ -23,30 +23,24 @@ async def handle_search(psid: str, virtual_id: int, user: dict):
     
     # Check if already searching or chatting to prevent redundant UI actions
     if current_state == UserState.SEARCHING:
-        from messenger.ui import get_end_menu_buttons
-        send_quick_replies(
-            psid, 
-            "🔍 **Still searching for a partner...**\nPlease wait while we find a good match for you.",
-            [{"title": "❌ Cancel Search", "payload": "CANCEL_SEARCH:0:SEARCHING"}]
-        )
+        from utils.renderer import Renderer
+        response = Renderer.render_searching_ui("messenger", current_state)
+        # Note: We append extra context for redundant hits
+        send_quick_replies(psid, f"⚠️ Already searching!\n{response['text']}", response["quick_replies"])
         return
     
     if current_state == UserState.CHATTING:
-        from messenger.ui import get_chat_menu_buttons
-        send_quick_replies(
-            psid,
-            "❌ **You are already in a chat!**\nUse the buttons below to interact with your partner.",
-            get_chat_menu_buttons(UserState.CHATTING)
-        )
+        from utils.renderer import Renderer
+        partner_id = await match_state.get_partner(virtual_id)
+        response = Renderer.render_match_found("messenger", partner_id)
+        send_quick_replies(psid, f"❌ Already in a chat!\n{response['text']}", response["quick_replies"])
         return
 
     # No cooldown gate here — allow opening the menu freely!
     # Protection only applies when they actually pick a preference button.
-    send_quick_replies(
-        psid,
-        "🔍 Matchmaking Preferences\n\nWho are you looking for today?",
-        get_search_pref_buttons(current_state)
-    )
+    from utils.renderer import Renderer
+    response = Renderer.render_preferences_menu("messenger", current_state)
+    send_quick_replies(psid, response["text"], response["quick_replies"])
 
 
 async def handle_search_with_pref(psid: str, virtual_id: int, user: dict, pref: str):

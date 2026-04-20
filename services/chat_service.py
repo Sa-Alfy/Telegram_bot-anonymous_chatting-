@@ -50,7 +50,8 @@ async def trigger_mini_event(client: Client, user_id: int):
 
 async def relay_message(client: Client, message: Message):
     user_id = message.from_user.id
-    partner_id = await match_state.get_partner(user_id)
+    _p = await match_state.get_partner(user_id)
+    partner_id = int(_p) if _p else None
     
     if partner_id:
         from core.behavior_engine import behavior_engine
@@ -163,7 +164,7 @@ async def relay_message(client: Client, message: Message):
             except Exception as e:
                 # Log the error but DO NOT DISCONNECT. 
                 # Disconnecting on transient delivery errors is too aggressive and ruins UX.
-                logger.warning(f"Resilient Relay: Failed to send to {partner_id}: {e}")
+                logger.warning(f"Resilient Relay: Failed to send from {user_id} to {partner_id}: {e}", exc_info=True)
                 try:
                     await message.reply_text("⚠️ **Delivery Error:** Your message couldn't be sent. Please try again.")
                 except Exception as e_inner:

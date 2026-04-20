@@ -113,12 +113,12 @@ async def start_command(client: Client, message: Message):
             reply_markup=onboarding_menu()
         )
     else:
-        coins = user.get("coins") or 0
-        text = get_start_text(coins, is_guest) + reward_text
+        from utils.renderer import Renderer
+        response = Renderer.render_profile_menu("telegram", "HOME")
         sent = await message.reply_photo(
             photo="https://raw.githubusercontent.com/Sa-Alfy/Telegram_bot-anonymous_chatting-/main/assets/logo.png",
-            caption=text,
-            reply_markup=start_menu(is_guest)
+            caption=response["text"],
+            reply_markup=response["reply_markup"]
         )
         
     match_state.user_ui_messages[user_id] = sent.id

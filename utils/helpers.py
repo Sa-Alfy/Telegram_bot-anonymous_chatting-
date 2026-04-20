@@ -27,7 +27,7 @@ async def send_cross_platform(client: Client, target_id: int, text: str, reply_m
     from utils.platform_adapter import PlatformAdapter
     return await PlatformAdapter.send_cross_platform(client, target_id, text, reply_markup)
 
-async def update_user_ui(client: Client, user_id: int, text: str, reply_markup, force_new: bool = False):
+async def update_user_ui(client: Client, user_id: int, text: str, reply_markup, force_new: bool = False, delete_prev: bool = False):
     """Refined UI update helper using MatchState for production tracking."""
     # Virtual Echo Partner check
     if user_id == 1:
@@ -37,9 +37,15 @@ async def update_user_ui(client: Client, user_id: int, text: str, reply_markup, 
         await send_cross_platform(client, user_id, text, reply_markup)
         return
 
-    # Attempt to edit previous UI message if tracked (skip if force_new)
     prev_msg_id = match_state.user_ui_messages.get(user_id)
-    if prev_msg_id and not force_new:
+
+    if prev_msg_id and delete_prev:
+        try:
+            await client.delete_messages(chat_id=user_id, message_ids=prev_msg_id)
+        except Exception as e:
+            logger.debug(f"UI delete_prev failed for {user_id}: {e}")
+    elif prev_msg_id and not force_new:
+        # Attempt to edit previous UI message if tracked
         try:
             await client.edit_message_text(
                 chat_id=user_id,
@@ -53,7 +59,7 @@ async def update_user_ui(client: Client, user_id: int, text: str, reply_markup, 
                 return
             pass
             
-    # Fallback to sending a new message and updating tracker
+    # Fallback/New send: sending a new message and updating tracker
     try:
         sent = await client.send_message(
             chat_id=user_id,

@@ -29,7 +29,7 @@ async def next_button_handler(client: Client, message: Message):
     resp = await MatchingHandler.handle_next(client, message.from_user.id)
     await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
 
-@Client.on_message(filters.regex(r"^👤 My Stats") & filters.private)
+@Client.on_message(filters.regex(r"^(👤|📊) My Stats") & filters.private)
 async def stats_button_handler(client: Client, message: Message):
     from handlers.actions.stats import StatsHandler
     resp = await StatsHandler.handle_stats(client, message.from_user.id)
@@ -41,8 +41,26 @@ async def help_button_handler(client: Client, message: Message):
     resp = await handle_help(client, message.from_user.id)
     await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
 
+@Client.on_message(filters.regex(r"^🔍 Find Partner") & filters.private)
+async def find_partner_button_handler(client: Client, message: Message):
+    from handlers.actions.matching import MatchingHandler
+    resp = await MatchingHandler.handle_search(client, message.from_user.id)
+    await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
+
+@Client.on_message(filters.regex(r"^🏆 Leaderboard") & filters.private)
+async def leaderboard_button_handler(client: Client, message: Message):
+    from handlers.actions.stats import StatsHandler
+    resp = await StatsHandler.handle_leaderboard(client, message.from_user.id)
+    await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
+
+@Client.on_message(filters.regex(r"^🛍 Seasonal Shop") & filters.private)
+async def seasonal_shop_button_handler(client: Client, message: Message):
+    from handlers.actions.economy import EconomyHandler
+    resp = await EconomyHandler.handle_seasonal_shop(client, message.from_user.id)
+    await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
+
 @Client.on_message(~filters.command(["start", "help", "stop", "next", "admin_stats", "stats", "leaderboard", "reveal", "priority", "find", "report", "terms", "privacy"]) & 
-                   ~filters.regex(r"^(🛑 Stop|⏮ Next|👤 My Stats|ℹ️ Help)") & 
+                   ~filters.regex(r"^(🛑 Stop|⏮ Next|👤 My Stats|📊 My Stats|ℹ️ Help|🔍 Find Partner|🏆 Leaderboard|🛍 Seasonal Shop)") & 
                    filters.private)
 async def chat_handler(client: Client, message: Message):
     user_id = message.from_user.id

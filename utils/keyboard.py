@@ -205,6 +205,14 @@ def persistent_chat_menu():
         [KeyboardButton("👤 My Stats"), KeyboardButton("ℹ️ Help")]
     ], resize_keyboard=True)
 
+def persistent_home_menu():
+    """Telegram Persistent Reply Keyboard for easier access at home."""
+    return ReplyKeyboardMarkup([
+        [KeyboardButton("🔍 Find Partner")],
+        [KeyboardButton("📊 My Stats"), KeyboardButton("🏆 Leaderboard")],
+        [KeyboardButton("🛍 Seasonal Shop"), KeyboardButton("ℹ️ Help")]
+    ], resize_keyboard=True)
+
 def reaction_menu():
     return InlineKeyboardMarkup([
         [

@@ -87,3 +87,45 @@ class Renderer:
                 "text": "📋 Select an option:",
                 "quick_replies": replies
             }
+
+    @staticmethod
+    def render_match_found(platform: str, partner_id: int, is_rematch: bool = False, show_safety: bool = False) -> Dict[str, Any]:
+        """Renders the match found announcement across platforms."""
+        from utils.ui_formatters import get_match_found_text
+        from utils.keyboard import chat_menu, UserState
+        
+        text = get_match_found_text(is_rematch=is_rematch, include_safety=show_safety)
+        
+        if platform == "telegram":
+            return {
+                "text": text,
+                "reply_markup": chat_menu(UserState.CHATTING, partner_id)
+            }
+        else: # Messenger
+            # For Messenger we might want to return structured data or use quick replies
+            return {
+                "text": text,
+                "quick_replies": [
+                    {"title": "🛑 Stop", "payload": StateBoundPayload.encode("stop", "0", f"{UserState.CHATTING}_{partner_id}")},
+                    {"title": "⏭ Next", "payload": StateBoundPayload.encode("next", "0", f"{UserState.CHATTING}_{partner_id}")}
+                ]
+            }
+
+    @staticmethod
+    def render_preferences_menu(platform: str, state: str) -> Dict[str, Any]:
+        """Renders the matchmaking preferences menu."""
+        if platform == "telegram":
+            from utils.keyboard import search_pref_menu
+            return {
+                "text": "🔍 **Matchmaking Preferences**\n\nWho are you looking for today?",
+                "reply_markup": search_pref_menu()
+            }
+        else:
+            return {
+                "text": "🔍 Who are you looking for?",
+                "quick_replies": [
+                    {"title": "👫 Anyone", "payload": StateBoundPayload.encode("search_pref_Any", "0", state)},
+                    {"title": "👨 Male", "payload": StateBoundPayload.encode("search_pref_Male", "0", state)},
+                    {"title": "👩 Female", "payload": StateBoundPayload.encode("search_pref_Female", "0", state)}
+                ]
+            }

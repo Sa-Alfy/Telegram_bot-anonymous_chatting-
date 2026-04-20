@@ -285,25 +285,6 @@ async def _handle_legacy_tg_callback(client: Client, query: CallbackQuery):
         parsed_session_id = 0
         canonical_parsed_state = parsed_state
         if parsed_state and "_" in parsed_state:
-            parts = parsed_state.split("_")
-            canonical_parsed_state = parts[0]
-            try: parsed_session_id = int(parts[1])
-            except: pass
-
-        if parsed_state and canonical_parsed_state != current_state:
-            # HOME state buttons are allowed as long as the user isn't in a critical locking state
-            if canonical_parsed_state == UserState.HOME and current_state not in {UserState.CONTENT_REVIEW, UserState.MATCHED_PENDING}:
-                is_stale = False
-            # During transition from HOME to SEARCHING or CHATTING, stay lenient
-            elif canonical_parsed_state in {UserState.HOME, UserState.SEARCHING} and current_state == UserState.CHATTING:
-                is_stale = False
-            elif action not in state_agnostic_actions:
-                is_stale = True
-        
-        # Critical Session Check: Even if State matches (CHATTING), Partner must match!
-        if current_state == UserState.CHATTING and parsed_session_id > 0:
-            current_partner = await match_state.get_partner(user_id)
-            if current_partner != parsed_session_id:
                 logger.warning(f"Session Mismatch! User {user_id} clicked button for {parsed_session_id} but is chatting with {current_partner}")
                 is_stale = True
 

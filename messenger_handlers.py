@@ -144,23 +144,23 @@ from messenger.handlers.profile import (
 
 def _send_hero_start(psid: str, coins: int, is_guest: bool):
     """Send the 'Neonymo' Rich Hero Card with direct actions."""
+    # We still use the Hero Card for the main entry as it's the premium 'Look' for Messenger
+    # but we ensure the payloads match the standardized statebound system.
     elements = [{
         "title": "Neonymo — Anonymous Chat",
         "subtitle": f"💰 Balance: {coins} coins | Meet Nearby. Stay Unknown.",
         "image_url": LOGO_URL,
         "buttons": [
-            {"type": "postback", "title": "🔍 Find Partner", "payload": "SEARCH:0:HOME"},
-            {"type": "postback", "title": "👤 My Profile",   "payload": "CMD_PROFILE:0:HOME"},
-            {"type": "postback", "title": "📊 My Stats",     "payload": "STATS:0:HOME"}
+            {"type": "postback", "title": "🔍 Find Partner", "payload": StateBoundPayload.encode("SEARCH", "0", "HOME")},
+            {"type": "postback", "title": "👤 My Profile",   "payload": StateBoundPayload.encode("CMD_PROFILE", "0", "HOME")},
+            {"type": "postback", "title": "📊 My Stats",     "payload": StateBoundPayload.encode("STATS", "0", "HOME")}
         ]
     }]
     send_generic_template(psid, elements)
     if is_guest:
-        send_button_template(
-            psid,
-            "You're in Guest Mode. Set up your profile to unlock XP and Coins!",
-            [{"type": "postback", "title": "👤 Set Up Profile", "payload": "CMD_PROFILE:0:HOME"}]
-        )
+        from utils.renderer import Renderer
+        response = Renderer.render_profile_menu("messenger", "HOME")
+        send_quick_replies(psid, "⚠️ Guest Mode: No rewards earned.", response["quick_replies"])
 
 
 async def _handle_start(psid: str, virtual_id: int, user: dict):
@@ -203,9 +203,9 @@ async def _notify_partner_matched(partner_virtual_id: int):
                 if show_safety:
                     asyncio.create_task(UserRepository.update(partner_virtual_id, safety_last_seen=int(now)))
 
-                chat_buttons = await behavior_tracker.get_adapted_chat_buttons(partner_virtual_id)
-                match_text = get_match_found_text(include_safety=show_safety)
-                send_quick_replies(partner_psid, match_text, chat_buttons)
+                from utils.renderer import Renderer
+                response = Renderer.render_match_found("messenger", partner_virtual_id, show_safety=show_safety)
+                send_quick_replies(partner_psid, response["text"], response["quick_replies"])
                 
                 warning = await behavior_tracker.get_match_warning(partner_virtual_id)
                 if warning: send_message(partner_psid, warning)
@@ -295,50 +295,60 @@ def _handle_settings_menu(psid: str):
 
 
 async def _handle_relay_message(psid: str, virtual_id: int, text: str):
-    """Relay a text message to the partner (Async)."""
-    await behavior_tracker.record_message_sent(virtual_id, text)
-    partner_id = await match_state.get_partner(virtual_id)
+    """Relay Messenger text to match partner (Async)."""
+    # 1. Check partner
+    _p = await match_state.get_partner(virtual_id)
+    partner_id = int(_p) if _p else None
     if not partner_id:
         send_quick_replies(psid, "You're not chatting with anyone yet.", IDLE_MENU_BUTTONS)
         return
         
+    # 2. Record behavior
+    await behavior_tracker.record_message_sent(virtual_id, text)
     await behavior_tracker.record_message_received(partner_id)
 
-    is_safe, violation = check_message(text)
-    if not is_safe:
-        from utils.content_filter import apply_enforcement
-        decision = await apply_enforcement(virtual_id, violation)
-        final_sev = decision["final_severity"]
-        action = decision["action"]
-        penalty = decision["penalty"]
+    try:
+        is_safe, violation = check_message(text)
+        if not is_safe:
+            from utils.content_filter import apply_enforcement
+            decision = await apply_enforcement(virtual_id, violation)
+            final_sev = decision["final_severity"]
+            action = decision["action"]
+            penalty = decision["penalty"]
 
-        if penalty > 0:
-            from services.user_service import UserService
-            await UserService.deduct_coins(virtual_id, penalty)
-        
-        warning = get_user_warning(final_sev, decision["description"], penalty)
-        send_message(psid, warning)
-
-        if action in ("terminate_chat", "auto_ban_user"):
-            from services.matchmaking import MatchmakingService
-            from services.user_service import UserService
-            await MatchmakingService.disconnect(virtual_id)
-            if partner_id:
-                await UserService.report_user(virtual_id, partner_id, f"Auto-Mod: {decision['description']}")
-                await _notify_user(partner_id, "❌ Chat ended. Your partner was removed by the Auto-Moderator.")
+            if penalty > 0:
+                from services.user_service import UserService
+                await UserService.deduct_coins(virtual_id, penalty)
             
-            if action == "auto_ban_user":
-                await UserRepository.set_blocked(virtual_id, True)
-        return
+            warning = get_user_warning(final_sev, decision["description"], penalty)
+            send_message(psid, warning)
 
-    from services.user_service import UserService
-    await UserService.increment_challenge(virtual_id, "messages_sent")
-    await _notify_user(partner_id, f"💬 {text}")
+            if action in ("terminate_chat", "auto_ban_user"):
+                from services.matchmaking import MatchmakingService
+                from services.user_service import UserService
+                await MatchmakingService.disconnect(virtual_id)
+                if partner_id:
+                    await UserService.report_user(virtual_id, partner_id, f"Auto-Mod: {decision['description']}")
+                    await _notify_user(partner_id, "❌ Chat ended. Your partner was removed by the Auto-Moderator.")
+                
+                if action == "auto_ban_user":
+                    await UserRepository.set_blocked(virtual_id, True)
+            return
+
+        from services.user_service import UserService
+        await UserService.increment_challenge(virtual_id, "messages_sent")
+        await _notify_user(partner_id, f"💬 {text}")
+    except Exception as e:
+        logger.error(f"Messenger relay failed from {virtual_id} to {partner_id}: {e}", exc_info=True)
+        send_quick_replies(psid, "⚠️ **Delivery Error:** Your message could not be delivered.", get_chat_menu_buttons(UserState.CHATTING))
 
 
 async def _notify_user(partner_virtual_id: int, text: str):
     """Route a notification to a user on their correct platform (Async)."""
     if partner_virtual_id == 1: return
+    
+    # Defensive casting
+    partner_virtual_id = int(partner_virtual_id)
 
     if partner_virtual_id >= 10**15:
         u = await UserRepository.get_by_telegram_id(partner_virtual_id)
@@ -364,6 +374,9 @@ async def _notify_user(partner_virtual_id: int, text: str):
 
 async def _notify_media(partner_virtual_id: int, media_type: str, url: str, caption: str = None):
     """Send native media (photos, stickers) to any platform (Async)."""
+    # Defensive casting
+    partner_virtual_id = int(partner_virtual_id)
+
     if partner_virtual_id >= 10**15:
         u = await UserRepository.get_by_telegram_id(partner_virtual_id)
         if u and u.get("username", "").startswith("msg_"):
@@ -618,11 +631,16 @@ async def handle_messenger_attachment(psid: str, virtual_id: int, attachments: l
 async def handle_messenger_call(psid: str, virtual_id: int, user: dict, call_data: dict):
     """Handle incoming calls (Async)."""
     partner_id = await match_state.get_partner(virtual_id)
-    if partner_id:
+    if not partner_id:
+        send_quick_replies(psid, "Start a chat first.", IDLE_MENU_BUTTONS)
+        return
+
+    try:
         room_name = f"neonymo-{min(virtual_id, partner_id)}-{max(virtual_id, partner_id)}"
         meet_link = f"https://meet.jit.si/{room_name}"
         import app_state
         await PlatformAdapter.send_cross_platform(app_state.telegram_app, partner_id, f"📞 **Incoming Call!**\n👉 {meet_link}", None)
         send_message(psid, f"✅ Partner notified!\n👉 {meet_link}")
-    else:
-        send_quick_replies(psid, "Start a chat first.", IDLE_MENU_BUTTONS)
+    except Exception as e:
+        logger.error(f"Messenger call failed for {partner_id}: {e}", exc_info=True)
+        send_quick_replies(psid, "⚠️ **Delivery Error:** Call could not be initiated.", get_chat_menu_buttons(UserState.CHATTING))

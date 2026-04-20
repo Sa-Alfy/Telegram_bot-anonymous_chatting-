@@ -38,10 +38,10 @@ class DistributedState:
         else:
             logger.info("REDIS_URL not set. DistributedState using memory fallback.")
 
-    async def get_partner(self, user_id: Any) -> Optional[str]:
+    async def get_partner(self, user_id: Any) -> Optional[int]:
         if self.redis:
             val = await self.redis.get(f"sm:partner:{user_id}")
-            return str(val) if val else None
+            return int(val) if val else None
 
         else:
             async with self._lock:
@@ -415,7 +415,7 @@ class DistributedState:
             user2 = await self.get_partner(user1)
         if user2 is None:
             return None
-        key = self._session_key(user1, user2)
+        key = f"sm:{self._session_key(user1, user2)}"
         if self.redis:
             return await self.redis.get(key)
         else:

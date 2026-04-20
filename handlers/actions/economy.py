@@ -36,21 +36,14 @@ class EconomyHandler:
             if not success:
                 return {"alert": "You are already in a chat!", "show_alert": True}
             partner_id = await MatchmakingService.find_partner(client, user_id)
+            from utils.renderer import Renderer
             if partner_id:
-                return {
-                    "text": "💬 **Match Found!**\nYou are now chatting with a stranger...",
-                    "reply_markup": chat_menu(),
-                    "partner_msg": {
-                        "target_id": partner_id,
-                        "text": "💬 **Match Found!**\nYou are now chatting with a stranger...",
-                        "reply_markup": chat_menu()
-                    }
-                }
-            return {
-                "text": "⏳ Searching for a partner...\n**Filter:** Priority",
-                "reply_markup": search_menu(),
-                "start_animation": True
-            }
+                # Notify partner is handled by initialize_match usually, but for Priority we do it here too
+                return Renderer.render_match_found("telegram", partner_id, is_rematch=False, show_safety=True)
+            
+            response = Renderer.render_searching_ui("telegram", UserState.HOME)
+            response["start_animation"] = True
+            return response
         else:
             return {"alert": "❌ Not enough coins for Priority Match (5 coins required)!", "show_alert": True}
 
@@ -240,10 +233,10 @@ class EconomyHandler:
 
             await UserRepository.update(user_id, **updates)
             
+            from utils.renderer import Renderer
             return {
                 "alert": f"🎉 Unlocked: {badge_names[badge_type]}!", 
                 "show_alert": True,
-                "text": f"🛍 **Seasonal Profile Shop**\n\n✅ You just bought the {badge_names[badge_type]} package!\n💰 **Your Balance:** {user['coins'] - cost} coins",
-                "reply_markup": seasonal_shop_menu(user['coins'] - cost)
+                **Renderer.render_profile_menu("telegram", user.get("state", "HOME")) # Re-render dashboard
             }
         return {"alert": "❌ Transaction failed.", "show_alert": True}
