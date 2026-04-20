@@ -1,0 +1,98 @@
+# adapters/telegram/adapter.py
+
+from typing import Dict, Any, Optional
+from adapters.base import BaseAdapter
+from adapters.telegram.keyboards import *
+from core.engine.state_machine import UnifiedState
+from pyrogram import Client
+
+class TelegramAdapter(BaseAdapter):
+    """Telegram UI Platform Adapter."""
+
+    def __init__(self, client: Client):
+        self.client = client
+
+    async def translate_event(self, raw_update: Any) -> Optional[Dict[str, Any]]:
+        """Maps CallbackQuery or Message to Event Contract."""
+        if hasattr(raw_update, "data"):
+            # Callback Query
+            data = raw_update.data
+            uid = str(raw_update.from_user.id)
+            
+            if data == "START_SEARCH":
+                return self.create_event("START_SEARCH", uid)
+            elif data == "STOP_SEARCH":
+                return self.create_event("STOP_SEARCH", uid)
+            elif data.startswith("END_CHAT:"):
+                mid = data.split(":")[1]
+                return self.create_event("END_CHAT", uid, mid)
+            elif data.startswith("NEXT_MATCH:"):
+                mid = data.split(":")[1]
+                return self.create_event("NEXT_MATCH", uid, mid)
+            elif data.startswith("VOTE:"):
+                # VOTE:signal:value:match_id
+                parts = data.split(":")
+                sig = parts[1]
+                val = parts[2]
+                mid = parts[3]
+                return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
+            
+        elif hasattr(raw_update, "text"):
+            # Text commands
+            uid = str(raw_update.from_user.id)
+            text = raw_update.text
+            if text == "/start":
+                return self.create_event("CMD_START", uid)
+            elif text == "/search":
+                return self.create_event("START_SEARCH", uid)
+
+        return None
+
+    async def render_state(self, user_id: str, state: str, payload: Optional[Dict[str, Any]] = None) -> bool:
+        """Standardized Telegram rendering. Returns True for Render-ACK."""
+        try:
+            uid = int(user_id)
+            mid = payload.get("match_id") if payload else "global"
+
+            if state == UnifiedState.HOME:
+                await self.client.send_message(
+                    uid, 
+                    "🏠 **Main Menu**\nWelcome back! Tap below to start.",
+                    reply_markup=get_home_keyboard()
+                )
+            elif state == UnifiedState.SEARCHING:
+                await self.client.send_message(
+                    uid,
+                    "⏳ **Searching...**\nFinding someone for you. Please wait.",
+                    reply_markup=get_searching_keyboard()
+                )
+            elif state == UnifiedState.CHAT_ACTIVE:
+                await self.client.send_message(
+                    uid,
+                    "🎉 **Connected!**\nYou are now chatting anonymously.",
+                    reply_markup=get_chat_keyboard(mid)
+                )
+            elif state == UnifiedState.VOTING:
+                # Check which signal is missing
+                signals = payload.get("signals", {}) if payload else {}
+                if not signals.get("reputation"):
+                    await self.client.send_message(
+                        uid,
+                        "🗳 **Reputation Vote**\nHow was your experience with this partner?",
+                        reply_markup=get_voting_keyboard(mid, "reputation")
+                    )
+                elif not signals.get("identity"):
+                    await self.client.send_message(
+                        uid,
+                        "🗳 **Identity Vote**\nWhat was their gender?",
+                        reply_markup=get_voting_keyboard(mid, "identity")
+                    )
+            return True
+        except Exception as e:
+            from utils.logger import logger
+            logger.error(f"Telegram Render Failed: {e}")
+            return False
+
+
+    async def send_error(self, user_id: str, error_msg: str):
+        await self.client.send_message(int(user_id), f"⚠️ **Error:** {error_msg}")

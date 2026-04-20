@@ -12,6 +12,13 @@
 telegram_app = None  # Pyrogram Client instance — set in main.py
 bot_loop = None      # Main asyncio Event Loop — set in main.py
 
+# Unified Matchmaking Engine (Phase 3)
+engine = None        # ActionRouter instance
+tg_adapter = None    # TelegramAdapter instance
+msg_adapter = None   # MessengerAdapter instance
+reconciler = None    # Reconciler instance
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # END OF app_state.py
 # ═══════════════════════════════════════════════════════════════════════

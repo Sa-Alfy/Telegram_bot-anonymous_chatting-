@@ -157,6 +157,18 @@ async def main():
     else:
         logger.info("Behavioral Engine running with InMemory storage (shared state disabled).")
 
+    # ── Initialize Unified Matchmaking Engine (Phase 3) ──────────────
+    from core.engine.actions import ActionRouter
+    from core.engine.reconciler import Reconciler
+    from adapters.telegram.adapter import TelegramAdapter
+    from adapters.messenger.adapter import MessengerAdapter
+    
+    app_state.engine = ActionRouter()
+    app_state.reconciler = Reconciler()
+    app_state.msg_adapter = MessengerAdapter()
+    # Note: tg_adapter needs pyrogram_app, so set it later
+
+
     # ── Schema migration for new compliance columns ─────────────────
     try:
         async with db._pool.acquire() as conn:
@@ -215,6 +227,8 @@ async def main():
 
     # Store in shared state so messenger_handlers can send cross-platform TG messages
     app_state.telegram_app = pyrogram_app
+    app_state.tg_adapter = TelegramAdapter(pyrogram_app)
+
 
     # ── Exception handler ─────────────────────────────────────────────
     try:

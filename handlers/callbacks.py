@@ -21,6 +21,8 @@ from utils.keyboard import search_menu, chat_menu, start_menu, admin_menu
 from config import ADMIN_ID
 from state.match_state import UserState
 from utils.renderer import StateBoundPayload
+import app_state
+
 
 async def handle_help(client: Client, user_id: int) -> Dict[str, Any]:
     """Displays the help and guide menu."""
@@ -223,22 +225,35 @@ async def process_response(client: Client, query: CallbackQuery, response: Dict[
 
 @Client.on_callback_query()
 async def on_callback(client: Client, query: CallbackQuery):
+    user_id = str(query.from_user.id)
+    
+    # 1. Translate to Event via Adapter
+    event = await app_state.tg_adapter.translate_event(query)
+    if not event:
+        # Legacy/Other routing fallback
+        return await _handle_legacy_tg_callback(client, query)
+
+    # 2. Concurrency check & Process via Engine
+    # ActionRouter.process_event handles all state transitions, symmetric partner notifications,
+    # and UI rehydration internally (Phase 5).
+    result = await app_state.engine.process_event(event)
+
+    if not result.get("success") and "error" in result:
+        # Handle failures (e.g. Hard Gate)
+        error = result["error"]
+        await app_state.tg_adapter.send_error(user_id, error)
+        await query.answer(error, show_alert=True)
+        # Attempt recovery re-render
+        await app_state.engine.process_event({"event_type": "RECOVER", "user_id": user_id})
+    
+    await query.answer()
+
+async def _handle_legacy_tg_callback(client: Client, query: CallbackQuery):
+    """Old dispatcher for non-matchmaking actions."""
     user_id = query.from_user.id
     raw_data = query.data
-
-    # 1. NEW: Invariant Recovery Hook (Self-Healing)
-    from services.distributed_state import distributed_state
-    if not await distributed_state.validate_session(user_id, repair=True):
-        # validate_session already called force_disconnect if mismatch found
-        await query.answer("🔄 Session sync fixed.", show_alert=False)
-        from utils.renderer import Renderer
-        return await process_response(client, query, Renderer.render_profile_menu("telegram", UserState.HOME))
-
-    # 2. Decode payload (action, target, state-hint)
     action, target_str, parsed_state = StateBoundPayload.decode(raw_data)
     target_id = int(target_str) if target_str.isdigit() else 0
-    
-    # Normalize action for matching
     data = action.lower()
 
     # 2. Global rate limit (UI-layer debounce, not the concurrency lock)
@@ -450,4 +465,3 @@ async def on_callback(client: Client, query: CallbackQuery):
     finally:
         # Always release the action lock — prevents deadlocks on any exception path
         await distributed_state.release_action_lock(user_id)
-

@@ -2,8 +2,9 @@ import os
 import time
 import asyncio
 import json
-from typing import Optional
+from typing import Optional, Any
 from utils.logger import logger
+
 
 class DistributedState:
     _instance = None
@@ -37,31 +38,34 @@ class DistributedState:
         else:
             logger.info("REDIS_URL not set. DistributedState using memory fallback.")
 
-    async def get_partner(self, user_id: int) -> Optional[int]:
+    async def get_partner(self, user_id: Any) -> Optional[str]:
         if self.redis:
-            val = await self.redis.get(f"chat:{user_id}")
-            return int(val) if val else None
+            val = await self.redis.get(f"sm:partner:{user_id}")
+            return str(val) if val else None
+
         else:
             async with self._lock:
                 return self._fallback_store.get(f"chat:{user_id}")
 
-    async def set_partner(self, user1: int, user2: int):
+    async def set_partner(self, user1: Any, user2: Any):
         if self.redis:
-            await self.redis.set(f"chat:{user1}", user2)
-            await self.redis.set(f"chat:{user2}", user1)
+            await self.redis.set(f"sm:partner:{user1}", str(user2))
+            await self.redis.set(f"sm:partner:{user2}", str(user1))
+
         else:
             async with self._lock:
                 self._fallback_store[f"chat:{user1}"] = user2
                 self._fallback_store[f"chat:{user2}"] = user1
 
-    async def clear_partner(self, user_id: int) -> Optional[int]:
+    async def clear_partner(self, user_id: Any) -> Optional[str]:
         partner_id = await self.get_partner(user_id)
         if self.redis:
-            await self.redis.delete(f"chat:{user_id}")
+            await self.redis.delete(f"sm:partner:{user_id}")
             if partner_id:
-                partner_await = await self.redis.get(f"chat:{partner_id}")
-                if partner_await and int(partner_await) == user_id:
-                    await self.redis.delete(f"chat:{partner_id}")
+                partner_await = await self.redis.get(f"sm:partner:{partner_id}")
+                if partner_await and str(partner_await) == str(user_id):
+                    await self.redis.delete(f"sm:partner:{partner_id}")
+
         else:
             async with self._lock:
                 self._fallback_store.pop(f"chat:{user_id}", None)
@@ -87,11 +91,12 @@ class DistributedState:
             
             # 2. Add to waiting list (LPUSH for priority, RPUSH for normal)
             # Remove first to prevent duplicates
-            await self.redis.lrem("queue:waiting", 0, str(user_id))
+            await self.redis.lrem("sm:queue", 0, str(user_id))
             if priority:
-                await self.redis.lpush("queue:waiting", str(user_id))
+                await self.redis.lpush("sm:queue", str(user_id))
             else:
-                await self.redis.rpush("queue:waiting", str(user_id))
+                await self.redis.rpush("sm:queue", str(user_id))
+
         else:
             async with self._lock:
                 # Fallback to local memory (existing behavior)
@@ -154,25 +159,27 @@ class DistributedState:
         return {1, "OK"}
     """
 
-    async def get_user_state(self, user_id: int) -> Optional[str]:
+    async def get_user_state(self, user_id: Any) -> Optional[str]:
         if self.redis:
-            return await self.redis.get(f"state:{user_id}")
+            return await self.redis.get(f"sm:state:{user_id}")
         else:
             async with self._lock:
-                return self._fallback_store.get(f"state:{user_id}")
+                return self._fallback_store.get(f"sm:state:{user_id}")
 
-    async def set_user_state(self, user_id: int, state: Optional[str]):
+
+    async def set_user_state(self, user_id: Any, state: Optional[str]):
         if self.redis:
             if state is None:
-                await self.redis.delete(f"state:{user_id}")
+                await self.redis.delete(f"sm:state:{user_id}")
             else:
-                await self.redis.set(f"state:{user_id}", state)
+                await self.redis.set(f"sm:state:{user_id}", state)
         else:
             async with self._lock:
                 if state is None:
-                    self._fallback_store.pop(f"state:{user_id}", None)
+                    self._fallback_store.pop(f"sm:state:{user_id}", None)
                 else:
-                    self._fallback_store[f"state:{user_id}"] = state
+                    self._fallback_store[f"sm:state:{user_id}"] = state
+
 
     async def is_duplicate_message(self, message_id: str) -> bool:
         """Deduplicate Messenger messages atomically. Returns True if duplicate."""
