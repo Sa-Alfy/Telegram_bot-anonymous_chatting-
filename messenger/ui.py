@@ -112,10 +112,10 @@ def get_start_menu_buttons(state: str = UserState.HOME):
 
 def get_search_pref_buttons(state: str = UserState.HOME):
     return [
-        {"title": "👫 Anyone",  "payload": StateBoundPayload.encode("PREF_ANY", "0", state)},
-        {"title": "👩 Female",  "payload": StateBoundPayload.encode("PREF_FEMALE", "0", state)},
-        {"title": "👨 Male",    "payload": StateBoundPayload.encode("PREF_MALE", "0", state)},
-        {"title": "❌ Cancel",  "payload": StateBoundPayload.encode("CANCEL_SEARCH", "0", state)},
+        {"title": "👫 Anyone",  "payload": StateBoundPayload.encode("search_pref_any", "0", state)},
+        {"title": "👩 Female",  "payload": StateBoundPayload.encode("search_pref_female", "0", state)},
+        {"title": "👨 Male",    "payload": StateBoundPayload.encode("search_pref_male", "0", state)},
+        {"title": "❌ Cancel",  "payload": StateBoundPayload.encode("cancel_search", "0", state)},
     ]
 
 def get_chat_menu_buttons(state: str = UserState.HOME):

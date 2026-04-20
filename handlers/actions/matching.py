@@ -29,7 +29,7 @@ def _fire(coro):
 
 class MatchingHandler:
     @staticmethod
-    async def handle_search(client: Client, user_id: int) -> Dict[str, Any]:
+    async def handle_search(client: Client, user_id: int, platform: str = "telegram") -> Dict[str, Any]:
         """Prompts the user for their matchmaking preferences."""
         if not await rate_limiter.can_matchmake(user_id, update=False):
             remaining = await rate_limiter.get_cooldown_remaining(user_id, "matchmake") or 0
@@ -40,10 +40,10 @@ class MatchingHandler:
             
         from utils.renderer import Renderer
         current_state = await match_state.get_user_state(user_id) or UserState.HOME
-        return Renderer.render_preferences_menu("telegram", current_state)
+        return Renderer.render_preferences_menu(platform, current_state)
 
     @staticmethod
-    async def handle_search_with_pref(client: Client, user_id: int, pref: str) -> Dict[str, Any]:
+    async def handle_search_with_pref(client: Client, user_id: int, pref: str, platform: str = "telegram") -> Dict[str, Any]:
         """Starts searching for a partner with explicit filters."""
         # 1. Check for rapid cycling (Flood protection)
         if await rate_limiter.check_flood(user_id):
@@ -113,13 +113,13 @@ class MatchingHandler:
              return None # Silent abort: User was matched by someone else's task.
              
         from utils.renderer import Renderer
-        response = Renderer.render_searching_ui("telegram", UserState.SEARCHING)
+        response = Renderer.render_searching_ui(platform, UserState.SEARCHING)
         response["start_animation"] = True
         response["delete_prev"] = True
         return response
 
     @staticmethod
-    async def handle_cancel(client: Client, user_id: int) -> Dict[str, Any]:
+    async def handle_cancel(client: Client, user_id: int, platform: str = "telegram") -> Dict[str, Any]:
         """Cancels the search."""
         await MatchmakingService.remove_from_queue(user_id)
         from database.repositories.user_repository import UserRepository
@@ -127,14 +127,11 @@ class MatchingHandler:
         coins = user.get("coins", 0)
         is_guest = user.get("is_guest", 1)
         
-        return {
-            "text": get_start_text(coins, is_guest),
-            "reply_markup": start_menu(is_guest),
-            "special_action": "remove_keyboard" # We will handle this in process_response
-        }
+        from utils.renderer import Renderer
+        return Renderer.render_profile_menu(platform, UserState.HOME)
 
     @staticmethod
-    async def handle_stop(client: Client, user_id: int) -> Dict[str, Any]:
+    async def handle_stop(client: Client, user_id: int, platform: str = "telegram") -> Dict[str, Any]:
         """Disconnects from current chat with session-bound safety."""
         current_state = await match_state.get_user_state(user_id)
         if current_state != UserState.CHATTING:
@@ -173,7 +170,7 @@ class MatchingHandler:
         }
 
     @staticmethod
-    async def handle_next(client: Client, user_id: int) -> Dict[str, Any]:
+    async def handle_next(client: Client, user_id: int, platform: str = "telegram") -> Dict[str, Any]:
         """Skips to the next partner (disconnect + auto-search)."""
         # Record action for behavior scoring
         from utils.behavior_tracker import behavior_tracker

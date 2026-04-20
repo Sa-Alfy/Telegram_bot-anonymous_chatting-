@@ -106,7 +106,7 @@ async def _execute_action(psid: str, virtual_id: int, action_coro_fn, *args):
     client = app_state.telegram_app
     if client is None:
         logger.warning(f"_execute_action: telegram_app is None — cross-platform relay unavailable")
-    response = await action_coro_fn(client, virtual_id, *args)
+    response = await action_coro_fn(client, virtual_id, *args, platform="messenger")
     logger.info(f"TRACE _execute_action: response keys = {list(response.keys()) if response else 'None'}")
     if not response:
         return
@@ -496,13 +496,13 @@ async def _handle_legacy_messenger_action(psid: str, virtual_id: int, user: dict
     if action in ("SEARCH", "CMD_START"):
         # Safe to call even while SEARCHING/CHATTING — guarded internally
         await handle_search(psid, virtual_id, user)
-    elif action in ("PREF_ANY", "SEARCH_PREF_ANY"):
+    elif action.lower() in ("pref_any", "search_pref_any"):
         await handle_search_with_pref(psid, virtual_id, user, "Any")
     elif action == "CMD_STATS":
         await _handle_stats(psid, virtual_id, user)
-    elif action in ("PREF_MALE", "SEARCH_PREF_MALE"):
+    elif action.lower() in ("pref_male", "search_pref_male"):
         await handle_search_with_pref(psid, virtual_id, user, "Male")
-    elif action in ("PREF_FEMALE", "SEARCH_PREF_FEMALE"):
+    elif action.lower() in ("pref_female", "search_pref_female"):
         await handle_search_with_pref(psid, virtual_id, user, "Female")
     elif action in ("PREF_PRIORITY",):
         await handle_search_with_pref(psid, virtual_id, user, "Priority")

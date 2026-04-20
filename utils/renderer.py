@@ -124,8 +124,8 @@ class Renderer:
             return {
                 "text": "🔍 Who are you looking for?",
                 "quick_replies": [
-                    {"title": "👫 Anyone", "payload": StateBoundPayload.encode("search_pref_Any", "0", state)},
-                    {"title": "👨 Male", "payload": StateBoundPayload.encode("search_pref_Male", "0", state)},
-                    {"title": "👩 Female", "payload": StateBoundPayload.encode("search_pref_Female", "0", state)}
+                    {"title": "👫 Anyone", "payload": StateBoundPayload.encode("search_pref_any", "0", state)},
+                    {"title": "👨 Male", "payload": StateBoundPayload.encode("search_pref_male", "0", state)},
+                    {"title": "👩 Female", "payload": StateBoundPayload.encode("search_pref_female", "0", state)}
                 ]
             }
