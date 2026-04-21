@@ -3,6 +3,7 @@
 class UnifiedState:
     """Deterministic states for the Unified Matchmaking system."""
     HOME = "HOME"
+    PREFERENCES = "PREFERENCES"
     SEARCHING = "SEARCHING"
     MATCHED = "MATCHED"        # State after discovery, before sync
     CONNECTING = "CONNECTING"  # Handshake/Initialization phase
@@ -12,13 +13,14 @@ class UnifiedState:
 
     # List of all valid states for validation
     ALL_STATES = {
-        HOME, SEARCHING, MATCHED, CONNECTING, CHAT_ACTIVE, CHAT_END, VOTING
+        HOME, PREFERENCES, SEARCHING, MATCHED, CONNECTING, CHAT_ACTIVE, CHAT_END, VOTING
     }
 
     # Strict transition map (Backend Truth)
     # format: { current_state: { set_of_allowed_next_states } }
     TRANSITIONS = {
-        HOME: {SEARCHING},
+        HOME: {PREFERENCES, SEARCHING},
+        PREFERENCES: {SEARCHING, HOME},
         SEARCHING: {HOME, MATCHED},
         MATCHED: {CONNECTING, HOME}, # Allow HOME if partner cancels during match found
         CONNECTING: {CHAT_ACTIVE, CHAT_END},

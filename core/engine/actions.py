@@ -38,9 +38,15 @@ class ActionRouter:
         result = {"success": False}
         
         # --- 1. TRANSITIONS ---
-        if etype == "START_SEARCH":
-            keys = [f"sm:state:{uid}", "sm:queue", idemp_key, f"sm:ver:u:{uid}"]
-            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.START_SEARCH_LUA, keys, [uid, str(ts)])
+        if etype == "SHOW_PREFS":
+            keys = [f"sm:state:{uid}", idemp_key, f"sm:ver:u:{uid}"]
+            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SET_PREFS_LUA, keys, [uid, str(ts)])
+            result = {"success": code in {1, 2}, "state": msg, "version": ver}
+
+        elif etype == "START_SEARCH":
+            pref = payload.get("pref", "")
+            keys = [f"sm:state:{uid}", "sm:queue", idemp_key, f"sm:ver:u:{uid}", f"sm:match:pref:{uid}"]
+            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.START_SEARCH_LUA, keys, [uid, str(ts), pref])
             result = {"success": code in {1, 2}, "state": msg, "version": ver}
 
         elif etype == "END_CHAT":

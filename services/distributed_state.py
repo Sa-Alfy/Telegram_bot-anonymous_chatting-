@@ -122,7 +122,7 @@ class DistributedState:
     async def get_user_queue_data(self, user_id: int) -> dict:
         """Fetch preference/metadata for a user in the queue."""
         if self.redis:
-            data = await self.redis.hgetall(f"match:pref:{user_id}")
+            data = await self.redis.hgetall(f"sm:match:pref:{user_id}")
             if data:
                 # Convert string scores/etc back to float/int where possible
                 processed = {}

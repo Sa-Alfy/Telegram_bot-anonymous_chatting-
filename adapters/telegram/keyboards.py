@@ -43,4 +43,12 @@ def get_voting_keyboard(match_id: str, step: str = "reputation"):
                 InlineKeyboardButton("❓ Unsure", callback_data=f"VOTE:identity:unsure:{match_id}")
             ]
         ])
-    return None
+def get_preferences_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("👫 Anyone", callback_data="SEARCH_PREF:Any:PREFERENCES")],
+        [
+            InlineKeyboardButton("👨 Male (15 coins)", callback_data="SEARCH_PREF:Male:PREFERENCES"),
+            InlineKeyboardButton("👩 Female (15 coins)", callback_data="SEARCH_PREF:Female:PREFERENCES")
+        ],
+        [InlineKeyboardButton("🔙 Back", callback_data="STOP_SEARCH")]
+    ])

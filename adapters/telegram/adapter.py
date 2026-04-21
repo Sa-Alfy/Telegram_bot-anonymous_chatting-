@@ -26,7 +26,9 @@ class TelegramAdapter(BaseAdapter):
             mid = target_str if target_str.startswith("m_") else f"m_{uid}_{target_str}" if target_str != "0" else "global"
 
             if action in {"SEARCH", "START_SEARCH"}:
-                return self.create_event("START_SEARCH", uid)
+                return self.create_event("SHOW_PREFS", uid)
+            elif action == "SEARCH_PREF":
+                return self.create_event("START_SEARCH", uid, payload={"pref": target_str})
             elif action in {"CANCEL_SEARCH", "STOP_SEARCH"}:
                 return self.create_event("STOP_SEARCH", uid)
             elif action in {"STOP", "END_CHAT"}:
@@ -53,7 +55,7 @@ class TelegramAdapter(BaseAdapter):
             if text == "/start":
                 return self.create_event("CMD_START", uid)
             elif text == "/search":
-                return self.create_event("START_SEARCH", uid)
+                return self.create_event("SHOW_PREFS", uid)
 
         return None
 
@@ -68,6 +70,12 @@ class TelegramAdapter(BaseAdapter):
                     uid, 
                     "🏠 **Main Menu**\nWelcome back! Tap below to start.",
                     reply_markup=get_home_keyboard()
+                )
+            elif state == UnifiedState.PREFERENCES:
+                await self.client.send_message(
+                    uid,
+                    "🔍 **Matchmaking Preferences**\n\nWho are you looking for today?",
+                    reply_markup=get_preferences_keyboard()
                 )
             elif state == UnifiedState.SEARCHING:
                 await self.client.send_message(

@@ -43,4 +43,10 @@ def get_messenger_vote_card(match_id: str, signal: str):
                 {"type": "postback", "title": "❓ Unsure", "payload": f"VOTE:identity:unsure:{match_id}"}
             ]
         }
-    return None
+def get_messenger_preferences_buttons():
+    return [
+        {"title": "👫 Anyone", "payload": "SEARCH_PREF:Any"},
+        {"title": "👨 Male",   "payload": "SEARCH_PREF:Male"},
+        {"title": "👩 Female", "payload": "SEARCH_PREF:Female"},
+        {"title": "🔙 Back",   "payload": "STOP_SEARCH"}
+    ]

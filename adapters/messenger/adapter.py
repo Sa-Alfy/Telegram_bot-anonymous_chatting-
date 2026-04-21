@@ -23,9 +23,12 @@ class MessengerAdapter(BaseAdapter):
         
         if payload:
             if payload == "START_SEARCH":
-                return self.create_event("START_SEARCH", uid)
+                return self.create_event("SHOW_PREFS", uid)
             elif payload == "STOP_SEARCH":
                 return self.create_event("STOP_SEARCH", uid)
+            elif payload.startswith("SEARCH_PREF:"):
+                pref = payload.split(":")[1]
+                return self.create_event("START_SEARCH", uid, payload={"pref": pref})
             elif payload.startswith("END_CHAT:"):
                 mid = payload.split(":")[1]
                 return self.create_event("END_CHAT", uid, mid)
@@ -60,6 +63,8 @@ class MessengerAdapter(BaseAdapter):
             res = None
             if state == UnifiedState.HOME:
                 res = send_quick_replies(psid, "🏠 **Main Menu**\nWelcome! Tap below to start meeting people.", get_messenger_home_buttons())
+            elif state == UnifiedState.PREFERENCES:
+                res = send_quick_replies(psid, "🔍 Who are you looking for today?", get_messenger_preferences_buttons())
             elif state == UnifiedState.SEARCHING:
                 res = send_quick_replies(psid, "⏳ **Searching...**\nFinding your partner. Stay close!", [{"title": "❌ Cancel", "payload": "STOP_SEARCH"}])
             elif state == UnifiedState.CHAT_ACTIVE:

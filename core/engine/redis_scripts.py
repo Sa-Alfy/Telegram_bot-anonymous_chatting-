@@ -9,15 +9,14 @@ class RedisScripts:
     PRODUCTION HARDENED: Match-level versioning, atomic audit logs, and vote locks.
     """
 
-    # 1. START SEARCH
-    # KEYS: 1:state:user, 2:queue, 3:idemp:hash, 4:user_ver:id
+    # 0. SET PREFERENCES (Transition from HOME)
+    # KEYS: 1:state:user, 2:idemp:hash, 3:user_ver:id
     # ARGV: 1:user_id, 2:timestamp
-    START_SEARCH_LUA = """
+    SET_PREFS_LUA = """
         local state_key = KEYS[1]
-        local queue_key = KEYS[2]
-        local idemp_key = KEYS[3]
-        local ver_key = KEYS[4]
-        
+        local idemp_key = KEYS[2]
+        local ver_key = KEYS[3]
+
         -- 1. Idempotency Check
         if redis.call("EXISTS", idemp_key) == 1 then return {2, "ALREADY_PROCESSED"} end
 
@@ -26,11 +25,48 @@ class RedisScripts:
         if current and current ~= "HOME" then return {0, "INVALID_STATE", current} end
 
         -- 3. Execution
+        redis.call("SET", state_key, "PREFERENCES")
+        redis.call("SET", idemp_key, "1", "EX", 30)
+
+        -- Increment User Version
+        local ver = redis.call("INCR", ver_key)
+
+        return {1, "PREFERENCES", tostring(ver)}
+    """
+
+    # 1. START SEARCH
+    # KEYS: 1:state:user, 2:queue, 3:idemp:hash, 4:user_ver:id, 5:match_pref:user
+    # ARGV: 1:user_id, 2:timestamp, 3:preference
+    START_SEARCH_LUA = """
+        local state_key = KEYS[1]
+        local queue_key = KEYS[2]
+        local idemp_key = KEYS[3]
+        local ver_key = KEYS[4]
+        local pref_key = KEYS[5]
+        
+        -- 1. Idempotency Check
+        if redis.call("EXISTS", idemp_key) == 1 then return {2, "ALREADY_PROCESSED"} end
+
+        -- 2. State Validation
+        local current = redis.call("GET", state_key)
+        if current and current ~= "HOME" and current ~= "PREFERENCES" then 
+            return {0, "INVALID_STATE", current or "NULL"} 
+        end
+
+        -- 3. Execution
         redis.call("SET", state_key, "SEARCHING")
+        
+        -- Store preference if provided
+        if ARGV[3] and ARGV[3] ~= "" then
+            redis.call("HSET", pref_key, "pref", ARGV[3])
+            redis.call("EXPIRE", pref_key, 3600)
+        end
+        
+        redis.call("LREM", queue_key, 0, ARGV[1])
         redis.call("LPUSH", queue_key, ARGV[1])
         redis.call("SET", idemp_key, "1", "EX", 30)
         
-        -- Increment User Version (Start Search has no Match yet)
+        -- Increment User Version
         local ver = redis.call("INCR", ver_key)
         
         return {1, "SEARCHING", tostring(ver)}
