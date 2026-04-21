@@ -50,19 +50,19 @@ class MatchmakingService:
         return await match_state.find_match(user_id)
 
     @staticmethod
-    async def initialize_match(client: Client, user1_id: int, user2_id: int):
+    async def initialize_match(client: Client, user1_id: Any, user2_id: Any):
         """Standardized match setup: Rewards, DB updates, Behavior tracking, and Platform UI."""
         from services.user_service import UserService
         from database.repositories.user_repository import UserRepository
         from utils.ui_formatters import get_match_found_text
         from utils.helpers import update_user_ui
-        from adapters.telegram.keyboards import get_chat_keyboard
-        from adapters.telegram.keyboards import persistent_chat_menu
+        from adapters.telegram.keyboards import get_chat_keyboard, persistent_chat_menu
         from core.behavior_engine import behavior_engine
         from core.engine.state_machine import UnifiedState
         from services.distributed_state import distributed_state
         from state.match_state import UserState
         import time
+        import app_state
 
         uids = [user1_id, user2_id]
         now = time.time()
@@ -70,22 +70,28 @@ class MatchmakingService:
         # 1. DB & Reward Updates
         try:
             for uid in uids:
-                await UserService.add_coins(uid, 2)
-                user = await UserRepository.get_by_telegram_id(uid)
+                # Clean ID for DB operations (strip prefixes if any)
+                if isinstance(uid, str) and uid.startswith("msg_"):
+                    from messenger.utils import _raw
+                    psid = _raw(uid)
+                    import hashlib
+                    psid_hash = int(hashlib.sha256(psid.encode()).hexdigest(), 16)
+                    db_id = (psid_hash % (10**15)) + 10**15
+                else:
+                    db_id = int(uid)
+
+                await UserService.add_coins(db_id, 2)
+                user = await UserRepository.get_by_telegram_id(db_id)
                 if user:
                     matches = (user.get("total_matches") or 0) + 1
-                    await UserRepository.update(uid, total_matches=matches)
-                    await UserService.increment_challenge(uid, "matches_completed")
-                    await behavior_engine.record_session_start(uid)
+                    await UserRepository.update(db_id, total_matches=matches)
+                    await UserService.increment_challenge(db_id, "matches_completed")
+                    await behavior_engine.record_session_start(db_id)
         except Exception as e:
             logger.error(f"Post-match DB updates failed for {user1_id}-{user2_id}: {e}")
 
         # 1.5 Sync engine states via ActionRouter (Unified Engine Step 3)
-        # This replaces manual Redis sets with atomic versioned transitions.
-        import app_state
         try:
-            # We trigger the CONNECT event for user1. 
-            # The ActionRouter will automatically find the partner and update both.
             await app_state.engine.process_event({
                 "event_type": "CONNECT",
                 "user_id": str(user1_id),
@@ -95,19 +101,24 @@ class MatchmakingService:
             logger.error(f"Engine CONNECT failed for {user1_id}: {e}")
 
         # 2. Safety Warning & Additional Context (Post-Engine)
-        # We don't send the main 'Connected' message here anymore, 
-        # as ActionRouter._rehydrate_ui already triggered render_state for both.
-        # We only send supplementary info if needed.
-        for i, uid in enumerate(uids):
+        for uid in uids:
             try:
-                user = await UserRepository.get_by_telegram_id(uid)
+                if isinstance(uid, str) and uid.startswith("msg_"):
+                    from messenger.utils import _raw
+                    psid = _raw(uid)
+                    import hashlib
+                    psid_hash = int(hashlib.sha256(psid.encode()).hexdigest(), 16)
+                    db_id = (psid_hash % (10**15)) + 10**15
+                else:
+                    db_id = int(uid)
+
+                user = await UserRepository.get_by_telegram_id(db_id)
                 if not user: continue
                 
-                # Check for contextual hints or warnings
-                warning = await behavior_engine.get_match_warning(uid)
+                warning = await behavior_engine.get_match_warning(db_id)
                 if warning:
                     from utils.helpers import send_cross_platform
-                    await send_cross_platform(client, uid, warning)
+                    await send_cross_platform(client, db_id, warning)
             except Exception as e:
                 logger.error(f"Post-match cleanup failed for {uid}: {e}")
 
@@ -115,11 +126,22 @@ class MatchmakingService:
 
 
     @staticmethod
-    async def disconnect(user_id: int) -> Optional[Dict[str, Any]]:
+    async def disconnect(user_id: Any) -> Optional[Dict[str, Any]]:
         """Ends a chat session and calculates rewards (Atomic Disconnect -> Calc -> DB)."""
         from core.behavior_engine import behavior_engine
         
+        # Derive virtual integer ID for DB operations
+        if isinstance(user_id, str) and user_id.startswith("msg_"):
+            from messenger.utils import _raw
+            psid = _raw(user_id)
+            import hashlib
+            psid_hash = int(hashlib.sha256(psid.encode()).hexdigest(), 16)
+            db_id = (psid_hash % (10**15)) + 10**15
+        else:
+            db_id = int(user_id)
+
         # 1. ATOMIC DISCONNECT FIRST (Provides Idempotency)
+        # MatchState.disconnect handles both TG ints and MSG strings via DistributedState
         stats = await match_state.disconnect(user_id)
         if not stats:
             await match_state.remove_from_queue(user_id)
@@ -128,11 +150,20 @@ class MatchmakingService:
         partner_id, duration_seconds = stats
         duration_minutes = duration_seconds // 60
         
-        u1 = await UserRepository.get_by_telegram_id(user_id)
-        u2 = await UserRepository.get_by_telegram_id(partner_id)
+        # Derive partner DB ID
+        if isinstance(partner_id, str) and partner_id.startswith("msg_"):
+            psid = partner_id[4:]
+            import hashlib
+            psid_hash = int(hashlib.sha256(psid.encode()).hexdigest(), 16)
+            db_p_id = (psid_hash % (10**15)) + 10**15
+        else:
+            db_p_id = int(partner_id)
+
+        u1 = await UserRepository.get_by_telegram_id(db_id)
+        u2 = await UserRepository.get_by_telegram_id(db_p_id)
         
         if not u1:
-            logger.warning(f"Disconnect failed: User {user_id} not found in DB.")
+            logger.warning(f"Disconnect failed: User {user_id} (DB:{db_id}) not found in DB.")
             return None
 
         # 2. CALCULATION
@@ -140,11 +171,12 @@ class MatchmakingService:
         time_reward = duration_minutes * 2
         xp_reward = max(2, duration_minutes * 2)
         
+        from database.repositories.user_repository import get_active_event
         active_event = get_active_event()
         event_mult = active_event.get("multiplier", 1.0)
         
-        u1_b_mult = await behavior_engine.get_reward_multiplier(user_id)
-        u2_b_mult = await behavior_engine.get_reward_multiplier(partner_id)
+        u1_b_mult = await behavior_engine.get_reward_multiplier(db_id)
+        u2_b_mult = await behavior_engine.get_reward_multiplier(db_p_id)
 
         u1_coins = int(time_reward * event_mult * u1_b_mult)
         if u1.get("coin_booster", {}).get("active"): u1_coins *= 2

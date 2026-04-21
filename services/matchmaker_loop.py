@@ -64,8 +64,14 @@ async def start_matchmaker_loop(client: Client):
 
                     if u_likes_p and p_likes_u:
                         # Mutation-level check: mutally blocked?
-                        if await BlockedRepository.is_mutually_blocked(u_id, p_id):
-                            continue
+                        # Handle string IDs safely for BlockedRepository
+                        try:
+                            clean_u = int(u_id[4:]) if u_id.startswith("msg_") else int(u_id)
+                            clean_p = int(p_id[4:]) if p_id.startswith("msg_") else int(p_id)
+                            if await BlockedRepository.is_mutually_blocked(clean_u, clean_p):
+                                continue
+                        except Exception as e:
+                            logger.warning(f"Blocked check fallback for {u_id}-{p_id}: {e}")
 
                         # ATOMIC CLAIM (No local lock needed)
                         success, reason = await distributed_state.atomic_claim_match(u_id, p_id)

@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Dict, List, Set, Optional, Tuple
+from typing import Dict, List, Set, Optional, Tuple, Any
 from utils.logger import logger
 from services.distributed_state import distributed_state
 
@@ -67,7 +67,7 @@ class MatchState:
         self.chat_start_times: Dict[int, float] = {}
         self.bot_start_time = time.time()
 
-    async def add_to_queue(self, user_id: int, priority: bool = False, gender: str = "Not specified", pref: str = "Any", score: float = 50.0) -> bool:
+    async def add_to_queue(self, user_id: Any, priority: bool = False, gender: str = "Not specified", pref: str = "Any", score: float = 50.0) -> bool:
         """Safe add to global queue (Redis-backed)."""
         if await distributed_state.is_in_chat(user_id):
             return False
@@ -87,7 +87,7 @@ class MatchState:
         logger.info(f"{'⚡' if priority else '⏳'} User {user_id} added to queue. (Pref: {pref})")
         return True
 
-    async def remove_from_queue(self, user_id: int):
+    async def remove_from_queue(self, user_id: Any):
         """Safe remove from global queue."""
         if distributed_state.redis:
             await distributed_state.remove_from_queue(user_id)
@@ -98,12 +98,15 @@ class MatchState:
                     self.user_preferences.pop(user_id, None)
         logger.info(f"🚫 User {user_id} removed from queue.")
 
-    async def find_match(self, user_id: int) -> Optional[int]:
+    async def find_match(self, user_id: Any) -> Optional[Any]:
         """Distributed matchmaking attempt — scans global Redis queue if possible."""
+        # Standardise current ID to string for comparison
+        user_id_s = str(user_id)
+        
         # 1. PRE-LOCK: Fetch candidates and metadata outside the lock to minimize contention
         if distributed_state.redis:
             candidates = await distributed_state.get_queue_candidates()
-            if user_id not in candidates: return None
+            if user_id_s not in [str(c) for c in candidates]: return None
             u_data = await distributed_state.get_user_queue_data(user_id)
         else:
             candidates = [c for c in self.waiting_queue]

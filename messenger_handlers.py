@@ -318,8 +318,7 @@ def _handle_settings_menu(psid: str):
 async def _handle_relay_message(psid: str, virtual_id: int, text: str):
     """Relay Messenger text to match partner (Async)."""
     # 1. Check partner
-    _p = await match_state.get_partner(virtual_id)
-    partner_id = int(_p) if _p else None
+    partner_id = await match_state.get_partner(virtual_id)
     if not partner_id:
         send_quick_replies(psid, "You're not chatting with anyone yet.", IDLE_MENU_BUTTONS)
         return
@@ -364,15 +363,18 @@ async def _handle_relay_message(psid: str, virtual_id: int, text: str):
         send_quick_replies(psid, "⚠️ **Delivery Error:** Your message could not be delivered.", get_chat_menu_buttons(UserState.CHATTING))
 
 
-async def _notify_user(partner_virtual_id: int, text: str):
+async def _notify_user(partner_virtual_id: Any, text: str):
     """Route a notification to a user on their correct platform (Async)."""
-    if partner_virtual_id == 1: return
+    if str(partner_virtual_id) == "1": return
     
-    # Defensive casting
-    partner_virtual_id = int(partner_virtual_id)
+    # Check platform robustly
+    is_messenger = False
+    if isinstance(partner_virtual_id, str):
+        is_messenger = partner_virtual_id.startswith("msg_")
+    elif isinstance(partner_virtual_id, int):
+        is_messenger = partner_virtual_id >= 10**15
 
-    if partner_virtual_id >= 10**15:
-        u = await UserRepository.get_by_telegram_id(partner_virtual_id)
+    if is_messenger:
         u = await UserRepository.get_by_telegram_id(partner_virtual_id)
         if u and u.get("username", "").startswith("msg_"):
             psid = u["username"][4:]
@@ -393,12 +395,16 @@ async def _notify_user(partner_virtual_id: int, text: str):
             logger.error(f"Telegram relay failed for {partner_virtual_id}: {e}")
 
 
-async def _notify_media(partner_virtual_id: int, media_type: str, url: str, caption: str = None):
+async def _notify_media(partner_virtual_id: Any, media_type: str, url: str, caption: str = None):
     """Send native media (photos, stickers) to any platform (Async)."""
-    # Defensive casting
-    partner_virtual_id = int(partner_virtual_id)
+    # Check platform robustly
+    is_messenger = False
+    if isinstance(partner_virtual_id, str):
+        is_messenger = partner_virtual_id.startswith("msg_")
+    elif isinstance(partner_virtual_id, int):
+        is_messenger = partner_virtual_id >= 10**15
 
-    if partner_virtual_id >= 10**15:
+    if is_messenger:
         u = await UserRepository.get_by_telegram_id(partner_virtual_id)
         if u and u.get("username", "").startswith("msg_"):
             p_psid = u["username"][4:]

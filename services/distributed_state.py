@@ -38,10 +38,10 @@ class DistributedState:
         else:
             logger.info("REDIS_URL not set. DistributedState using memory fallback.")
 
-    async def get_partner(self, user_id: Any) -> Optional[int]:
+    async def get_partner(self, user_id: Any) -> Optional[str]:
         if self.redis:
             val = await self.redis.get(f"sm:partner:{user_id}")
-            return int(val) if val else None
+            return str(val) if val else None
 
         else:
             async with self._lock:
@@ -73,7 +73,7 @@ class DistributedState:
                     self._fallback_store.pop(f"chat:{partner_id}", None)
         return partner_id
 
-    async def is_in_chat(self, user_id: int) -> bool:
+    async def is_in_chat(self, user_id: Any) -> bool:
         partner = await self.get_partner(user_id)
         return partner is not None
 
@@ -112,14 +112,14 @@ class DistributedState:
         else:
             pass
 
-    async def get_queue_candidates(self) -> list[int]:
-        """Fetch all user IDs currently in the queue."""
+    async def get_queue_candidates(self) -> list[str]:
+        """Fetch all user IDs currently in the queue as strings."""
         if self.redis:
             members = await self.redis.lrange("sm:queue", 0, -1)
-            return [int(m) for m in members]
+            return [m.decode() if isinstance(m, bytes) else str(m) for m in members]
         return []
 
-    async def get_user_queue_data(self, user_id: int) -> dict:
+    async def get_user_queue_data(self, user_id: Any) -> dict:
         """Fetch preference/metadata for a user in the queue."""
         if self.redis:
             data = await self.redis.hgetall(f"sm:match:pref:{user_id}")

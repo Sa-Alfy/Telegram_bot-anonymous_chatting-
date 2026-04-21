@@ -5,9 +5,22 @@ from database.connection import db
 
 class UserRepository:
     @staticmethod
-    async def get_by_telegram_id(telegram_id: int) -> Optional[Dict[str, Any]]:
-        """Fetch a user profile by Telegram ID with NULL-safety sanitisation."""
-        row = await db.fetchone("SELECT * FROM users WHERE telegram_id = $1", (telegram_id,))
+    async def get_by_telegram_id(telegram_id: Any) -> Optional[Dict[str, Any]]:
+        """Fetch a user profile by Telegram ID with NULL-safety sanitisation.
+        Now handles polymorphic IDs (Messenger string IDs and Telegram integer IDs).
+        """
+        # Derive virtual integer ID if it's a Messenger prefixed string
+        if isinstance(telegram_id, str) and telegram_id.startswith("msg_"):
+            import hashlib
+            psid = telegram_id[4:]
+            psid_hash = int(hashlib.sha256(psid.encode()).hexdigest(), 16)
+            db_id = (psid_hash % (10**15)) + 10**15
+        elif isinstance(telegram_id, str) and telegram_id.isdigit():
+            db_id = int(telegram_id)
+        else:
+            db_id = telegram_id
+
+        row = await db.fetchone("SELECT * FROM users WHERE telegram_id = $1", (db_id,))
         if not row:
             return None
         

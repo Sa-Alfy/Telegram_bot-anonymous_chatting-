@@ -184,8 +184,11 @@ class ActionRouter:
             return
 
         # 2. Select Adapter
-        is_messenger = user_id.startswith("msg_")
-        if not is_messenger and user_id.isdigit():
+        is_messenger = False
+        if isinstance(user_id, str) and user_id.startswith("msg_"):
+            is_messenger = True
+        elif str(user_id).isdigit():
+            # PSIDs are typically 15-16+ digits; Telegram IDs are typically smaller
             if int(user_id) >= 10**15:
                 is_messenger = True
         
