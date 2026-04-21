@@ -198,7 +198,6 @@ class MatchmakingService:
         # 4. ALWAYS CLEAR STATE (Invariant Enforcement)
         try:
             # This is the most critical step: atomic Redis cleanup
-            await match_state.disconnect(user_id)
             await behavior_engine.record_disconnect(user_id)
             await behavior_engine.record_disconnect(partner_id)
         except Exception as e:

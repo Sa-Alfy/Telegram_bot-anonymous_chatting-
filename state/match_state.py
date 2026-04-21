@@ -105,60 +105,66 @@ class MatchState:
 
     async def find_match(self, user_id: int) -> Optional[int]:
         """Distributed matchmaking attempt — scans global Redis queue if possible."""
-        async with self._lock:
-            if distributed_state.redis:
-                candidates = await distributed_state.get_queue_candidates()
-                if user_id not in candidates: return None
-                u_data = await distributed_state.get_user_queue_data(user_id)
-            else:
-                if user_id not in self.waiting_queue: return None
-                candidates = [c for c in self.waiting_queue] # Copy
-                u_data = self.user_preferences.get(user_id, {})
+        # 1. PRE-LOCK: Fetch candidates and metadata outside the lock to minimize contention
+        if distributed_state.redis:
+            candidates = await distributed_state.get_queue_candidates()
+            if user_id not in candidates: return None
+            u_data = await distributed_state.get_user_queue_data(user_id)
+        else:
+            candidates = [c for c in self.waiting_queue]
+            if user_id not in candidates: return None
+            u_data = self.user_preferences.get(user_id, {})
 
-            u_gender = u_data.get("gender", "Not specified")
-            u_pref = u_data.get("pref", "Any")
+        u_gender = u_data.get("gender", "Not specified")
+        u_pref = u_data.get("pref", "Any")
+        
+        for partner_id in candidates:
+            if partner_id == user_id: continue
             
-            for partner_id in candidates:
-                if partner_id == user_id: continue
-                
-                if distributed_state.redis:
-                    p_data = await distributed_state.get_user_queue_data(partner_id)
-                else:
-                    p_data = self.user_preferences.get(partner_id, {})
-                
-                p_gender = p_data.get("gender", "Not specified")
-                p_pref = p_data.get("pref", "Any")
-                
-                u_likes_p = (u_pref.lower() == "any") or (u_pref.lower() == p_gender.lower())
-                p_likes_u = (p_pref.lower() == "any") or (p_pref.lower() == u_gender.lower())
-                
-                if u_likes_p and p_likes_u:
-                    try:
-                        from database.repositories.blocked_repository import BlockedRepository
-                        if await BlockedRepository.is_mutually_blocked(user_id, partner_id):
-                            continue
-                    except Exception as e:
-                        logger.warning(f"Block check failed: {e}")
+            if distributed_state.redis:
+                p_data = await distributed_state.get_user_queue_data(partner_id)
+            else:
+                p_data = self.user_preferences.get(partner_id, {})
+            
+            p_gender = p_data.get("gender", "Not specified")
+            p_pref = p_data.get("pref", "Any")
+            
+            u_likes_p = (u_pref.lower() == "any") or (u_pref.lower() == p_gender.lower())
+            p_likes_u = (p_pref.lower() == "any") or (p_pref.lower() == u_gender.lower())
+            
+            if u_likes_p and p_likes_u:
+                # 2. PRE-LOCK: External DB check (Expensive round-trip)
+                try:
+                    from database.repositories.blocked_repository import BlockedRepository
+                    if await BlockedRepository.is_mutually_blocked(user_id, partner_id):
                         continue
+                except Exception as e:
+                    logger.warning(f"Block check failed: {e}")
+                    continue
 
-                    # INVARIANT: Atomic Claim + State Initialize
+                # 3. CRITICAL SECTION: Minimal lock duration for atomic operation
+                async with self._lock:
                     if distributed_state.redis:
+                        # Redis handles atomic removal/state change via Lua
                         success, reason = await distributed_state.atomic_claim_match(user_id, partner_id)
                         if not success:
-                            logger.info(f"Match claim failed: {reason}")
-                            continue
+                            logger.info(f"Match claim failed during lock: {reason}")
+                            continue # Race lost, try next candidate
                     else:
-                        if user_id in self.waiting_queue:
-                            self.waiting_queue.remove(user_id)
-                            self.user_preferences.pop(user_id, None)
-                        if partner_id in self.waiting_queue:
-                            self.waiting_queue.remove(partner_id)
-                            self.user_preferences.pop(partner_id, None)
+                        # Local Fallback Invariant Check
+                        if user_id not in self.waiting_queue or partner_id not in self.waiting_queue:
+                            continue
+                        
+                        self.waiting_queue.remove(user_id)
+                        self.user_preferences.pop(user_id, None)
+                        self.waiting_queue.remove(partner_id)
+                        self.user_preferences.pop(partner_id, None)
+                        
                         await distributed_state.set_partner(user_id, partner_id)
                         await distributed_state.set_user_state(user_id, UserState.CHATTING)
                         await distributed_state.set_user_state(partner_id, UserState.CHATTING)
 
-                    # Update local/distributed start times (C6)
+                    # Update local/distributed start times
                     now = time.time()
                     if not distributed_state.redis:
                         await distributed_state.set_chat_start(user_id, now)
@@ -169,7 +175,7 @@ class MatchState:
                     
                     logger.info(f"🎉 GLOBAL Match Created: {user_id} <-> {partner_id}")
                     return partner_id
-            return None
+        return None
 
     async def disconnect(self, user_id: int) -> Optional[Tuple[int, int]]:
         """Disconnects a user and returns (partner_id, duration_seconds)."""

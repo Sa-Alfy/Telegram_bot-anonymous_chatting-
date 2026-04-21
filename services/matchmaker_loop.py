@@ -12,17 +12,15 @@ from utils.logger import logger
 from state.match_state import match_state
 from core.engine.state_machine import UnifiedState
 from services.distributed_state import distributed_state
-from utils.ui_formatters import get_match_found_text
-from utils.helpers import update_user_ui
-from utils.keyboard import chat_menu
 from database.repositories.user_repository import UserRepository
+from database.repositories.blocked_repository import BlockedRepository
 
 
 async def start_matchmaker_loop(client: Client):
     """
-    Continuously scans the waiting queue and pairs compatible users.
-    Runs every 3 seconds. This is the engine that makes cross-platform
-    matching work.
+    Continuously scans the waiting queue and pairs compatible users using
+    a batch-processed, O(N) Redis pass to prevent O(N^2) scaling issues.
+    Runs every 3 seconds.
     """
     from services.matchmaking import MatchmakingService
     logger.info("🔁 Matchmaker loop started.")
@@ -31,36 +29,57 @@ async def start_matchmaker_loop(client: Client):
         try:
             await asyncio.sleep(3)
 
+            # 1. Fetch full candidate list ONCE per cycle
             candidates = await distributed_state.get_queue_candidates()
             if len(candidates) < 2:
                 continue
 
+            # 2. Batch fetch preferences before pairing loop
+            user_prefs = {}
+            for uid in candidates:
+                user_prefs[uid] = await distributed_state.get_user_queue_data(uid)
+
             already_matched = set()
 
-            for user_id in candidates:
-                if user_id in already_matched:
+            # 3. Greedy pairing pass
+            for i, u_id in enumerate(candidates):
+                if u_id in already_matched:
                     continue
 
-                # Try to find and claim a match for this user
-                partner_id = await match_state.find_match(user_id)
+                u_data = user_prefs.get(u_id, {})
+                u_gen = u_data.get("gender", "Not specified")
+                u_pref = u_data.get("pref", "Any")
 
-                if partner_id:
-                    already_matched.add(user_id)
-                    already_matched.add(partner_id)
-                    logger.info(
-                        f"🔁 Loop matched: {user_id} <-> {partner_id}"
-                    )
+                for p_id in candidates[i+1:]:
+                    if p_id in already_matched:
+                        continue
 
-                    # Standardized match setup (Rewards, DB, UI)
-                    # We fire this as a task so the loop can keep going
-                    asyncio.create_task(
-                        MatchmakingService.initialize_match(client, user_id, partner_id)
-                    )
+                    p_data = user_prefs.get(p_id, {})
+                    p_gen = p_data.get("gender", "Not specified")
+                    p_pref = p_data.get("pref", "Any")
 
-        except Exception as e:
-            logger.error(f"Matchmaker loop error: {e}")
-            await asyncio.sleep(5)
+                    # Compatibility check
+                    u_likes_p = (u_pref.lower() == "any") or (u_pref.lower() == p_gen.lower())
+                    p_likes_u = (p_pref.lower() == "any") or (p_pref.lower() == u_gen.lower())
 
+                    if u_likes_p and p_likes_u:
+                        # Mutation-level check: mutally blocked?
+                        if await BlockedRepository.is_mutually_blocked(u_id, p_id):
+                            continue
+
+                        # ATOMIC CLAIM (No local lock needed)
+                        success, reason = await distributed_state.atomic_claim_match(u_id, p_id)
+                        
+                        if success:
+                            already_matched.add(u_id)
+                            already_matched.add(p_id)
+                            logger.info(f"🔁 Loop matched (Batch): {u_id} <-> {p_id}")
+
+                            # 4. Fire initialization as background task
+                            asyncio.create_task(
+                                MatchmakingService.initialize_match(client, u_id, p_id)
+                            )
+                            break  # Move to next u_id
 
         except Exception as e:
             logger.error(f"Matchmaker loop error: {e}")

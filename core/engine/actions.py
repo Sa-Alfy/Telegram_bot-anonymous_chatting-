@@ -49,6 +49,24 @@ class ActionRouter:
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.START_SEARCH_LUA, keys, [uid, str(ts), pref])
             result = {"success": code in {1, 2}, "state": msg, "version": ver}
 
+        elif etype == "CONNECT":
+            partner_id = await distributed_state.get_partner(uid)
+            if not partner_id: return {"success": False, "error": "No partner found"}
+            p_uid = str(partner_id)
+            u1, u2 = sorted([uid, p_uid])
+            match_id = f"m_{u1}_{u2}"
+            
+            keys = [
+                f"sm:state:{uid}", f"sm:state:{p_uid}",
+                f"sm:match:{match_id}", f"sm:ver:m:{match_id}",
+                f"sm:event_log:{match_id}", f"sm:audit_log:{match_id}"
+            ]
+            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.CONNECT_LUA, keys, [match_id, uid, p_uid, str(ts)])
+            result = {
+                "success": code in {1, 2}, "state": msg, "version": ver,
+                "notify_partner": {"user_id": p_uid, "state": UnifiedState.CHAT_ACTIVE, "match_id": match_id}
+            }
+
         elif etype == "END_CHAT":
             partner_id = await distributed_state.get_partner(uid)
             if not partner_id: return {"success": False, "error": "No partner found"}
