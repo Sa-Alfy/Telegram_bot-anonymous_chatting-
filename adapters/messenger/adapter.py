@@ -41,6 +41,9 @@ class MessengerAdapter(BaseAdapter):
                 val = parts[2]
                 mid = parts[3]
                 return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
+            elif payload.startswith("SKIP_VOTE:"):
+                mid = payload.split(":")[1]
+                return self.create_event("SKIP_VOTE", uid, mid)
             elif payload.startswith("TOOLS_MENU:"):
                 mid = payload.split(":")[1]
                 # This doesn't trigger a core action, just UI re-render
@@ -73,11 +76,19 @@ class MessengerAdapter(BaseAdapter):
             elif state == UnifiedState.CHAT_ACTIVE:
                 res = send_quick_replies(psid, "🎉 **Connected!**\nChat anonymously. Tap 'Tools' for icebreakers.", get_messenger_chat_buttons(mid))
             elif state == UnifiedState.VOTING:
+                from utils.ui_formatters import format_session_summary
+                stats = payload.get("payload", {}) if payload else {}
+                summary_text = ""
+                if stats:
+                    summary_text = "📊 Session Summary\n" + format_session_summary(stats, is_user1=True) + "\n\n"
+
                 signals = payload.get("signals", {}) if payload else {}
                 if not signals.get("reputation"):
                     res = send_generic_template(psid, [get_messenger_vote_card(mid, "reputation")])
+                    if summary_text: send_message(psid, summary_text)
                 elif not signals.get("identity"):
                     res = send_generic_template(psid, [get_messenger_vote_card(mid, "identity")])
+                    if summary_text: send_message(psid, summary_text)
             
             # Check if API call returned an error
             if res and "error" in res:

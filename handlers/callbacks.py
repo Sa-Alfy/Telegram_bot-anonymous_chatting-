@@ -103,10 +103,13 @@ CALLBACK_MAP: Dict[str, Callable[[Client, int, Any], Coroutine[Any, Any, Dict[st
     "report_confirm": lambda c, uid, _: SocialHandler.handle_report_confirm(c, uid),
     "report_with_reason": lambda c, uid, _: SocialHandler.handle_report_with_reason(c, uid),
     "peek": lambda c, uid, _: SocialHandler.handle_peek(c, uid),
+    "peek_streak": lambda c, uid, _: SocialHandler.handle_peek_streak(c, uid),
+    "peek_level": lambda c, uid, _: SocialHandler.handle_peek_level(c, uid),
     "add_friend": lambda c, uid, _: SocialHandler.handle_add_friend(c, uid),
     "friends_list": lambda c, uid, _: SocialHandler.handle_friends_list(c, uid),
     "view_requests": lambda c, uid, _: SocialHandler.handle_view_requests(c, uid),
     "user_appeal": lambda c, uid, _: SocialHandler.handle_user_appeal(c, uid),
+    "cancel_friend_msg": lambda c, uid, _: SocialHandler.handle_cancel_friend_msg(c, uid),
     
     # Onboarding
     "onboarding_start": lambda c, uid, _: OnboardingHandler.handle_start(c, uid),

@@ -35,6 +35,8 @@ class TelegramAdapter(BaseAdapter):
                 return self.create_event("END_CHAT", uid, mid)
             elif action in {"NEXT", "NEXT_MATCH"}:
                 return self.create_event("NEXT_MATCH", uid, mid)
+            elif action == "SKIP_VOTE":
+                return self.create_event("SKIP_VOTE", uid, mid)
             elif action.startswith("VOTE"):
                 # VOTE_reputation_like_123 or VOTE:reputation:like:m_1_2
                 if ":" in action:
@@ -90,18 +92,25 @@ class TelegramAdapter(BaseAdapter):
                     reply_markup=get_chat_keyboard(mid)
                 )
             elif state == UnifiedState.VOTING:
-                # Check which signal is missing
+                # 1. Extract Stats for Summary
+                from utils.ui_formatters import format_session_summary
+                stats = payload.get("payload", {}) if payload else {}
+                summary_text = ""
+                if stats:
+                    summary_text = "📊 **Session Summary**\n" + format_session_summary(stats, is_user1=True) + "\n\n"
+                
+                # 2. Determine Voting Step
                 signals = payload.get("signals", {}) if payload else {}
                 if not signals.get("reputation"):
                     await self.client.send_message(
                         uid,
-                        "🗳 **Reputation Vote**\nHow was your experience with this partner?",
+                        f"{summary_text}🗳 **Feedback Required**\nHow was your experience with this partner?",
                         reply_markup=get_voting_keyboard(mid, "reputation")
                     )
                 elif not signals.get("identity"):
                     await self.client.send_message(
                         uid,
-                        "🗳 **Identity Vote**\nWhat was their gender?",
+                        f"🗳 **Identity Hint**\nOne more thing: What was their gender?",
                         reply_markup=get_voting_keyboard(mid, "identity")
                     )
             return True

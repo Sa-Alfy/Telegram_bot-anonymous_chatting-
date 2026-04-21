@@ -27,6 +27,13 @@ class PlatformAdapter:
                         buttons = get_end_menu_buttons(UserState.HOME)
                     elif "Female" in str_markup and "Male" in str_markup:
                         buttons = get_search_pref_buttons(UserState.HOME)
+                    elif "Reply" in str_markup or "msg_friend_" in str_markup:
+                        # Map to a quick reply for Messenger if it's a friend message reply
+                        import re
+                        match = re.search(r"msg_friend_(\d+)", str_markup)
+                        if match:
+                            target_friend_id = match.group(1)
+                            buttons = [{"title": "⚡ Reply", "payload": f"msg_friend_{target_friend_id}"}]
                 
                 try:
                     if buttons:

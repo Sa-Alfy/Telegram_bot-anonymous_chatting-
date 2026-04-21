@@ -59,7 +59,7 @@ async def seasonal_shop_button_handler(client: Client, message: Message):
     resp = await EconomyHandler.handle_seasonal_shop(client, message.from_user.id)
     await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
 
-@Client.on_message(~filters.command(["start", "help", "stop", "next", "admin_stats", "stats", "leaderboard", "reveal", "priority", "find", "report", "terms", "privacy"]) & 
+@Client.on_message(~filters.command(["start", "help", "stop", "next", "admin_stats", "stats", "leaderboard", "reveal", "priority", "find", "search", "match", "report", "terms", "privacy", "shop", "store", "profile", "account", "me"]) & 
                    ~filters.regex(r"^(🛑 Stop|⏮ Next|👤 My Stats|📊 My Stats|ℹ️ Help|🔍 Find Partner|🏆 Leaderboard|🛍 Seasonal Shop)") & 
                    filters.private)
 async def chat_handler(client: Client, message: Message):
@@ -188,27 +188,47 @@ async def chat_handler(client: Client, message: Message):
         elif state.startswith("awaiting_friend_msg:"):
             target_id = int(state.split(":")[-1])
             from database.repositories.friend_repository import FriendRepository
+            from utils.helpers import send_cross_platform
+            from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
             if not await FriendRepository.is_friend(user_id, target_id):
                 await match_state.set_user_state(user_id, None)
                 await message.reply_text("❌ Unauthorized: not a friend.", reply_markup=start_menu())
                 return
-            if message.text or message.photo or message.voice or message.video:
-                try:
-                    user_doc = await UserRepository.get_by_telegram_id(user_id)
-                    sender_name = user_doc.get("first_name", "A Friend") if user_doc else "A Friend"
-                    
-                    # Forward the message or send completely customized relay
-                    await client.send_message(target_id, f"💌 **Message from {sender_name}:**")
-                    await message.copy(chat_id=target_id)
-                    
-                    await message.reply_text("✅ Message sent to your friend!", reply_markup=start_menu())
-                except Exception as e:
-                    logger.error(f"Friend message failed: {e}")
-                    await message.reply_text("❌ Failed to send message. They might have blocked the bot.", reply_markup=start_menu())
+
+            try:
+                user_doc = await UserRepository.get_by_telegram_id(user_id)
+                sender_name = user_doc.get("first_name", "A Friend") if user_doc else "A Friend"
                 
+                is_target_messenger = target_id >= 10**15
+                
+                # 1. Send the header notification cross-platform
+                # Recipient sees a 'Reply' button that triggers handle_msg_friend back to sender
+                reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("⚡ Reply", callback_data=f"msg_friend_{user_id}")]])
+                
+                header_text = f"💌 **Private Message from {sender_name}:**"
+                await send_cross_platform(client, target_id, header_text, reply_markup=reply_markup)
+                
+                # 2. Relay the actual content
+                if is_target_messenger:
+                    if message.text:
+                        await send_cross_platform(client, target_id, message.text)
+                    else:
+                        await message.reply_text("⚠️ **Messenger Note:** Only text messages can be relayed to Messenger friends at this time.")
+                else:
+                    # Telegram to Telegram: Keep native copy support for photos/stickers
+                    await message.copy(chat_id=target_id)
+                
+                # 3. Confirm to sender and KEEP state (Relay Mode)
+                await message.reply_text(
+                    "✅ **Relayed!**\nYou can send another message or click the button above to exit.",
+                    # We repeat the cancel button to keep the UI clean
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Relaying", callback_data="cancel_friend_msg")]])
+                )
+            except Exception as e:
+                logger.error(f"Friend message relay failed: {e}")
+                await message.reply_text("❌ Failed to relay message. They might have blocked the bot.", reply_markup=start_menu())
                 await match_state.set_user_state(user_id, None)
-            else:
-                await message.reply_text("❌ Unsupported message type.")
             return
 
         # --- ADMIN UX STATES ---

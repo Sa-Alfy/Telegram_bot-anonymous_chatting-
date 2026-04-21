@@ -33,7 +33,8 @@ def get_voting_keyboard(match_id: str, step: str = "reputation"):
             [
                 InlineKeyboardButton("👍 Good", callback_data=f"VOTE:reputation:good:{match_id}"),
                 InlineKeyboardButton("👎 Bad", callback_data=f"VOTE:reputation:bad:{match_id}")
-            ]
+            ],
+            [InlineKeyboardButton("⏩ Skip Feedback", callback_data=f"SKIP_VOTE:{match_id}")]
         ])
     elif step == "identity":
         return InlineKeyboardMarkup([
@@ -41,7 +42,8 @@ def get_voting_keyboard(match_id: str, step: str = "reputation"):
                 InlineKeyboardButton("👨 Male", callback_data=f"VOTE:identity:male:{match_id}"),
                 InlineKeyboardButton("👩 Female", callback_data=f"VOTE:identity:female:{match_id}"),
                 InlineKeyboardButton("❓ Unsure", callback_data=f"VOTE:identity:unsure:{match_id}")
-            ]
+            ],
+            [InlineKeyboardButton("⏩ Skip Feedback", callback_data=f"SKIP_VOTE:{match_id}")]
         ])
 def get_preferences_keyboard():
     return InlineKeyboardMarkup([

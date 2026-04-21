@@ -92,8 +92,15 @@ def _map_reply_markup(reply_markup) -> list:
     elif "cancel_search" in str_markup:
         return [{"title": "❌ Cancel", "payload": "CANCEL_SEARCH:0:HOME"}]
 
-    # 8. End menu fallback (if it contains search but not stats/priority)
-    elif "search" in str_markup or "rematch" in str_markup:
+    # 8. Rematch intent — show the end menu with rematch context
+    elif "rematch" in str_markup:
+        import re
+        match = re.search(r"rematch:(\d+)", str_markup)
+        partner_id = int(match.group(1)) if match else None
+        return get_end_menu_buttons(UserState.HOME, partner_id=partner_id)
+
+    # 9. End menu fallback (contains search but not stats/priority)
+    elif "search" in str_markup:
         return get_end_menu_buttons(UserState.HOME)
 
 
@@ -239,20 +246,26 @@ async def handle_seasonal_shop(psid: str, virtual_id: int):
 
 
 async def handle_buy_item(psid: str, virtual_id: int, item: str):
-    """Process a shop purchase (Async)."""
+    """Process a shop purchase (Async). VIP stacks on existing time."""
     from services.user_service import UserService
-    
+
     SHOP_ITEMS = {
-        "BUY_VIP":   {"name": "30-Day VIP",       "cost": 500, "field": "vip_status",  "value": True, "duration": 30 * 86400},
-        "BUY_OG":    {"name": "'OG User' Badge",   "cost": 300, "field": "badge_og",    "value": True},
+        "BUY_VIP":   {"name": "30-Day VIP",       "cost": 500,  "field": "vip_status",  "value": True, "duration": 30 * 86400},
+        "BUY_OG":    {"name": "'OG User' Badge",   "cost": 300,  "field": "badge_og",    "value": True},
         "BUY_WHALE": {"name": "'Whale' Badge",     "cost": 1000, "field": "badge_whale", "value": True},
     }
-    
+
     item_data = SHOP_ITEMS.get(item)
     if not item_data:
         send_message(psid, "❌ Unknown shop item.")
         return
-    
+
+    # Fetch user first (needed for stacking check)
+    user = await UserRepository.get_by_telegram_id(virtual_id)
+    if not user:
+        send_message(psid, "❌ User profile not found. Please contact support.")
+        return
+
     # Deduct coins
     if not await UserService.deduct_coins(virtual_id, item_data["cost"]):
         send_quick_replies(
@@ -261,14 +274,18 @@ async def handle_buy_item(psid: str, virtual_id: int, item: str):
             get_start_menu_buttons(UserState.HOME)
         )
         return
-    
+
     # Apply the purchase
     update_data = {item_data["field"]: item_data["value"]}
     if "duration" in item_data:
-        update_data["vip_expires_at"] = int(time.time()) + item_data["duration"]
+        # FIX: Stack VIP time instead of overwriting it.
+        # If the user has remaining time, add 30 days to that expiry, not to now.
+        current_expires = user.get("vip_expires_at", 0) or 0
+        base_time = max(time.time(), current_expires)
+        update_data["vip_expires_at"] = int(base_time) + item_data["duration"]
     await UserRepository.update(virtual_id, **update_data)
-    
-    # Confirm
+
+    # Confirm with fresh balance
     user = await UserRepository.get_by_telegram_id(virtual_id)
     coins = user.get("coins", 0) if user else 0
     send_quick_replies(
@@ -423,8 +440,33 @@ async def handle_messenger_text(psid: str, virtual_id: int, user: dict, text: st
 
     text_stripped = text.strip()
     state = await match_state.get_user_state(virtual_id)
-    
+
     if state:
+        # ── Friend Private Relay Mode ────────────────────────────────────
+        # FIX: Messenger now supports the same relay mode as Telegram.
+        if state and state.startswith("awaiting_friend_msg:"):
+            try:
+                friend_id = int(state.split(":", 1)[1])
+            except (IndexError, ValueError):
+                await match_state.set_user_state(virtual_id, None)
+                send_quick_replies(psid, "⚠️ Relay session corrupted. Returning home.", IDLE_MENU_BUTTONS)
+                return
+
+            # Relay the message cross-platform to the friend
+            import app_state
+            try:
+                await PlatformAdapter.send_cross_platform(
+                    app_state.telegram_app,
+                    friend_id,
+                    f"💬 **Private message from a friend:**\n{text_stripped}",
+                    None
+                )
+                send_message(psid, "✅ Message sent!")
+            except Exception as e:
+                logger.error(f"Friend relay failed from MSG:{virtual_id} to {friend_id}: {e}")
+                send_message(psid, "⚠️ Delivery failed. Please try again.")
+            return
+
         if state == "awaiting_photo":
             # User typed text instead of sending a photo
             send_message(psid, "📷 Please send an image, not text. Just tap the 📎 icon and pick a photo!")

@@ -235,11 +235,13 @@ class EconomyHandler:
                 owned_badges.append(badge_type)
                 
             updates = {"badges": owned_badges}
-            # Special case for VIP logic
             if badge_type == "vip":
                 import time
+                current_expires = user.get("vip_expires_at", 0)
+                base_time = max(time.time(), current_expires)
+                
                 updates["vip_status"] = True
-                updates["vip_expires_at"] = int(time.time()) + (30 * 86400) # 30 Days expiration
+                updates["vip_expires_at"] = int(base_time) + (30 * 86400) # 30 Days stacking
 
             await UserRepository.update(user_id, **updates)
             

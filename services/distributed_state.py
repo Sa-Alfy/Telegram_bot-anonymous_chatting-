@@ -149,9 +149,9 @@ class DistributedState:
         local partnerA = redis.call("GET", KEYS[3])
         local partnerB = redis.call("GET", KEYS[4])
 
-        if stateA == "CHATTING" then
+        if stateA == "CHAT_ACTIVE" then
             if not partnerA or partnerA ~= ARGV[2] then return {0, "A_INVALID_PARTNER"} end
-            if not stateB or stateB ~= "CHATTING" then return {0, "B_NOT_CHATTING"} end
+            if not stateB or stateB ~= "CHAT_ACTIVE" then return {0, "B_NOT_CHATTING"} end
         end
         if partnerA and partnerB then
             if partnerA ~= ARGV[2] or partnerB ~= ARGV[1] then return {0, "MISMATCH"} end
@@ -265,8 +265,8 @@ class DistributedState:
         local now = ARGV[3]
 
         -- 1. PRECONDITION CHECKS
-        if redis.call("GET", KEYS[1]) == "CHATTING" then return {0, "USER_A_BUSY"} end
-        if redis.call("GET", KEYS[2]) == "CHATTING" then return {0, "USER_B_BUSY"} end
+        if redis.call("GET", KEYS[1]) == "CHAT_ACTIVE" then return {0, "USER_A_BUSY"} end
+        if redis.call("GET", KEYS[2]) == "CHAT_ACTIVE" then return {0, "USER_B_BUSY"} end
         if redis.call("EXISTS", KEYS[3]) == 1 then return {0, "USER_A_HAS_PARTNER"} end
         if redis.call("EXISTS", KEYS[4]) == 1 then return {0, "USER_B_HAS_PARTNER"} end
 
@@ -279,8 +279,8 @@ class DistributedState:
         redis.call("SET", KEYS[4], uA)
 
         -- 4. SET STATE
-        redis.call("SET", KEYS[1], "CHATTING")
-        redis.call("SET", KEYS[2], "CHATTING")
+        redis.call("SET", KEYS[1], "CHAT_ACTIVE")
+        redis.call("SET", KEYS[2], "CHAT_ACTIVE")
 
         -- 5. SET SESSION START
         redis.call("SET", KEYS[5], now)
@@ -305,8 +305,10 @@ class DistributedState:
         redis.call("DEL", KEYS[4])
 
         -- Reset states (only if currently chatting)
-        if redis.call("GET", KEYS[1]) == "CHATTING" then redis.call("SET", KEYS[1], "HOME") end
-        if redis.call("GET", KEYS[2]) == "CHATTING" then redis.call("SET", KEYS[2], "HOME") end
+        local stateA = redis.call("GET", KEYS[1])
+        local stateB = redis.call("GET", KEYS[2])
+        if stateA == "CHAT_ACTIVE" then redis.call("SET", KEYS[1], "VOTING") end
+        if stateB == "CHAT_ACTIVE" then redis.call("SET", KEYS[2], "VOTING") end
 
         -- Clear session data
         redis.call("DEL", KEYS[5])
@@ -374,8 +376,8 @@ class DistributedState:
             redis.call("SET", KEYS[3], partner)
             redis.call("SET", KEYS[4], caller)
 
-            redis.call("SET", KEYS[1], "CHATTING")
-            redis.call("SET", KEYS[2], "CHATTING")
+            redis.call("SET", KEYS[1], "CHAT_ACTIVE")
+            redis.call("SET", KEYS[2], "CHAT_ACTIVE")
 
             redis.call("SET", KEYS[5], now)
             redis.call("SET", KEYS[6], now)
@@ -511,11 +513,11 @@ class DistributedState:
         if not self.redis: return True
         
         state = await self.get_user_state(user_id)
-        if state != "CHATTING": return True
+        if state != "CHAT_ACTIVE": return True
         
         partner_id = await self.get_partner(user_id)
         if not partner_id:
-            logger.warning(f"Invariant Violation: User {user_id} CHATTING but NULL partner.")
+            logger.warning(f"Invariant Violation: User {user_id} CHAT_ACTIVE but NULL partner.")
             if repair: await self.force_disconnect_single(user_id)
             return False
             

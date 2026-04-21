@@ -109,45 +109,57 @@ class SocialHandler:
 
     @staticmethod
     async def handle_peek(client: Client, user_id: int) -> Dict[str, Any]:
-        """Peeks at partner's statistics for a small coin fee."""
+        """Peeks at partner's statistics. Opens sub-menu for specific details."""
+        if not await match_state.is_in_chat(user_id):
+            return {"alert": "❌ You are not in a chat!", "show_alert": True}
+            
+        from utils.keyboard import peek_menu
+        return {
+            "text": "🕵️ **Partner Statistics (Peek)**\n\nWhat would you like to reveal for 10 coins?",
+            "reply_markup": peek_menu()
+        }
+
+    @staticmethod
+    async def _execute_peek_detail(user_id: int, stat_name: str, display_label: str) -> Dict[str, Any]:
+        """Base logic for specific stat reveals."""
         from database.repositories.user_repository import UserRepository
         from services.user_service import UserService
         
         partner_id = await match_state.get_partner(user_id)
         if not partner_id:
             return {"alert": "❌ Partner disconnected.", "show_alert": True}
-            
-        # Check for Echo AI before charging
-        if partner_id == 1:
-            peek_text = "🕵️ **Partner Statistics (Echo AI)**\n━━━━━━━━━━━━━━━━━━\n👤 **Name:** System AI\n📈 **Level:** ∞\n💰 **Total Earned:** ∞ coins\n⌛ **Chat Time:** ∞ min\n━━━━━━━━━━━━━━━━━━"
-            return {"alert": peek_text, "show_alert": True}
 
-        cost = 5
+        # Echo AI check
+        if partner_id == 1:
+            val = "🔥 999+" if stat_name == "daily_streak" else "💎 Master"
+            return {"alert": f"🕵️ **Echo AI {display_label}:** {val}", "show_alert": True}
+
+        cost = 10
         user = await UserRepository.get_by_telegram_id(user_id)
         if user['coins'] < cost:
-            return {"alert": "❌ Not enough coins!", "show_alert": True}
+            return {"alert": f"❌ You need {cost} coins for this!", "show_alert": True}
 
-        # Deduct cost via Service
         if await UserService.deduct_coins(user_id, cost):
             partner = await UserRepository.get_by_telegram_id(partner_id)
             if not partner:
-                if partner_id == 1:
-                    peek_text = "🕵️ **Partner Statistics (Echo AI)**\n━━━━━━━━━━━━━━━━━━\n👤 **Name:** System AI\n📈 **Level:** ∞\n💰 **Total Earned:** ∞ coins\n⌛ **Chat Time:** ∞ min\n━━━━━━━━━━━━━━━━━━"
-                    return {"alert": peek_text, "show_alert": True}
                 return {"alert": "❌ Partner profile not found.", "show_alert": True}
-                
-            chat_time_min = (partner.get('total_chat_time', 0) or 0) // 60
-            peek_text = (
-                f"🕵️ **Partner Statistics (Peek)**\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"👤 **Name:** {partner.get('first_name', 'Stranger')}\n"
-                f"📈 **Level:** {partner.get('level', 1)}\n"
-                f"💰 **Total Earned:** {partner.get('coins', 0)} coins\n"
-                f"⌛ **Chat Time:** {chat_time_min} min\n"
-                f"━━━━━━━━━━━━━━━━━━"
-            )
-            return {"alert": peek_text, "show_alert": True}
+            
+            value = partner.get(stat_name, 0)
+            return {
+                "alert": f"🕵️ **Partner {display_label}:** {value}",
+                "show_alert": True,
+                "text": "💬 **Chatting...**\nSelect an action below:",
+                "reply_markup": chat_menu()
+            }
         return {"alert": "❌ Transaction failed.", "show_alert": True}
+
+    @staticmethod
+    async def handle_peek_streak(client: Client, user_id: int) -> Dict[str, Any]:
+        return await SocialHandler._execute_peek_detail(user_id, "daily_streak", "Chat Streak")
+
+    @staticmethod
+    async def handle_peek_level(client: Client, user_id: int) -> Dict[str, Any]:
+        return await SocialHandler._execute_peek_detail(user_id, "level", "Global Level")
 
     @staticmethod
     async def handle_add_friend(client: Client, user_id: int) -> Dict[str, Any]:
@@ -268,14 +280,33 @@ class SocialHandler:
 
     @staticmethod
     async def handle_msg_friend(client: Client, user_id: int, friend_id: int) -> Dict[str, Any]:
+        """Initiates a private messaging session (Relay Mode)."""
         from database.repositories.user_repository import UserRepository
         from database.repositories.friend_repository import FriendRepository
+        from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        
         if not await FriendRepository.is_friend(user_id, friend_id):
             return {"alert": "❌ Not a friend!", "show_alert": True}
+            
         friend = await UserRepository.get_by_telegram_id(friend_id)
         name = friend.get("first_name", "Unknown") if friend else "Unknown"
+        
         return {
-            "text": f"💬 **Send Message to {name}**\n\nType your message below. (They will receive it instantly through the bot).",
-            "reply_markup": None,
+            "text": f"💬 **Private Relay Mode: {name}**\n━━━━━━━━━━━━━━━━━━\n"
+                    f"You are now messaging your friend directly. Every message you type will be relayed to them.\n\n"
+                    f"Type your message below. Click the button to stop relaying.",
+            "reply_markup": InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Relaying", callback_data="cancel_friend_msg")]]),
             "set_state": f"awaiting_friend_msg:{friend_id}"
+        }
+
+    @staticmethod
+    async def handle_cancel_friend_msg(client: Client, user_id: int) -> Dict[str, Any]:
+        """Exits the friend messaging relay mode."""
+        from database.repositories.user_repository import UserRepository
+        from utils.keyboard import start_menu
+        await match_state.set_user_state(user_id, None)
+        user = await UserRepository.get_by_telegram_id(user_id)
+        return {
+            "text": "🏠 **Relay session ended.**\nReturning to your dashboard.",
+            "reply_markup": start_menu(user.get("is_guest", True))
         }

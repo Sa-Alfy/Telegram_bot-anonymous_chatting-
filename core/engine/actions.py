@@ -68,19 +68,22 @@ class ActionRouter:
             }
 
         elif etype == "END_CHAT":
-            partner_id = await distributed_state.get_partner(uid)
-            if not partner_id: return {"success": False, "error": "No partner found"}
-            p_uid = str(partner_id)
+            from services.matchmaking import MatchmakingService
+            stats = await MatchmakingService.disconnect(int(uid))
+            if not stats: return {"success": False, "error": "No active session"}
             
-            keys = [
-                f"sm:state:{uid}", f"sm:state:{p_uid}",
-                f"sm:partner:{uid}", f"sm:partner:{p_uid}",
-                f"sm:ver:m:{mid}", f"sm:event_log:{mid}", f"sm:audit_log:{mid}", idemp_key
-            ]
-            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.END_CHAT_LUA, keys, [uid, p_uid, mid, str(ts)])
+            p_uid = str(stats["partner_id"])
             result = {
-                "success": code in {1, 2}, "state": msg, "version": ver,
-                "notify_partner": {"user_id": p_uid, "state": UnifiedState.VOTING, "match_id": mid}
+                "success": True, 
+                "state": UnifiedState.VOTING,
+                "version": "1", # MatchmakingService.disconnect handles versioning via atomic_disconnect
+                "payload": stats,
+                "notify_partner": {
+                    "user_id": p_uid, 
+                    "state": UnifiedState.VOTING, 
+                    "match_id": mid,
+                    "payload": stats
+                }
             }
 
         elif etype == "SUBMIT_VOTE":
@@ -101,6 +104,15 @@ class ActionRouter:
             ]
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.TIMEOUT_VOTING_LUA, keys, [uid, mid, str(ts)])
             result = {"success": code == 1, "state": msg, "version": ver}
+
+        elif etype == "SKIP_VOTE":
+            keys = [f"sm:state:{uid}", f"sm:ver:m:{mid}", f"sm:audit_log:{mid}", idemp_key]
+            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SKIP_VOTE_LUA, keys, [uid, mid, str(ts)])
+            result = {"success": code in {1, 2}, "state": msg, "version": ver}
+
+        elif etype == "RECOVER":
+            state = await redis.get(f"sm:state:{uid}") or UnifiedState.HOME
+            result = {"success": True, "state": state, "version": "0"}
 
         elif etype == "NEXT_MATCH":
             state = await redis.get(f"sm:state:{uid}")

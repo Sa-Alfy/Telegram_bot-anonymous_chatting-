@@ -114,9 +114,9 @@ class RedisScripts:
         return {1, "CHAT_ACTIVE", tostring(ver)}
     """
 
-    # 4. END CHAT (Atomic Symmetrical Disconnect)
-    # KEYS: 1:state:uA, 2:state:uB, 3:partner:uA, 4:partner:uB, 5:match_ver:id, 6:event_log:id, 7:audit_log:id, 8:idemp:hash
-    # ARGV: 1:uA_id, 2:uB_id, 3:match_id, 4:now
+    -- 4. END CHAT (Atomic Symmetrical Disconnect)
+    -- KEYS: 1:state:uA, 2:state:uB, 3:partner:uA, 4:partner:uB, 5:match_ver:id, 6:event_log:id, 7:audit_log:id, 8:idemp:hash
+    -- ARGV: 1:uA_id, 2:uB_id, 3:match_id, 4:now
     END_CHAT_LUA = """
         if redis.call("EXISTS", KEYS[8]) == 1 then return {2, "ALREADY_ENDED"} end
 
@@ -134,6 +134,21 @@ class RedisScripts:
 
         redis.call("SET", KEYS[8], "1", "EX", 30)
         return {1, "VOTING", tostring(ver)}
+    """
+
+    -- 4.5 SKIP VOTE (The Safety Exit)
+    -- KEYS: 1:state:user, 2:match_ver:id, 3:audit_log:id, 4:idemp:hash
+    -- ARGV: 1:user_id, 2:match_id, 3:now
+    SKIP_VOTE_LUA = """
+        if redis.call("EXISTS", KEYS[4]) == 1 then return {2, "ALREADY_PROCESSED"} end
+        if redis.call("GET", KEYS[1]) ~= "VOTING" then return {0, "NOT_IN_VOTING"} end
+
+        redis.call("SET", KEYS[1], "HOME")
+        local ver = redis.call("INCR", KEYS[2])
+        redis.call("RPUSH", KEYS[3], ARGV[3] .. ":SKIP_VOTE_SUBMITTED:by:" .. ARGV[1])
+
+        redis.call("SET", KEYS[4], "1", "EX", 30)
+        return {1, "HOME", tostring(ver)}
     """
 
     # 5. SUBMIT VOTE (The Gatekeeper)

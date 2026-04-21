@@ -31,7 +31,8 @@ def get_messenger_vote_card(match_id: str, signal: str):
             "subtitle": "How was your partner?",
             "buttons": [
                 {"type": "postback", "title": "👍 Good", "payload": f"VOTE:reputation:good:{match_id}"},
-                {"type": "postback", "title": "👎 Bad",  "payload": f"VOTE:reputation:bad:{match_id}"}
+                {"type": "postback", "title": "👎 Bad",  "payload": f"VOTE:reputation:bad:{match_id}"},
+                {"type": "postback", "title": "⏩ Skip", "payload": f"SKIP_VOTE:{match_id}"}
             ]
         }
     elif signal == "identity":
@@ -41,7 +42,7 @@ def get_messenger_vote_card(match_id: str, signal: str):
             "buttons": [
                 {"type": "postback", "title": "👨 Male",   "payload": f"VOTE:identity:male:{match_id}"},
                 {"type": "postback", "title": "👩 Female", "payload": f"VOTE:identity:female:{match_id}"},
-                {"type": "postback", "title": "❓ Unsure", "payload": f"VOTE:identity:unsure:{match_id}"}
+                {"type": "postback", "title": "⏩ Skip",   "payload": f"SKIP_VOTE:{match_id}"}
             ]
         }
 def get_messenger_preferences_buttons():

@@ -8,7 +8,8 @@ class UserState:
     HOME = "HOME"
     SEARCHING = "SEARCHING"
     MATCHED_PENDING = "MATCHED_PENDING"
-    CHATTING = "CHATTING"
+    CHATTING = "CHAT_ACTIVE"
+    VOTING = "VOTING"
     PROFILE_EDIT = "PROFILE_EDIT"
     CONTENT_REVIEW = "CONTENT_REVIEW"
 
@@ -17,7 +18,8 @@ class UserState:
         HOME: {SEARCHING, PROFILE_EDIT, HOME},
         SEARCHING: {HOME, MATCHED_PENDING, SEARCHING},
         MATCHED_PENDING: {HOME, CHATTING, SEARCHING},
-        CHATTING: {HOME, CHATTING},
+        CHATTING: {VOTING},
+        VOTING: {HOME},
         PROFILE_EDIT: {HOME, PROFILE_EDIT, SEARCHING},  # H8: allow direct search from profile edit
         CONTENT_REVIEW: {HOME}
     }
@@ -29,7 +31,7 @@ class UserState:
         return new_state in UserState.ALLOWED_TRANSITIONS.get(current_state, {UserState.HOME})
 
     # States that ONLY the server/backend may set — never from a client payload.
-    SYSTEM_ONLY_STATES = {MATCHED_PENDING, CHATTING, CONTENT_REVIEW}
+    SYSTEM_ONLY_STATES = {MATCHED_PENDING, CHATTING, VOTING, CONTENT_REVIEW}
 
     @staticmethod
     def is_client_settable(new_state: str) -> bool:
