@@ -80,63 +80,38 @@ class MatchmakingService:
         except Exception as e:
             logger.error(f"Post-match DB updates failed for {user1_id}-{user2_id}: {e}")
 
-        # 1.5 Sync engine states (Unified Engine Phase 3)
+        # 1.5 Sync engine states via ActionRouter (Unified Engine Step 3)
+        # This replaces manual Redis sets with atomic versioned transitions.
+        import app_state
         try:
-            redis = distributed_state.redis
-            if redis:
-                await redis.set(f"sm:state:{user1_id}", UnifiedState.CHAT_ACTIVE)
-                await redis.set(f"sm:state:{user2_id}", UnifiedState.CHAT_ACTIVE)
-                # Seed render gate to prevent immediate duplicate renders
-                await redis.set(f"sm:last_render:{user1_id}", UnifiedState.CHAT_ACTIVE)
-                await redis.set(f"sm:last_render:{user2_id}", UnifiedState.CHAT_ACTIVE)
-                await redis.set(f"sm:render_ack:{user1_id}", "1")
-                await redis.set(f"sm:render_ack:{user2_id}", "1")
+            # We trigger the CONNECT event for user1. 
+            # The ActionRouter will automatically find the partner and update both.
+            await app_state.engine.process_event({
+                "event_type": "CONNECT",
+                "user_id": str(user1_id),
+                "timestamp": int(now)
+            })
         except Exception as e:
-            logger.error(f"Engine state sync failed during match init: {e}")
+            logger.error(f"Engine CONNECT failed for {user1_id}: {e}")
 
-        # 2. Platform-Specific Notifications
+        # 2. Safety Warning & Additional Context (Post-Engine)
+        # We don't send the main 'Connected' message here anymore, 
+        # as ActionRouter._rehydrate_ui already triggered render_state for both.
+        # We only send supplementary info if needed.
         for i, uid in enumerate(uids):
-            partner_id = uids[1-i]
             try:
                 user = await UserRepository.get_by_telegram_id(uid)
                 if not user: continue
-
-                # Safety warning logic
-                last_safety = user.get("safety_last_seen", 0)
-                show_safety = (now - last_safety > 86400)
-                if show_safety:
-                    asyncio.create_task(UserRepository.update(uid, safety_last_seen=int(now)))
                 
-                match_text = get_match_found_text(include_safety=show_safety)
-
-                if uid >= 10**15:
-                    # Messenger Path
-                    from messenger_api import send_quick_replies
-                    from messenger.ui import get_chat_menu_buttons
-                    psid = str(uid)
-                    buttons = get_chat_menu_buttons(UserState.CHATTING, partner_id=partner_id)
-                    
-                    send_result = send_quick_replies(psid, match_text, buttons)
-                    if send_result and "error" in send_result:
-                        logger.error(f"Messenger match notification failed for {psid}: {send_result['error']}")
-                    
-                    # Optional: Send contextual hint
-                    hint = await behavior_engine.get_contextual_hint(uid, "connected")
-                    if hint: 
-                        from messenger_api import send_message
-                        send_message(psid, f"💡 {hint}")
-                else:
-                    # Telegram Path
-                    # Send persistent keyboard first so it's ready
-                    await client.send_message(uid, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
-                    # Send inline match notification with NEW engine keyboard and force a fresh message
-                    match_id = f"m_{uid}_{partner_id}"
-                    await update_user_ui(client, uid, match_text, get_chat_keyboard(match_id), force_new=True)
-
+                # Check for contextual hints or warnings
+                warning = await behavior_engine.get_match_warning(uid)
+                if warning:
+                    from utils.helpers import send_cross_platform
+                    await send_cross_platform(client, uid, warning)
             except Exception as e:
-                logger.error(f"Notification failed for {uid} in match {user1_id}-{user2_id}: {e}")
+                logger.error(f"Post-match cleanup failed for {uid}: {e}")
 
-        logger.info(f"📡 Match Initialized: {user1_id} <-> {user2_id}")
+        logger.info(f"📡 Match Initialized: {user1_id} <-> {user2_id} (Engine-mediated)")
 
 
     @staticmethod

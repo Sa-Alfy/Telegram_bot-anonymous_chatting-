@@ -228,6 +228,27 @@ class RedisScripts:
         return {1, "HOME", tostring(ver)}
     """
 
+    # 8. GENERIC SET STATE (Engine-Aware Transition)
+    # KEYS: 1:state:user, 2:idemp:hash, 3:user_ver:id
+    # ARGV: 1:user_id, 2:timestamp, 3:new_state
+    SET_STATE_LUA = """
+        local state_key = KEYS[1]
+        local idemp_key = KEYS[2]
+        local ver_key = KEYS[3]
+
+        -- 1. Idempotency Check
+        if redis.call("EXISTS", idemp_key) == 1 then return {2, "ALREADY_PROCESSED"} end
+
+        -- 2. Execution
+        redis.call("SET", state_key, ARGV[3])
+        redis.call("SET", idemp_key, "1", "EX", 30)
+
+        -- Increment User Version
+        local ver = redis.call("INCR", ver_key)
+
+        return {1, ARGV[3], tostring(ver)}
+    """
+
     @staticmethod
     async def execute(redis, script: str, keys: List[str], args: List[str]) -> Tuple[int, str, Optional[str]]:
         try:

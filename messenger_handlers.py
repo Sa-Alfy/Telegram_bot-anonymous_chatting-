@@ -129,8 +129,6 @@ async def _execute_action(psid: str, virtual_id: int, action_coro_fn, *args):
             send_quick_replies(psid, response["text"], buttons)
         else:
             send_message(psid, response["text"])
-    if "set_state" in response:
-        await match_state.set_user_state(virtual_id, response["set_state"])
     if "partner_msg" in response:
         p = response["partner_msg"]
         if client:  # Only relay if client is available
@@ -548,30 +546,12 @@ async def _handle_legacy_messenger_action(psid: str, virtual_id: int, user: dict
     logger.info(f"TRACE _handle_legacy: action={action} parsed_state={parsed_state} current_state={current_state}")
 
     # ── Matchmaking actions (all live-session payloads must be handled here) ────
-    if action in ("SEARCH", "CMD_START"):
-        # Safe to call even while SEARCHING/CHATTING — guarded internally
-        await handle_search(psid, virtual_id, user)
-    elif action.lower() in ("pref_any", "search_pref_any"):
-        await handle_search_with_pref(psid, virtual_id, user, "Any")
-    elif action == "CMD_STATS":
+    if action in {"CMD_STATS", "STATS"}:
         await _handle_stats(psid, virtual_id, user)
-    elif action.lower() in ("pref_male", "search_pref_male"):
-        await handle_search_with_pref(psid, virtual_id, user, "Male")
-    elif action.lower() in ("pref_female", "search_pref_female"):
-        await handle_search_with_pref(psid, virtual_id, user, "Female")
-    elif action in ("PREF_PRIORITY",):
-        await handle_search_with_pref(psid, virtual_id, user, "Priority")
-    elif action in ("CANCEL_SEARCH", "STOP_SEARCH"):
-        await handle_cancel_search(psid, virtual_id)
-    elif action in ("NEXT", "CMD_NEXT"):
-        await handle_next(psid, virtual_id, user)
-    elif action in ("STOP", "CMD_STOP"):
-        await handle_stop(psid, virtual_id)
     # ── Profile / Account actions ────────────────────────────────────────────────
     elif action == "CMD_PROFILE": await handle_profile_setup(psid, virtual_id)
     elif action == "EDIT_PROFILE": await handle_edit_profile(psid, virtual_id)
     elif action == "SET_PHOTO": await handle_set_photo_prompt(psid, virtual_id)
-    elif action == "STATS": await _handle_stats(psid, virtual_id, user)
     elif action == "SEASONAL_SHOP": await handle_seasonal_shop(psid, virtual_id)
     elif action == "HELP": _handle_help(psid)
     elif action == "SETTINGS_MENU": _handle_settings_menu(psid)
@@ -589,18 +569,6 @@ async def _handle_legacy_messenger_action(psid: str, virtual_id: int, user: dict
         await _execute_action(psid, virtual_id, lambda c, uid: MatchingHandler.handle_icebreaker(c, uid))
     elif action == "CONFIRM_FRIEND":
         await handle_confirm_friend(psid, virtual_id)
-    elif action in ("vote_like", "vote_dislike", "vote_gender_male", "vote_gender_female"):
-        vote_map = {
-            "vote_like": "like",
-            "vote_dislike": "dislike",
-            "vote_gender_male": "gender_male",
-            "vote_gender_female": "gender_female"
-        }
-        vote_str = vote_map[action]
-        if not target_id:
-            send_message(psid, "❌ Vote target missing.")
-            return
-        await _execute_action(psid, virtual_id, lambda c, uid, t=target_id, v=vote_str: VotingHandler.handle_vote(c, uid, t, v))
     elif action in ("BACK_HOME",):
         send_quick_replies(psid, "🏠 Main Menu", get_start_menu_buttons(current_state))
     # ── Unknown action: re-render current state instead of forcing HOME ──────────
@@ -631,16 +599,16 @@ async def handle_messenger_postback(psid: str, virtual_id: int, user: dict, payl
 
     action, target_id, parsed_state = StateBoundPayload.decode(payload)
 
+    # 2. Matchmaking actions (route to quick_reply engine path)
+    if action in {"SEARCH", "CMD_START", "CMD_NEXT", "CMD_STOP", "NEXT", "STOP", "VOTE"}:
+        return await handle_messenger_quick_reply(psid, virtual_id, user, payload)
+
     if action == "GET_STARTED":
         if user and user.get("consent_given_at"): await _handle_start(psid, virtual_id, user)
         else: await show_consent_screen(psid)
-    elif action == "CMD_START": await _handle_start(psid, virtual_id, user)
-    elif action == "SEARCH": await handle_search(psid, virtual_id, user)
-    elif action == "STATS": await _handle_stats(psid, virtual_id, user)
+    elif action == "CMD_STATS": await _handle_stats(psid, virtual_id, user)
     elif action == "SEASONAL_SHOP" or action == "SHOP_MENU": await handle_seasonal_shop(psid, virtual_id)
     elif action in ("BUY_VIP", "BUY_OG", "BUY_WHALE"): await handle_buy_item(psid, virtual_id, action)
-    elif action == "CMD_NEXT": await handle_next(psid, virtual_id, user)
-    elif action == "CMD_STOP": await handle_stop(psid, virtual_id)
     elif action == "SETTINGS_MENU": _handle_settings_menu(psid)
     elif action == "CMD_PROFILE": await handle_profile_setup(psid, virtual_id)
     elif action == "EDIT_PROFILE": await handle_edit_profile(psid, virtual_id)
@@ -650,8 +618,8 @@ async def handle_messenger_postback(psid: str, virtual_id: int, user: dict, payl
     elif action == "CONSENT_ACCEPT": await handle_consent_accept(psid, virtual_id, user)
     elif action == "CONSENT_DECLINE": handle_consent_decline(psid)
     else:
-        # Delegate to quick_reply handler for any other encoded payloads
-        await handle_messenger_quick_reply(psid, virtual_id, user, payload)
+        # Delegate to help or re-render
+        await _handle_legacy_messenger_action(psid, virtual_id, user, payload)
 
 
 async def handle_messenger_attachment(psid: str, virtual_id: int, attachments: list):

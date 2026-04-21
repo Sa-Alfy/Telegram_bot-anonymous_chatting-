@@ -72,16 +72,8 @@ async def handle_consent_decline(client: Client, user_id: int) -> Dict[str, Any]
         "reply_markup": None
     }
 
-# Dispatcher Map for Callback Actions
+# Dispatcher Map for Callback Actions (Only non-matchmaking/supporting actions)
 CALLBACK_MAP: Dict[str, Callable[[Client, int, Any], Coroutine[Any, Any, Dict[str, Any]]]] = {
-    # Matching
-    "search": lambda c, uid, _: MatchingHandler.handle_search(c, uid),
-    "cancel_search": lambda c, uid, _: MatchingHandler.handle_cancel(c, uid),
-    "stop": lambda c, uid, _: MatchingHandler.handle_stop(c, uid),
-    "rematch": lambda c, uid, _: MatchingHandler.handle_rematch(c, uid),
-    "next": lambda c, uid, _: MatchingHandler.handle_next(c, uid),
-    "icebreaker": lambda c, uid, _: MatchingHandler.handle_icebreaker(c, uid),
-    
     # Economy
     "priority_search": lambda c, uid, _: EconomyHandler.handle_priority_search(c, uid),
     "reveal": lambda c, uid, _: EconomyHandler.handle_reveal(c, uid),
@@ -306,8 +298,6 @@ async def _handle_legacy_tg_callback(client: Client, query: CallbackQuery):
 
         # 6. Client-initiated transition map (server-only states are NOT in this map)
         intent_to_state = {
-            "search":          UserState.SEARCHING,
-            "cancel_search":   UserState.HOME,
             "back_home":       UserState.HOME,
             "onboarding_start": UserState.PROFILE_EDIT,
             "onboarding_skip": UserState.HOME,

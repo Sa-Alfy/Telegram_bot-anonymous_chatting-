@@ -298,7 +298,18 @@ class MatchState:
         return self.chat_start_times.get(user_id, time.time())
 
     async def set_user_state(self, user_id: int, state: Optional[str]):
-        await distributed_state.set_user_state(user_id, state)
+        """Engine-Aware State Setter: Increments sm:ver and triggers rehydration."""
+        import app_state
+        if app_state.engine:
+            uid = f"msg_{user_id}" if user_id >= 10**15 else str(user_id)
+            await app_state.engine.process_event({
+                "event_type": "SET_STATE",
+                "user_id": uid,
+                "payload": {"new_state": state or "HOME"}
+            })
+        else:
+            # Fallback for startup/pre-init
+            await distributed_state.set_user_state(user_id, state)
 
     async def get_user_state(self, user_id: int) -> Optional[str]:
         return await distributed_state.get_user_state(user_id)

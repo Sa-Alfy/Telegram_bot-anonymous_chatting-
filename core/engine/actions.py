@@ -150,6 +150,12 @@ class ActionRouter:
                 return await cls.process_event({"event_type": "START_SEARCH", "user_id": uid, "timestamp": ts})
             result = {"success": False, "error": "VOTING_INCOMPLETE", "current_state": state}
 
+        elif etype == "SET_STATE":
+            new_s = payload.get("new_state", "HOME")
+            keys = [f"sm:state:{uid}", idemp_key, f"sm:ver:u:{uid}"]
+            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SET_STATE_LUA, keys, [uid, str(ts), new_s])
+            result = {"success": code in {1, 2}, "state": msg, "version": ver}
+
         # --- 2. RENDER GATE & ACK FLOW ---
         if result.get("success"):
             new_state = result.get("state")
