@@ -137,10 +137,10 @@ def get_end_menu_buttons(state: str = UserState.HOME, partner_id: int = None):
     
     if partner_id:
         buttons.extend([
-            {"title": "👍 Like", "payload": StateBoundPayload.encode("vote_like", str(partner_id), state)},
-            {"title": "👎 Dislike", "payload": StateBoundPayload.encode("vote_dislike", str(partner_id), state)},
-            {"title": "👨 Boy", "payload": StateBoundPayload.encode("vote_gender_male", str(partner_id), state)},
-            {"title": "👩 Girl", "payload": StateBoundPayload.encode("vote_gender_female", str(partner_id), state)}
+            {"title": "👍 Like", "payload": StateBoundPayload.encode("VOTE", "reputation:good", str(partner_id))},
+            {"title": "👎 Dislike", "payload": StateBoundPayload.encode("VOTE", "reputation:bad", str(partner_id))},
+            {"title": "👨 Boy", "payload": StateBoundPayload.encode("VOTE", "identity:male", str(partner_id))},
+            {"title": "👩 Girl", "payload": StateBoundPayload.encode("VOTE", "identity:female", str(partner_id))}
         ])
         
     buttons.extend([

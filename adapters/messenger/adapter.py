@@ -19,38 +19,45 @@ class MessengerAdapter(BaseAdapter):
         psid = raw_update.get("sender", {}).get("id")
         uid = f"msg_{psid}"
 
-        payload = msg.get("quick_reply", {}).get("payload") or postback.get("payload")
+        data = msg.get("quick_reply", {}).get("payload") or postback.get("payload")
         
-        if payload:
-            if payload == "START_SEARCH":
+        if data:
+            # Decode payload using the now-robust decode logic
+            action, target_str, state_gate = StateBoundPayload.decode(data)
+            action = action.upper()
+            
+            # Match ID resolution (Contextual)
+            # If state_gate looks like a partner ID (numeric) or a match ID (m_...)
+            ctx_id = state_gate if (state_gate.startswith("m_") or state_gate.isdigit()) else target_str
+            mid = ctx_id if ctx_id.startswith("m_") else f"m_{uid}_{ctx_id}" if (ctx_id and ctx_id != "0") else "global"
+
+            if action in {"SEARCH", "START_SEARCH"}:
                 return self.create_event("SHOW_PREFS", uid)
-            elif payload == "STOP_SEARCH":
+            elif action == "SEARCH_PREF":
+                # target_str contains the chosen preference (Male/Female/Any)
+                return self.create_event("START_SEARCH", uid, payload={"pref": target_str})
+            elif action in {"CANCEL_SEARCH", "STOP_SEARCH"}:
                 return self.create_event("STOP_SEARCH", uid)
-            elif payload.startswith("SEARCH_PREF:"):
-                pref = payload.split(":")[1]
-                return self.create_event("START_SEARCH", uid, payload={"pref": pref})
-            elif payload.startswith("END_CHAT:"):
-                mid = payload.split(":")[1]
+            elif action in {"STOP", "END_CHAT"}:
                 return self.create_event("END_CHAT", uid, mid)
-            elif payload.startswith("NEXT_MATCH:"):
-                mid = payload.split(":")[1]
+            elif action in {"NEXT", "NEXT_MATCH"}:
                 return self.create_event("NEXT_MATCH", uid, mid)
-            elif payload.startswith("VOTE:"):
-                parts = payload.split(":")
-                sig = parts[1]
-                val = parts[2]
-                mid = parts[3]
-                return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
-            elif payload.startswith("SKIP_VOTE:"):
-                mid = payload.split(":")[1]
+            elif action == "SKIP_VOTE":
                 return self.create_event("SKIP_VOTE", uid, mid)
-            elif payload.startswith("TOOLS_MENU:"):
-                mid = payload.split(":")[1]
+            elif action == "RECOVER":
+                return self.create_event("RECOVER", uid)
+            elif action == "VOTE":
+                # Format: VOTE:sig:val:state -> target_str is "sig:val"
+                parts = target_str.split(":")
+                if len(parts) >= 2:
+                    sig, val = parts[0], parts[1]
+                    return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
+            elif action == "TOOLS_MENU":
                 # This doesn't trigger a core action, just UI re-render
                 await self.render_tools(psid, mid)
                 return None
 
-            # Non-engine events (Shop, Profile, Stats) return None to fallback to messenger_handlers.py
+            # Non-engine events return None to fallback
             return None
 
         elif msg.get("text"):
