@@ -9,7 +9,8 @@ import asyncio
 import time
 from pyrogram import Client
 from utils.logger import logger
-from state.match_state import match_state, UserState
+from state.match_state import match_state
+from core.engine.state_machine import UnifiedState
 from services.distributed_state import distributed_state
 from utils.ui_formatters import get_match_found_text
 from utils.helpers import update_user_ui

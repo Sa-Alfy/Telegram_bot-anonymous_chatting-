@@ -29,16 +29,14 @@ class EconomyService:
 
         active_event = get_active_event()
         base_costs = {"identity_reveal": 15, "priority_match": 5, "peek_stats": 5}
-
         if feature_type == "identity_reveal" and partner_id:
             partner = await UserRepository.get_by_telegram_id(partner_id)
             if partner:
                 cost = 15 + (partner.get("level", 1) // 2)
                 if partner.get("vip_status"):
                     cost += 10
-                return int(cost)
-
-        cost = base_costs.get(feature_type, 10)
+        else:
+            cost = base_costs.get(feature_type, 10)
 
         # Level scaling: +5% cost per 5 levels
         level_multiplier = 1 + (user.get("level", 1) // 5) * 0.05

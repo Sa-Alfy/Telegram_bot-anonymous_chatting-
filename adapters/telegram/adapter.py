@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional
 from adapters.base import BaseAdapter
 from adapters.telegram.keyboards import *
 from core.engine.state_machine import UnifiedState
+from utils.renderer import StateBoundPayload
 from pyrogram import Client
 
 class TelegramAdapter(BaseAdapter):
@@ -19,24 +20,32 @@ class TelegramAdapter(BaseAdapter):
             data = raw_update.data
             uid = str(raw_update.from_user.id)
             
-            if data == "START_SEARCH":
+            # Handle legacy StateBoundPayload format
+            action, target_str, state_hint = StateBoundPayload.decode(data)
+            action = action.upper()
+            mid = target_str if target_str.startswith("m_") else f"m_{uid}_{target_str}" if target_str != "0" else "global"
+
+            if action in {"SEARCH", "START_SEARCH"}:
                 return self.create_event("START_SEARCH", uid)
-            elif data == "STOP_SEARCH":
+            elif action in {"CANCEL_SEARCH", "STOP_SEARCH"}:
                 return self.create_event("STOP_SEARCH", uid)
-            elif data.startswith("END_CHAT:"):
-                mid = data.split(":")[1]
+            elif action in {"STOP", "END_CHAT"}:
                 return self.create_event("END_CHAT", uid, mid)
-            elif data.startswith("NEXT_MATCH:"):
-                mid = data.split(":")[1]
+            elif action in {"NEXT", "NEXT_MATCH"}:
                 return self.create_event("NEXT_MATCH", uid, mid)
-            elif data.startswith("VOTE:"):
-                # VOTE:signal:value:match_id
-                parts = data.split(":")
+            elif action.startswith("VOTE"):
+                # VOTE_reputation_like_123 or VOTE:reputation:like:m_1_2
+                if ":" in action:
+                    parts = action.split(":")
+                else:
+                    parts = action.split("_")
+                
                 sig = parts[1]
                 val = parts[2]
-                mid = parts[3]
                 return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
             
+            # Non-engine events (Stats, Shop, etc.) return None to fallback to legacy dispatcher
+            return None
         elif hasattr(raw_update, "text"):
             # Text commands
             uid = str(raw_update.from_user.id)

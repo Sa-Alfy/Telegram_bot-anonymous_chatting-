@@ -235,14 +235,23 @@ class TestEconomyServiceDynamicCost:
     @pytest.mark.asyncio
     async def test_identity_reveal_with_vip_partner(self):
         with patch("services.economy_service.UserRepository") as MockRepo, \
-             patch("services.economy_service.get_active_event", return_value={"multiplier": 1.0}):
+             patch("services.economy_service.get_active_event") as MockEvent:
             MockRepo.get_by_telegram_id = AsyncMock(side_effect=[
-                {"level": 1, "vip_status": False},  # user
-                {"level": 10, "vip_status": True},   # partner
+                {"level": 1, "vip_status": False},  # Case 1: user
+                {"level": 10, "vip_status": True},   # Case 1: partner
+                {"level": 1, "vip_status": False},  # Case 2: user
+                {"level": 10, "vip_status": True},   # Case 2: partner
             ])
+            # Case 1: Normal event
+            MockEvent.return_value = {"multiplier": 1.0, "type": None}
             from services.economy_service import EconomyService
             cost = await EconomyService.get_dynamic_cost(100, "identity_reveal", partner_id=200)
             assert cost == 15 + (10 // 2) + 10  # 30
+            
+            # Case 2: Coin Rush (50% discount)
+            MockEvent.return_value = {"multiplier": 2.0, "type": "mini", "name": "💰 Coin Rush"}
+            cost_discounted = await EconomyService.get_dynamic_cost(100, "identity_reveal", partner_id=200)
+            assert cost_discounted == 15  # 30 * 0.5
 
     @pytest.mark.asyncio
     async def test_vip_discount_on_reveal(self):
@@ -360,13 +369,20 @@ class TestMatchmakingService:
 
     @pytest.mark.asyncio
     async def test_add_to_queue_normal(self):
-        with patch("services.matchmaking.UserRepository") as MockRepo:
+        with patch("services.matchmaking.UserRepository") as MockRepo, \
+             patch("core.behavior_engine.behavior_engine.get_match_score", new_callable=AsyncMock) as MockScore:
             MockRepo.get_by_telegram_id = AsyncMock(return_value={
-                "gender": "Male", "priority_pack": {}, "priority_matches": 0
+                "gender": "Male", "priority_pack": {}, "priority_matches": 0, "xp": 10
             })
+            MockScore.return_value = 85.0
             from services.matchmaking import MatchmakingService
-            result = await MatchmakingService.add_to_queue(100, gender_pref="Any")
-            assert result is True
+            with patch("services.matchmaking.match_state.add_to_queue", new_callable=AsyncMock) as MockStateAdd:
+                result = await MatchmakingService.add_to_queue(100, gender_pref="Any")
+                assert result is not None
+                MockScore.assert_called_once_with(100, 100, 10)
+                # Verify score from engine is passed to state
+                MockStateAdd.assert_called_once()
+                assert MockStateAdd.call_args[1]["score"] == 85.0
 
     @pytest.mark.asyncio
     async def test_add_to_queue_with_priority(self):
@@ -456,11 +472,13 @@ class TestChatService:
         message.video_note = None
         message.text = "Hello"
         with patch("services.chat_service.match_state.get_partner") as MockGetP, \
-             patch("services.chat_service.get_active_event", return_value={"id": None}):
+             patch("services.chat_service.get_active_event", return_value={"id": None}), \
+             patch("core.behavior_engine.behavior_engine.record_message_sent", new_callable=AsyncMock) as MockRecord:
             MockGetP.return_value = 200
             message.copy = AsyncMock()
             await relay_message(client, message)
-            # Allow for asyncio task and delay
+            # Verify new engine records signal
+            MockRecord.assert_called_once_with(100, "Hello", sentiment_score=None)
             message.copy.assert_called_once()
 
     @pytest.mark.asyncio
@@ -469,13 +487,8 @@ class TestChatService:
         client = AsyncMock()
         message = MagicMock()
         message.from_user.id = 100
-        message.voice = None
-        message.video = None
-        message.video_note = None
-        message.audio = None
-        message.photo = None
-        message.sticker = None
-        message.animation = None
+        message.voice = message.video = message.video_note = message.audio = None
+        message.photo = message.sticker = message.animation = None
         message.text = "Hello Messenger"
         partner_id = 10**15 + 1
         with patch("services.chat_service.match_state.get_partner") as MockGetP, \
@@ -489,3 +502,32 @@ class TestChatService:
             mock_msg_send.assert_called_once()
             assert "PSID123" in mock_msg_send.call_args[0][0]
             assert "Hello Messenger" in mock_msg_send.call_args[0][1]
+
+    @pytest.mark.asyncio
+    async def test_relay_media_telegram_to_messenger(self):
+        """Modified relay test to verify Media Bridge (Surgical addition within existing logic)."""
+        from services.chat_service import relay_message
+        client = AsyncMock()
+        message = MagicMock()
+        message.from_user.id = 100
+        message.voice = message.video = message.video_note = message.audio = None
+        message.sticker = message.animation = None
+        message.text = None
+        message.photo = [{"file_id": "file123"}]  # Simulate photo
+        message.download = AsyncMock(return_value="temp.jpg")
+        partner_id = 10**15 + 1
+        with patch("services.chat_service.match_state.get_partner", new_callable=AsyncMock) as MockGetP, \
+             patch("services.chat_service.UserRepository.get_by_telegram_id", new_callable=AsyncMock) as MockGetU, \
+             patch("services.chat_service.get_active_event", return_value={"id": None}), \
+             patch("asyncio.sleep", new_callable=AsyncMock), \
+             patch("messenger_api.send_attachment_file") as mock_attach_send, \
+             patch("os.path.exists", return_value=True), \
+             patch("os.remove") as mock_remove:
+            MockGetP.return_value = partner_id
+            MockGetU.return_value = {"username": "msg_PSID123", "vip_status": True}
+            await relay_message(client, message)
+            # Verify bridge logic: download -> upload -> cleanup
+            message.download.assert_called_once()
+            mock_attach_send.assert_called_once()
+            assert mock_attach_send.call_args[0][0] == "PSID123"
+            mock_remove.assert_called_once_with("temp.jpg")

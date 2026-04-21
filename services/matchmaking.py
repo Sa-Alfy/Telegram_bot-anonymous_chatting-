@@ -58,6 +58,8 @@ class MatchmakingService:
         from utils.helpers import update_user_ui
         from utils.keyboard import chat_menu, persistent_chat_menu
         from core.behavior_engine import behavior_engine
+        from core.engine.state_machine import UnifiedState
+        from services.distributed_state import distributed_state
         from state.match_state import UserState
         import time
 
@@ -76,6 +78,20 @@ class MatchmakingService:
                     await behavior_engine.record_session_start(uid)
         except Exception as e:
             logger.error(f"Post-match DB updates failed for {user1_id}-{user2_id}: {e}")
+
+        # 1.5 Sync engine states (Unified Engine Phase 3)
+        try:
+            redis = distributed_state.redis
+            if redis:
+                await redis.set(f"sm:state:{user1_id}", UnifiedState.CHAT_ACTIVE)
+                await redis.set(f"sm:state:{user2_id}", UnifiedState.CHAT_ACTIVE)
+                # Seed render gate to prevent immediate duplicate renders
+                await redis.set(f"sm:last_render:{user1_id}", UnifiedState.CHAT_ACTIVE)
+                await redis.set(f"sm:last_render:{user2_id}", UnifiedState.CHAT_ACTIVE)
+                await redis.set(f"sm:render_ack:{user1_id}", "1")
+                await redis.set(f"sm:render_ack:{user2_id}", "1")
+        except Exception as e:
+            logger.error(f"Engine state sync failed during match init: {e}")
 
         # 2. Platform-Specific Notifications
         for i, uid in enumerate(uids):

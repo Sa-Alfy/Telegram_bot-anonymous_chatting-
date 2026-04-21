@@ -275,12 +275,16 @@ class TestUpdateUserUI:
         from utils.helpers import update_user_ui
         from state.match_state import match_state
         match_state.user_ui_messages.pop(8888, None)
+        match_state.ui_history.pop(8888, None)
         client = AsyncMock()
         sent_msg = MagicMock()
         sent_msg.id = 99
         client.send_message = AsyncMock(return_value=sent_msg)
         await update_user_ui(client, 8888, "new msg", None)
         client.send_message.assert_called_once()
+        # Verify both legacy and new history tracking
         assert match_state.user_ui_messages.get(8888) == 99
+        assert 99 in match_state.ui_history.get(8888, [])
         # Cleanup
         match_state.user_ui_messages.pop(8888, None)
+        match_state.ui_history.pop(8888, None)

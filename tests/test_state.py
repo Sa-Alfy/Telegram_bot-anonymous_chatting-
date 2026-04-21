@@ -198,13 +198,23 @@ class TestMatchState:
     @pytest.mark.asyncio
     async def test_disconnect(self):
         from state.match_state import match_state
-        await match_state.add_to_chat(100, 200)
-        match_state.chat_start_times[100] = time.time() - 120  # 2 minutes ago
-        result = await match_state.disconnect(100)
-        assert result is not None
-        partner_id, duration = result
-        assert partner_id == 200
-        assert duration >= 0
+        from services.distributed_state import distributed_state
+        # Case 1: In-memory fallback
+        with patch.object(distributed_state, "redis", None):
+            await match_state.add_to_chat(100, 200)
+            match_state.chat_start_times[100] = time.time() - 120
+            result = await match_state.disconnect(100)
+            assert result[0] == 200
+            
+        # Case 2: Unified Engine (Redis Path)
+        with patch.object(distributed_state, "redis", MagicMock()):
+            with patch.object(distributed_state, "get_partner", new_callable=AsyncMock) as MockGetP, \
+                 patch.object(distributed_state, "atomic_disconnect", new_callable=AsyncMock) as MockAtomic:
+                MockGetP.return_value = 200
+                MockAtomic.return_value = (True, time.time() - 60, time.time() - 60)
+                result = await match_state.disconnect(100)
+                assert result is not None
+                MockAtomic.assert_called_once_with(100, 200)
 
     @pytest.mark.asyncio
     async def test_disconnect_not_in_chat(self):
@@ -223,11 +233,21 @@ class TestMatchState:
     async def test_set_rematch_mutual(self):
         from state.match_state import match_state
         from services.distributed_state import distributed_state
-        # Pre-set one side
-        match_state.rematch_requests[200] = 100
-        result = await match_state.set_rematch(100, 200)
-        # Should succeed (mutual) if neither is in active chat
-        assert result is True
+        
+        # Case 1: In-memory fallback
+        with patch.object(distributed_state, "redis", None):
+            match_state.rematch_requests[200] = 100
+            result = await match_state.set_rematch(100, 200)
+            assert result is True
+            
+        # Case 2: Unified Engine (Redis Path)
+        with patch.object(distributed_state, "redis", MagicMock()):
+            with patch.object(distributed_state, "atomic_rematch", new_callable=AsyncMock) as MockAtomic:
+                MockAtomic.return_value = (1, "REMATCH_SUCCESS")
+                result, code = await match_state.set_rematch(100, 200)
+                assert result is True
+                assert code == 1
+                MockAtomic.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_set_user_state(self):

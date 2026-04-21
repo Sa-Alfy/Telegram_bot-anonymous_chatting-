@@ -131,6 +131,33 @@ def run_keep_alive():
 
 
 # ─────────────────────────────────────────────────────────────────────
+async def start_reconciler_loop():
+    """Background task that force-heals desynced states using the Reconciler engine."""
+    from core.engine.reconciler import Reconciler
+    from state.match_state import match_state
+    import app_state
+    
+    logger.info("🛠 Reconciler loop started.")
+    while True:
+        try:
+            await asyncio.sleep(60) # Run every minute
+            
+            # Reconcile waiting queue users
+            waiting = await match_state.get_waiting_users()
+            for uid in waiting:
+                await app_state.reconciler.reconcile_user(uid)
+
+            # Reconcile active chat users
+            active_uids = list(match_state.active_chats.keys())
+            for uid in active_uids:
+                await app_state.reconciler.reconcile_user(uid)
+                
+        except Exception as e:
+            logger.error(f"Reconciler loop error: {e}")
+            await asyncio.sleep(10)
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Main async entry point (Pyrogram + background tasks)
 # ─────────────────────────────────────────────────────────────────────
 async def main():
@@ -249,6 +276,9 @@ async def main():
     # Cross-platform match poller — pairs Telegram & Messenger users
     from services.matchmaker_loop import start_matchmaker_loop
     asyncio.create_task(start_matchmaker_loop(pyrogram_app))
+    
+    # Engine Reconciler Loop (Phase 3 Integration)
+    asyncio.create_task(start_reconciler_loop())
 
     # ── Keep-alive pinger (in thread) ─────────────────────────────────
     run_keep_alive()

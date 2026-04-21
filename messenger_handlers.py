@@ -447,11 +447,20 @@ async def handle_messenger_text(psid: str, virtual_id: int, user: dict, text: st
             return
 
     if text_stripped.startswith("/"):
+        uid = f"msg_{psid}"
+        # Trigger event translation for commands
+        event = await app_state.msg_adapter.translate_event({"sender": {"id": psid}, "message": {"text": text_stripped}})
+        if event:
+             result = await app_state.engine.process_event(event)
+             if result.get("success"):
+                 return
+             elif "error" in result:
+                 await app_state.msg_adapter.send_error(uid, result["error"])
+                 return
+
+        # Fallback for non-engine commands
         cmd = text_stripped.split()[0].lower()
         if cmd in ("/start", "/menu"): await _handle_start(psid, virtual_id, user)
-        elif cmd in ("/search", "/find"): await handle_search(psid, virtual_id, user)
-        elif cmd == "/stop": await handle_stop(psid, virtual_id)
-        elif cmd in ("/next", "/skip"): await handle_next(psid, virtual_id, user)
         elif cmd in ("/stats", "/me"): await _handle_stats(psid, virtual_id, user)
         elif cmd == "/shop": await handle_seasonal_shop(psid, virtual_id)
         elif cmd == "/help": _handle_help(psid)
