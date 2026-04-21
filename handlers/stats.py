@@ -7,7 +7,7 @@ from database.repositories.user_repository import UserRepository
 from database.repositories.admin_repository import AdminRepository
 from database.connection import db
 from services.event_manager import get_active_event
-from utils.keyboard import start_menu, leaderboard_menu
+from adapters.telegram.keyboards import start_menu, leaderboard_menu
 from utils.logger import logger
 
 def format_time(seconds: int) -> str:

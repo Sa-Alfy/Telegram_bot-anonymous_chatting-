@@ -4,34 +4,26 @@ from typing import Dict, List, Set, Optional, Tuple
 from utils.logger import logger
 from services.distributed_state import distributed_state
 
+from core.engine.state_machine import UnifiedState
+
 class UserState:
-    HOME = "HOME"
-    SEARCHING = "SEARCHING"
-    MATCHED_PENDING = "MATCHED_PENDING"
-    CHATTING = "CHAT_ACTIVE"
-    VOTING = "VOTING"
-    PROFILE_EDIT = "PROFILE_EDIT"
-    CONTENT_REVIEW = "CONTENT_REVIEW"
+    HOME            = UnifiedState.HOME
+    SEARCHING       = UnifiedState.SEARCHING
+    MATCHED_PENDING = UnifiedState.MATCHED
+    CHATTING        = UnifiedState.CHAT_ACTIVE
+    VOTING          = UnifiedState.VOTING
+    PROFILE_EDIT    = "PROFILE_EDIT"
+    CONTENT_REVIEW  = "CONTENT_REVIEW"
 
     # Define strict allowed transitions
-    ALLOWED_TRANSITIONS = {
-        HOME: {SEARCHING, PROFILE_EDIT, HOME},
-        SEARCHING: {HOME, MATCHED_PENDING, SEARCHING},
-        MATCHED_PENDING: {HOME, CHATTING, SEARCHING},
-        CHATTING: {VOTING},
-        VOTING: {HOME},
-        PROFILE_EDIT: {HOME, PROFILE_EDIT, SEARCHING},  # H8: allow direct search from profile edit
-        CONTENT_REVIEW: {HOME}
-    }
+    ALLOWED_TRANSITIONS = UnifiedState.TRANSITIONS
     
     @staticmethod
-    def is_valid_transition(current_state: str, new_state: str) -> bool:
-        if current_state not in UserState.ALLOWED_TRANSITIONS:
-            current_state = UserState.HOME
-        return new_state in UserState.ALLOWED_TRANSITIONS.get(current_state, {UserState.HOME})
+    def is_valid_transition(current: str, new_state: str) -> bool:
+        return UnifiedState.can_transition(current, new_state)
 
     # States that ONLY the server/backend may set — never from a client payload.
-    SYSTEM_ONLY_STATES = {MATCHED_PENDING, CHATTING, VOTING, CONTENT_REVIEW}
+    SYSTEM_ONLY_STATES = {UnifiedState.MATCHED, UnifiedState.CHAT_ACTIVE, UnifiedState.VOTING}
 
     @staticmethod
     def is_client_settable(new_state: str) -> bool:
@@ -40,6 +32,7 @@ class UserState:
     class Session:
         ACTIVE = "ACTIVE"
         ENDED = "ENDED"
+
 
 class MatchState:
     _instance = None

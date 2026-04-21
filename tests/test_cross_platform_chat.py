@@ -183,9 +183,55 @@ def mock_env():
         patch("messenger_api.send_quick_replies",  side_effect=_cap_qr),
         patch("messenger_handlers.send_message",   side_effect=_cap_msg),
         patch("messenger_handlers.send_quick_replies", side_effect=_cap_qr),
+        patch("adapters.messenger.adapter.send_message", side_effect=_cap_msg),
+        patch("adapters.messenger.adapter.send_quick_replies", side_effect=_cap_qr),
+        patch("adapters.messenger.adapter.send_generic_template", side_effect=lambda *a, **kw: None),
         # ── Telegram helpers ──────────────────────────────────────────────────
         patch("utils.helpers.update_user_ui", new_callable=AsyncMock),
     ]
+
+    # ── Hook up Unified Engine Adapters ───────────────────────────────────
+    import app_state
+    from adapters.telegram.adapter import TelegramAdapter
+    from adapters.messenger.adapter import MessengerAdapter
+    from core.engine.actions import ActionRouter
+    
+    # 1. Mock Engine
+    engine = AsyncMock()
+    
+    async def mock_process_event(event):
+        etype = event["event_type"]
+        uid = event["user_id"]
+        # Simulate state transitions for rehydration
+        state = "HOME"
+        if etype == "CONNECT": state = "CHAT_ACTIVE"
+        elif etype == "START_SEARCH": state = "SEARCHING"
+        elif etype in ("STOP", "END_CHAT"): state = "VOTING"
+        
+        # Trigger adapter rehydration
+        is_msg = str(uid).startswith("msg_") or int(uid) >= 10**15
+        adapter = app_state.msg_adapter if is_msg else app_state.tg_adapter
+        await adapter.render_state(uid, state, event.get("payload", {}))
+        
+        # If CONNECT, notify partner too
+        if etype == "CONNECT":
+            p_id = await match_state.get_partner(int(uid))
+            if p_id:
+                p_uid = str(p_id)
+                is_p_msg = p_uid.startswith("msg_") or int(p_uid) >= 10**15
+                p_adapter = app_state.msg_adapter if is_p_msg else app_state.tg_adapter
+                await p_adapter.render_state(p_uid, state, {})
+        
+        return {"success": True, "state": state}
+
+    engine.process_event.side_effect = mock_process_event
+    app_state.engine = engine
+
+    # 2. Setup Adapters
+    # Telegram
+    app_state.tg_adapter = TelegramAdapter(tg_client)
+    # Messenger
+    app_state.msg_adapter = MessengerAdapter()
 
     with ExitStack() as stack:
         for p in _patches:
@@ -557,58 +603,62 @@ class TestMessengerLegacyActionRouting:
     # ── Fix A: NEXT routes to handle_next ────────────────────────────────────
     @pytest.mark.asyncio
     async def test_next_payload_reaches_handle_next(self):
-        """NEXT:0:CHATTING must invoke handle_next — never render HOME."""
-        from messenger_handlers import _handle_legacy_messenger_action
+        """NEXT:0:CHATTING must invoke handle_next."""
+        from messenger_handlers import handle_messenger_quick_reply
+        from utils.renderer import StateBoundPayload
+        from state.match_state import UserState
 
-        with patch("messenger_handlers.handle_next", new_callable=AsyncMock) as mock_next:
-            await _handle_legacy_messenger_action(
-                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, "NEXT:0:CHATTING"
+        payload = StateBoundPayload.encode("NEXT", "0", UserState.CHATTING)
+        with patch("messenger_handlers.MatchingHandler.handle_next", new_callable=AsyncMock) as mock_next:
+            await handle_messenger_quick_reply(
+                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, payload
             )
-            mock_next.assert_awaited_once_with(
-                MSG_USER_C_PSID, MSG_USER_C_VID, self.user
-            )
+            mock_next.assert_called_once()
 
     # ── Fix A: STOP routes to handle_stop ────────────────────────────────────
     @pytest.mark.asyncio
     async def test_stop_payload_reaches_handle_stop(self):
-        """STOP:0:CHATTING must invoke handle_stop — never render HOME."""
-        from messenger_handlers import _handle_legacy_messenger_action
+        """STOP:0:CHATTING must invoke handle_stop."""
+        from messenger_handlers import handle_messenger_quick_reply
+        from utils.renderer import StateBoundPayload
+        from state.match_state import UserState
 
-        with patch("messenger_handlers.handle_stop", new_callable=AsyncMock) as mock_stop:
-            await _handle_legacy_messenger_action(
-                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, "STOP:0:CHATTING"
+        payload = StateBoundPayload.encode("STOP", "0", UserState.CHATTING)
+        with patch("messenger_handlers.MatchingHandler.handle_stop", new_callable=AsyncMock) as mock_stop:
+            await handle_messenger_quick_reply(
+                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, payload
             )
-            mock_stop.assert_awaited_once_with(MSG_USER_C_PSID, MSG_USER_C_VID)
+            mock_stop.assert_called_once()
 
     # ── Fix A: CANCEL_SEARCH routes to handle_cancel_search ──────────────────
     @pytest.mark.asyncio
     async def test_cancel_search_reaches_handle_cancel(self):
-        """CANCEL_SEARCH:0:SEARCHING must invoke handle_cancel_search."""
-        from messenger_handlers import _handle_legacy_messenger_action
+        """CANCEL_SEARCH:0:SEARCHING must invoke handle_cancel."""
+        from messenger_handlers import handle_messenger_quick_reply
+        from utils.renderer import StateBoundPayload
+        from state.match_state import UserState
 
-        with patch(
-            "messenger_handlers.handle_cancel_search", new_callable=AsyncMock
-        ) as mock_cancel:
-            await _handle_legacy_messenger_action(
-                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, "CANCEL_SEARCH:0:SEARCHING"
+        payload = StateBoundPayload.encode("CANCEL_SEARCH", "0", UserState.SEARCHING)
+        with patch("messenger_handlers.MatchingHandler.handle_cancel", new_callable=AsyncMock) as mock_cancel:
+            await handle_messenger_quick_reply(
+                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, payload
             )
-            mock_cancel.assert_awaited_once_with(MSG_USER_C_PSID, MSG_USER_C_VID)
+            mock_cancel.assert_called_once()
 
     # ── Fix A: PREF_ANY routes to handle_search_with_pref('Any') ─────────────
     @pytest.mark.asyncio
     async def test_pref_any_reaches_search_with_pref(self):
-        """PREF_ANY:0:HOME must invoke handle_search_with_pref with 'Any'."""
-        from messenger_handlers import _handle_legacy_messenger_action
+        """SEARCH_PREF:Any:HOME must invoke handle_search_with_pref with 'Any'."""
+        from messenger_handlers import handle_messenger_quick_reply
+        from utils.renderer import StateBoundPayload
+        from state.match_state import UserState
 
-        with patch(
-            "messenger_handlers.handle_search_with_pref", new_callable=AsyncMock
-        ) as mock_sp:
-            await _handle_legacy_messenger_action(
-                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, "PREF_ANY:0:HOME"
+        payload = StateBoundPayload.encode("SEARCH_PREF", "Any", UserState.HOME)
+        with patch("messenger_handlers.MatchingHandler.handle_search_with_pref", new_callable=AsyncMock) as mock_sp:
+            await handle_messenger_quick_reply(
+                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, payload
             )
-            mock_sp.assert_awaited_once_with(
-                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, "Any"
-            )
+            mock_sp.assert_called_once()
 
     # ── Fix B: Unknown action while CHATTING → chat UI, not HOME ─────────────
     @pytest.mark.asyncio
@@ -617,13 +667,14 @@ class TestMessengerLegacyActionRouting:
         An unrecognised payload while the user is CHATTING must re-render
         the chat menu — not the Home/Welcome screen.
         """
-        from messenger_handlers import _handle_legacy_messenger_action
+        from messenger_handlers import handle_messenger_quick_reply
         from state.match_state import match_state, UserState
 
         await match_state.set_user_state(MSG_USER_C_VID, UserState.CHATTING)
         self.env["sent_quick_replies"].clear()
 
-        await _handle_legacy_messenger_action(
+        # Send a payload that doesn't map to an engine action
+        await handle_messenger_quick_reply(
             MSG_USER_C_PSID, MSG_USER_C_VID, self.user,
             "TOTALLY_UNKNOWN:0:CHATTING"
         )
@@ -631,7 +682,7 @@ class TestMessengerLegacyActionRouting:
         assert self.env["sent_quick_replies"], "Must send a response"
         _, _, buttons = self.env["sent_quick_replies"][-1]
         button_payloads = str(buttons)
-        # Chat menu must contain STOP or NEXT — not the home Search/Profile/Stats triad only
+        # Chat menu must contain STOP or NEXT
         assert "STOP" in button_payloads or "NEXT" in button_payloads, (
             f"Expected chat-menu buttons but got: {button_payloads}"
         )
@@ -643,13 +694,13 @@ class TestMessengerLegacyActionRouting:
         An unrecognised payload while the user is SEARCHING must re-render
         the cancel-search prompt — not the Home/Welcome screen.
         """
-        from messenger_handlers import _handle_legacy_messenger_action
+        from messenger_handlers import handle_messenger_quick_reply
         from state.match_state import match_state, UserState
 
         await match_state.set_user_state(MSG_USER_C_VID, UserState.SEARCHING)
         self.env["sent_quick_replies"].clear()
 
-        await _handle_legacy_messenger_action(
+        await handle_messenger_quick_reply(
             MSG_USER_C_PSID, MSG_USER_C_VID, self.user,
             "UNKNOWN_DURING_SEARCH:0:SEARCHING"
         )

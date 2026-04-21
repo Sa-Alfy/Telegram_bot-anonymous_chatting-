@@ -5,7 +5,7 @@ from database.repositories.user_repository import UserRepository
 from database.repositories.session_repository import SessionRepository
 from services.user_service import UserService
 from services.economy_service import EconomyService
-from utils.keyboard import start_menu, priority_pack_menu, booster_menu, confirm_reveal_menu, chat_menu, peek_menu, seasonal_shop_menu
+from adapters.telegram.keyboards import start_menu, priority_pack_menu, booster_menu, confirm_reveal_menu, chat_menu, peek_menu, seasonal_shop_menu
 from handlers.start import get_start_text
 from utils.ui_formatters import get_match_found_text
 from state.match_state import UserState
@@ -34,16 +34,16 @@ class EconomyHandler:
                 alert = "⚡ Priority activated! (5 coins deducted)"
                 
             from services.matchmaking import MatchmakingService
-            from utils.keyboard import search_menu, chat_menu
+            from adapters.telegram.keyboards import search_menu, chat_menu
             success = await MatchmakingService.add_to_queue(user_id, gender_pref="Any")
             if not success:
                 return {"alert": "You are already in a chat!", "show_alert": True}
             partner_id = await MatchmakingService.find_partner(client, user_id)
-            from utils.renderer import Renderer
             if partner_id:
                 # Notify partner is handled by initialize_match usually, but for Priority we do it here too
                 return {
-                    **Renderer.render_match_found("telegram", partner_id, is_rematch=False, show_safety=True),
+                    "text": get_match_found_text(is_rematch=False, include_safety=True),
+                    "reply_markup": chat_menu(mid=f"m_{min(user_id, partner_id)}_{max(user_id, partner_id)}"),
                     "notify_partner": {
                         "target_id": partner_id,
                         "text": get_match_found_text(is_rematch=False, include_safety=False),
@@ -51,7 +51,10 @@ class EconomyHandler:
                     }
                 }
             
-            response = Renderer.render_searching_ui("telegram", UserState.HOME)
+            response = {
+                "text": "⏳ **Searching...**\nFinding someone for you. Please wait.",
+                "reply_markup": search_menu()
+            }
             response["start_animation"] = True
             return response
         else:
@@ -203,7 +206,7 @@ class EconomyHandler:
     @staticmethod
     async def handle_seasonal_shop(client: Client, user_id: int) -> Dict[str, Any]:
         """Displays the seasonal shop."""
-        from utils.keyboard import seasonal_shop_menu
+        from adapters.telegram.keyboards import seasonal_shop_menu
         user = await UserRepository.get_by_telegram_id(user_id)
         coins = user.get("coins", 0) if user else 0
         return {
@@ -245,10 +248,12 @@ class EconomyHandler:
 
             await UserRepository.update(user_id, **updates)
             
-            from utils.renderer import Renderer
+            coins = user.get("coins", 0) - cost
+            is_guest = user.get("is_guest", 1)
             return {
                 "alert": f"🎉 Unlocked: {badge_names[badge_type]}!", 
                 "show_alert": True,
-                **Renderer.render_profile_menu("telegram", user.get("state", "HOME")) # Re-render dashboard
+                "text": get_start_text(coins, is_guest=is_guest),
+                "reply_markup": start_menu(is_guest=is_guest)
             }
         return {"alert": "❌ Transaction failed.", "show_alert": True}

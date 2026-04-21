@@ -8,7 +8,7 @@ from utils.rate_limiter import rate_limiter
 from database.repositories.user_repository import UserRepository
 from services.user_service import UserService
 from services.matchmaking import MatchmakingService
-from utils.keyboard import bio_skip_menu, start_menu, end_menu, admin_menu, admin_vip_menu, admin_action_menu
+from adapters.telegram.keyboards import bio_skip_menu, start_menu, end_menu, admin_menu, admin_vip_menu, admin_action_menu
 from utils.logger import logger
 from utils.helpers import update_user_ui
 from config import ADMIN_ID
@@ -121,7 +121,7 @@ async def chat_handler(client: Client, message: Message):
                 interests = message.text[:100]
                 await UserRepository.update(user_id, interests=interests)
                 await match_state.set_user_state(user_id, "awaiting_location")
-                from utils.keyboard import location_skip_menu
+                from adapters.telegram.keyboards import location_skip_menu
                 await message.reply_text(
                     f"✅ Interests saved!\n\n"
                     "📍 **Where are you from? (City/Country)**\n"

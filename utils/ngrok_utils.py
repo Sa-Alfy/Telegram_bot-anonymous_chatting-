@@ -35,7 +35,7 @@ def start_ngrok_tunnel():
 def stop_ngrok_tunnel():
     """Stops all active ngrok tunnels."""
     try:
-        ngrok.disconnect()
+        # Stop all tunnels
         ngrok.kill()
         logger.info("🔌 Ngrok tunnel stopped.")
     except Exception as e:

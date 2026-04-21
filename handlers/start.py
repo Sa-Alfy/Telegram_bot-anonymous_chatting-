@@ -2,7 +2,7 @@ import time
 import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from utils.keyboard import start_menu, appeal_menu, onboarding_menu, consent_menu
+from adapters.telegram.keyboards import start_menu, appeal_menu, onboarding_menu, consent_menu
 from state.match_state import match_state
 from database.repositories.user_repository import UserRepository
 from services.user_service import UserService
@@ -113,12 +113,11 @@ async def start_command(client: Client, message: Message):
             reply_markup=onboarding_menu()
         )
     else:
-        from utils.renderer import Renderer
-        response = Renderer.render_profile_menu("telegram", "HOME")
+        text = get_start_text(user.get("coins", 0), is_guest=is_guest)
         sent = await message.reply_photo(
             photo="https://raw.githubusercontent.com/Sa-Alfy/Telegram_bot-anonymous_chatting-/main/assets/logo.png",
-            caption=response["text"],
-            reply_markup=response["reply_markup"]
+            caption=text,
+            reply_markup=start_menu(is_guest=is_guest)
         )
         
     match_state.user_ui_messages[user_id] = sent.id

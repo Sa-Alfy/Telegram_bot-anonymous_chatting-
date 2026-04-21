@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from pyrogram import Client
 from database.repositories.user_repository import UserRepository
-from utils.keyboard import gender_menu, age_menu, goal_menu, interests_skip_menu, location_skip_menu, bio_skip_menu, start_menu
+from adapters.telegram.keyboards import gender_menu, age_menu, goal_menu, interests_skip_menu, location_skip_menu, bio_skip_menu, start_menu
 from utils.logger import logger
 
 class OnboardingHandler:

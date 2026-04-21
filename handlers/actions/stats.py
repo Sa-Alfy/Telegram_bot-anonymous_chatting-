@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from pyrogram import Client
 from database.repositories.stats_repository import StatsRepository
-from utils.keyboard import leaderboard_menu, event_leaderboard_menu, start_menu, stats_menu
+from adapters.telegram.keyboards import leaderboard_menu, event_leaderboard_menu, start_menu, stats_menu
 from utils.logger import logger
 
 class StatsHandler:

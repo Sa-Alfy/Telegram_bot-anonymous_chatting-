@@ -4,7 +4,7 @@ from pyrogram import Client, types
 from database.repositories.admin_repository import AdminRepository
 from database.repositories.user_repository import UserRepository
 from database.repositories.report_repository import ReportRepository
-from utils.keyboard import admin_menu, banned_list_menu, appeal_menu
+from adapters.telegram.keyboards import admin_menu, banned_list_menu, appeal_menu
 from config import ADMIN_ID
 from state.match_state import match_state
 from utils.logger import logger
@@ -171,7 +171,7 @@ class AdminHandler:
         if user_id != ADMIN_ID:
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         from state.match_state import match_state
-        from utils.keyboard import chat_menu
+        from adapters.telegram.keyboards import chat_menu
         await match_state.add_to_chat(user_id, 1) # Match with Echo Partner
         return {
             "text": "🛠 **DEBUG MODE ACTIVATED**\n\nYou are matched with an **Echo Partner**.",

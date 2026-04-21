@@ -10,7 +10,7 @@ class PlatformAdapter:
             if user and user.get("username", "").startswith("msg_"):
                 psid = user["username"][4:]
                 from messenger_api import send_quick_replies, send_message
-                from messenger.ui import (
+                from adapters.messenger.ui_factory import (
                     get_chat_menu_buttons, get_end_menu_buttons,
                     get_start_menu_buttons, get_search_pref_buttons
                 )

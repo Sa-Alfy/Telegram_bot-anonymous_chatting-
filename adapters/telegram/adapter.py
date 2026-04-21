@@ -51,8 +51,8 @@ class TelegramAdapter(BaseAdapter):
                     sig, val = parts[0], parts[1]
                     return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
             
-            # Non-engine events (Stats, Shop, etc.) return None to fallback to legacy dispatcher
-            return None
+            # Non-engine events (Stats, Shop, etc.) return LEGACY_DISPATCH to fallback to legacy dispatcher
+            return self.create_event("LEGACY_DISPATCH", uid, payload={"raw_data": data})
         elif hasattr(raw_update, "text"):
             # Text commands
             uid = str(raw_update.from_user.id)

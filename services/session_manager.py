@@ -6,7 +6,7 @@ from state.match_state import match_state
 from services.distributed_state import distributed_state
 from database.repositories.user_repository import UserRepository
 from services.matchmaking import MatchmakingService
-from utils.keyboard import end_menu
+from adapters.telegram.keyboards import end_menu
 from utils.helpers import update_user_ui
 from utils.logger import logger
 from utils.ui_formatters import get_progression_text

@@ -5,12 +5,12 @@ from utils.rate_limiter import rate_limiter
 from pyrogram import Client, types
 from services.matchmaking import MatchmakingService
 from state.match_state import match_state
-from utils.keyboard import search_menu, chat_menu, end_menu, start_menu, persistent_chat_menu
+from adapters.telegram.keyboards import search_menu, chat_menu, end_menu, start_menu, persistent_chat_menu
 from pyrogram.types import ReplyKeyboardRemove
 from utils.helpers import update_user_ui
 from handlers.start import get_start_text
 from services.user_service import UserService
-from utils.keyboard import retry_search_menu
+from adapters.telegram.keyboards import retry_search_menu
 from state.match_state import UserState
 from utils.ui_formatters import format_session_summary, get_match_found_text
 from services.distributed_state import distributed_state
@@ -38,9 +38,11 @@ class MatchingHandler:
                 "reply_markup": retry_search_menu(UserState.HOME)
             }
             
-        from utils.renderer import Renderer
         current_state = await match_state.get_user_state(user_id) or UserState.HOME
-        return Renderer.render_preferences_menu(platform, current_state)
+        return {
+            "text": "🔍 **Matchmaking Preferences**\n\nWho are you looking for today?",
+            "reply_markup": retry_search_menu(current_state)
+        }
 
     @staticmethod
     async def handle_search_with_pref(client: Client, user_id: int, pref: str, platform: str = "telegram") -> Dict[str, Any]:
@@ -112,8 +114,10 @@ class MatchingHandler:
         if await match_state.is_in_chat(user_id):
              return None # Silent abort: User was matched by someone else's task.
              
-        from utils.renderer import Renderer
-        response = Renderer.render_searching_ui(platform, UserState.SEARCHING)
+        response = {
+            "text": "⏳ **Searching...**\nFinding someone for you. Please wait.",
+            "reply_markup": search_menu()
+        }
         response["start_animation"] = True
         response["delete_prev"] = True
         return response
@@ -127,8 +131,11 @@ class MatchingHandler:
         coins = user.get("coins", 0)
         is_guest = user.get("is_guest", 1)
         
-        from utils.renderer import Renderer
-        return Renderer.render_profile_menu(platform, UserState.HOME)
+        from handlers.start import get_start_text
+        return {
+            "text": get_start_text(coins, is_guest=is_guest),
+            "reply_markup": start_menu(is_guest=is_guest)
+        }
 
     @staticmethod
     async def handle_stop(client: Client, user_id: int, platform: str = "telegram") -> Dict[str, Any]:
@@ -298,7 +305,7 @@ class MatchingHandler:
             return {"alert": "❌ Icebreakers cost 5 coins!", "show_alert": True}
             
         question = random.choice(questions)
-        from utils.keyboard import chat_menu
+        from adapters.telegram.keyboards import chat_menu
         
         return {
             "alert": "✅ Icebreaker sent!",

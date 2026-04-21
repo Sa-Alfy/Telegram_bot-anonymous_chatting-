@@ -4,7 +4,7 @@
 # ═══════════════════════════════════════════════════════════════════════
 
 from messenger_api import send_message, send_quick_replies, send_button_template, send_generic_template
-from messenger.ui import (
+from adapters.messenger.ui_factory import (
     CONSENT_BUTTONS, get_gender_buttons, get_age_buttons, get_goal_buttons,
     get_interests_skip_buttons, get_start_menu_buttons, get_profile_dashboard_card
 )

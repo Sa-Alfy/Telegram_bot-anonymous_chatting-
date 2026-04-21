@@ -2,7 +2,7 @@ from typing import Dict, Any
 from utils.rate_limiter import rate_limiter
 from pyrogram import Client
 from state.match_state import match_state
-from utils.keyboard import chat_menu, reaction_menu
+from adapters.telegram.keyboards import chat_menu, reaction_menu
 from utils.helpers import update_user_ui
 
 class SocialHandler:
@@ -59,7 +59,7 @@ class SocialHandler:
         if not await rate_limiter.can_report(user_id):
             return {"alert": "⏳ Please wait 5 seconds between reports.", "show_alert": True}
         
-        from utils.keyboard import report_confirm_menu
+        from adapters.telegram.keyboards import report_confirm_menu
         return {
             "text": "🚨 **Report Partner**\n\nAre you sure you want to report this user?\nThis will end the chat and flag their account.",
             "reply_markup": report_confirm_menu()
@@ -71,7 +71,7 @@ class SocialHandler:
         from services.matchmaking import MatchmakingService
         from services.user_service import UserService
         from database.repositories.user_repository import UserRepository
-        from utils.keyboard import end_menu
+        from adapters.telegram.keyboards import end_menu
         
         partner_id = await match_state.get_partner(user_id)
         if not partner_id:
@@ -113,7 +113,7 @@ class SocialHandler:
         if not await match_state.is_in_chat(user_id):
             return {"alert": "❌ You are not in a chat!", "show_alert": True}
             
-        from utils.keyboard import peek_menu
+        from adapters.telegram.keyboards import peek_menu
         return {
             "text": "🕵️ **Partner Statistics (Peek)**\n\nWhat would you like to reveal for 10 coins?",
             "reply_markup": peek_menu()
@@ -178,7 +178,7 @@ class SocialHandler:
             return {"alert": "⏳ A friend request is already pending.", "show_alert": True}
 
         if await FriendRepository.send_request(user_id, partner_id):
-            from utils.keyboard import accept_friend_menu
+            from adapters.telegram.keyboards import accept_friend_menu
             return {
                 "alert": "💌 Friend request sent! Waiting for partner to accept.",
                 "show_alert": True,
@@ -218,7 +218,7 @@ class SocialHandler:
     async def handle_view_requests(client: Client, user_id: int) -> Dict[str, Any]:
         """Shows the pending friend requests menu."""
         from database.repositories.friend_repository import FriendRepository
-        from utils.keyboard import pending_requests_menu
+        from adapters.telegram.keyboards import pending_requests_menu
         
         requests = await FriendRepository.get_incoming_requests(user_id)
         if not requests:
@@ -247,7 +247,7 @@ class SocialHandler:
     @staticmethod
     async def handle_friends_list(client: Client, user_id: int) -> Dict[str, Any]:
         from database.repositories.friend_repository import FriendRepository
-        from utils.keyboard import friends_list_menu
+        from adapters.telegram.keyboards import friends_list_menu
         
         friends = await FriendRepository.get_friends_list(user_id)
         if not friends:
@@ -260,7 +260,7 @@ class SocialHandler:
 
     @staticmethod
     async def handle_friend_action(client: Client, user_id: int, friend_id: int) -> Dict[str, Any]:
-        from utils.keyboard import friend_action_menu
+        from adapters.telegram.keyboards import friend_action_menu
         from database.repositories.user_repository import UserRepository
         
         friend = await UserRepository.get_by_telegram_id(friend_id)
@@ -303,7 +303,7 @@ class SocialHandler:
     async def handle_cancel_friend_msg(client: Client, user_id: int) -> Dict[str, Any]:
         """Exits the friend messaging relay mode."""
         from database.repositories.user_repository import UserRepository
-        from utils.keyboard import start_menu
+        from adapters.telegram.keyboards import start_menu
         await match_state.set_user_state(user_id, None)
         user = await UserRepository.get_by_telegram_id(user_id)
         return {

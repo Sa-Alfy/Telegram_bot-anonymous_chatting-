@@ -57,7 +57,7 @@ class MatchmakingService:
         from utils.ui_formatters import get_match_found_text
         from utils.helpers import update_user_ui
         from adapters.telegram.keyboards import get_chat_keyboard
-        from utils.keyboard import persistent_chat_menu
+        from adapters.telegram.keyboards import persistent_chat_menu
         from core.behavior_engine import behavior_engine
         from core.engine.state_machine import UnifiedState
         from services.distributed_state import distributed_state

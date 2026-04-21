@@ -45,7 +45,8 @@ class TestMatchingHandler:
         with patch("services.matchmaking.MatchmakingService.disconnect") as MockDisconnect, \
              patch("database.repositories.user_repository.UserRepository.get_by_telegram_id") as MockGet, \
              patch("state.match_state.match_state.get_user_state") as MockState:
-            MockState.return_value = "CHATTING"
+            from state.match_state import UserState
+            MockState.return_value = UserState.CHATTING
             MockDisconnect.return_value = mock_stats
             MockGet.return_value = {"coins": 50}
             response = await MatchingHandler.handle_stop(client, 100)
@@ -80,7 +81,8 @@ class TestMatchingHandler:
             mock_cooldown.return_value = 5.0
             # Next now checks if in chat; patch get_user_state to pass
             with patch("state.match_state.match_state.get_user_state", new_callable=AsyncMock) as MockState:
-                MockState.return_value = "CHATTING"
+                from state.match_state import UserState
+                MockState.return_value = UserState.CHATTING
                 response = await MatchingHandler.handle_next(client, user_id)
                 assert "alert" in response
                 assert "slow down" in response["alert"].lower()

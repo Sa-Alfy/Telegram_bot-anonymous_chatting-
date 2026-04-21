@@ -8,7 +8,7 @@ from database.repositories.user_repository import UserRepository
 from database.repositories.admin_repository import AdminRepository
 from database.connection import db
 from utils.helpers import is_admin, update_user_ui
-from utils.keyboard import chat_menu, admin_menu
+from adapters.telegram.keyboards import chat_menu, admin_menu
 from utils.logger import logger
 from config import ADMIN_ID
 

@@ -19,7 +19,7 @@ from database.repositories.user_repository import UserRepository
 from services.user_service import UserService
 from utils.helpers import update_user_ui
 from utils.logger import logger
-from utils.keyboard import search_menu, chat_menu, start_menu, admin_menu
+from adapters.telegram.keyboards import search_menu, chat_menu, start_menu, admin_menu
 from config import ADMIN_ID
 from state.match_state import UserState
 from utils.renderer import StateBoundPayload
@@ -227,8 +227,18 @@ async def on_callback(client: Client, query: CallbackQuery):
     # 1. Translate to Event via Adapter
     event = await app_state.tg_adapter.translate_event(query)
     if not event:
-        # Legacy/Other routing fallback
-        return await _handle_legacy_tg_callback(client, query)
+        return
+        
+    if event["event_type"] == "LEGACY_DISPATCH":
+        raw = event["payload"]["raw_data"]
+        action_key = raw.split(":")[0].lower()
+        handler = CALLBACK_MAP.get(action_key)
+        if handler:
+            response = await handler(client, int(event["user_id"]), event)
+            if response:
+                await process_response(client, query, response)
+            return await query.answer()
+        return await query.answer(f"Action {action_key} not recognized.")
 
     # 2. Concurrency check & Process via Engine
     # ActionRouter.process_event handles all state transitions, symmetric partner notifications,
@@ -245,203 +255,4 @@ async def on_callback(client: Client, query: CallbackQuery):
     
     await query.answer()
 
-async def _handle_legacy_tg_callback(client: Client, query: CallbackQuery):
-    """Old dispatcher for non-matchmaking actions."""
-    user_id = query.from_user.id
-    raw_data = query.data
-    action, target_str, parsed_state = StateBoundPayload.decode(raw_data)
-    target_id = int(target_str) if target_str.isdigit() else 0
-    data = action.lower()
-
-    # 2. Global rate limit (UI-layer debounce, not the concurrency lock)
-    now = time.time()
-    last_time = match_state.last_button_time.get(user_id, 0)
-    if now - last_time < 1.0:
-        return await query.answer("Please wait...", show_alert=False)
-    match_state.last_button_time[user_id] = now
-
-    # 3. Concurrency lock — prevents double-click / race conditions.
-    #    Uses Redis SET NX EX (atomic) in production; memory fallback locally.
-    from services.distributed_state import distributed_state
-    acquired = await distributed_state.acquire_action_lock(user_id, ttl=3)
-    if not acquired:
-        return await query.answer("⏳ Processing your previous action...", show_alert=False)
-
-    try:
-        # 4. STATE AUTHORITY: Always read from server. payload.state is HINT only.
-        current_state = await match_state.get_user_state(user_id) or UserState.HOME
-
-        # 5. Stale UI Detection: Reject interactions from old menus (C15 fix).
-        #    If payload.state exists and does not match server state, the menu is expired.
-        #    EXCEPTION: Some actions are state-agnostic (can be done anywhere).
-        state_agnostic_actions = {"stats", "leaderboard", "terms", "privacy", "help"}
-        
-        is_stale = False
-        
-        # Session Binding Logic: Check if the state contains a partner ID (e.g., CHATTING_12345)
-        current_partner = await match_state.get_partner(user_id)
-        if parsed_state and "_" in parsed_state:
-            try:
-                embedded_partner_id = int(parsed_state.split("_")[-1])
-                if current_partner is not None and embedded_partner_id != current_partner:
-                    logger.warning(f"Session Mismatch! User {user_id} clicked button for {embedded_partner_id} but is chatting with {current_partner}")
-                    is_stale = True
-            except ValueError:
-                is_stale = False
-
-        if is_stale:
-            # Determine if this was a legitimate state change or a retry
-            logger.info(f"Stale UI rejected: {user_id} tried {action} (from {parsed_state}) while in {current_state}")
-            await query.answer("❌ This menu has expired.", show_alert=True)
-            from utils.renderer import Renderer
-            return await process_response(client, query, Renderer.render_profile_menu("telegram", current_state))
-
-        # 6. Client-initiated transition map (server-only states are NOT in this map)
-        intent_to_state = {
-            "back_home":       UserState.HOME,
-            "onboarding_start": UserState.PROFILE_EDIT,
-            "onboarding_skip": UserState.HOME,
-        }
-
-        if action in intent_to_state:
-            target_state = intent_to_state[action]
-
-            # AUTHORITY: Reject client attempt to set a system-only state
-            if not UserState.is_client_settable(target_state):
-                await query.answer("❌ Invalid action.", show_alert=True)
-                return
-
-            # Transition validity check
-            if not UserState.is_valid_transition(current_state, target_state):
-                await query.answer("❌ You cannot do that right now.", show_alert=True)
-                from utils.renderer import Renderer
-                return await process_response(client, query, Renderer.render_profile_menu("telegram", current_state))
-
-            # TARGET INTEGRITY: Validate target exists before transitioning
-            if target_id:
-                is_valid, reason = await match_state.validate_target(target_id)
-                if not is_valid:
-                    await query.answer(f"❌ {reason}", show_alert=True)
-                    from utils.renderer import Renderer
-                    return await process_response(client, query, Renderer.render_profile_menu("telegram", current_state))
-
-            # Server sets the new state (not from payload)
-            await match_state.set_user_state(user_id, target_state)
-
-        # Use action for routing (not raw payload)
-        data = action
-
-        # Dispatch to Modular Handlers
-        handler = None
-        # Precise match
-        if data in CALLBACK_MAP:
-            handler = CALLBACK_MAP[data]
-        # Prefix match (e.g. buy_pack_5)
-        else:
-            prefixes = [
-                "buy_pack_", "admin_manage_ban_", "confirm_reveal_", "react_",
-                "lb_", "buy_booster_", "buy_timed_priority_", "set_gender_", "set_age_", "set_goal_",
-                "peek_detail_", "accept_friend_", "decline_friend_", "admin_unban_",
-                "buy_shop_", "friend_action_", "msg_friend_", "remove_friend_",
-                "search_pref_", "admin_set_vip_", "admin_quick_gift_", "admin_ban_",
-                "admin_quick_deduct_", "vote_"
-            ]
-            for prefix in prefixes:
-                if data.startswith(prefix):
-                    try:
-                        param = target_id
-                        if prefix == "buy_pack_":
-                            handler = lambda c, uid, p: EconomyHandler.handle_buy_pack(c, uid, int(p))
-                        elif prefix == "vote_":
-                            parts = action.split("_")
-                            # Robust ID extraction: use target_id if provided, else last part of action
-                            tid = target_id if target_id != 0 else (int(parts[-1]) if parts[-1].isdigit() else 0)
-                            # Robust vote_type: everything between 'vote_' and the ID
-                            v_type = "_".join(parts[1:-1]) if target_id == 0 else "_".join(parts[1:])
-                            handler = lambda c, uid, _, t=tid, vt=v_type: VotingHandler.handle_vote(c, uid, t, vt)
-                        elif prefix == "admin_set_vip_":
-                            parts = action.split("_")
-                            try:
-                                tid = int(parts[3])
-                                status = parts[4]
-                            except (IndexError, ValueError):
-                                continue
-                            handler = lambda c, uid, p: AdminHandler.handle_set_vip_button(c, uid, tid, status)
-                        elif prefix == "admin_quick_gift_":
-                            parts = action.split("_")
-                            try:
-                                tid = int(parts[3])
-                                amount = int(parts[4])
-                            except (IndexError, ValueError):
-                                continue
-                            handler = lambda c, uid, p: AdminHandler.handle_quick_gift(c, uid, tid, amount)
-                        elif prefix == "admin_quick_deduct_":
-                            parts = action.split("_")
-                            try:
-                                tid = int(parts[3])
-                                amount = int(parts[4])
-                            except (IndexError, ValueError):
-                                continue
-                            handler = lambda c, uid, p: AdminHandler.handle_quick_deduct(c, uid, tid, amount)
-                        elif prefix == "buy_shop_":
-                            handler = lambda c, uid, p, val=action[len(prefix):]: EconomyHandler.handle_buy_shop_badge(c, uid, val)
-                        elif prefix == "react_":
-                            handler = lambda c, uid, p, val=action[len(prefix):]: SocialHandler.handle_reaction(c, uid, val)
-                        elif prefix == "lb_":
-                            handler = lambda c, uid, p, val=action[len(prefix):]: StatsHandler.handle_leaderboard_category(c, uid, val)
-                        elif prefix == "buy_booster_":
-                            handler = lambda c, uid, p, val=action[len(prefix):]: EconomyHandler.handle_buy_booster(c, uid, int(val))
-                        elif prefix == "buy_timed_priority_":
-                            handler = lambda c, uid, p, val=action[len(prefix):]: EconomyHandler.handle_buy_timed_priority(c, uid, int(val))
-                        elif prefix == "set_gender_":
-                            handler = lambda c, uid, p, val=action[len(prefix):]: OnboardingHandler.handle_set_gender(c, uid, val)
-                        elif prefix == "set_age_":
-                            handler = lambda c, uid, p, val=action[len(prefix):]: OnboardingHandler.handle_set_age(c, uid, val)
-                        elif prefix == "set_goal_":
-                            handler = lambda c, uid, p, val=action[len(prefix):]: OnboardingHandler.handle_set_goal(c, uid, val.capitalize())
-                        elif prefix == "peek_detail_":
-                            handler = lambda c, uid, p, val=action[len(prefix):]: SocialHandler.handle_peek_detail(c, uid, val)
-                        elif prefix == "search_pref_":
-                            handler = lambda c, uid, p, val=action[len(prefix):]: MatchingHandler.handle_search_with_pref(c, uid, val)
-                        elif prefix == "admin_ban_":
-                            tid = target_id if target_id != 0 else (int(action.split("_")[-1]) if action.split("_")[-1].isdigit() else 0)
-                            handler = lambda c, uid, p, t=tid: AdminHandler.handle_manage_ban(c, uid, t)
-                        elif prefix == "admin_manage_ban_":
-                            tid = target_id if target_id != 0 else (int(action.split("_")[-1]) if action.split("_")[-1].isdigit() else 0)
-                            handler = lambda c, uid, p, t=tid: AdminHandler.handle_manage_ban(c, uid, t)
-                        elif prefix == "confirm_reveal_":
-                            handler = lambda c, uid, p: EconomyHandler.handle_confirm_reveal(c, uid, int(p))
-                        elif prefix == "accept_friend_":
-                            handler = lambda c, uid, p: SocialHandler.handle_accept_friend(c, uid, int(p))
-                        elif prefix == "decline_friend_":
-                            handler = lambda c, uid, p: SocialHandler.handle_decline_friend(c, uid, int(p))
-                        elif prefix == "friend_action_":
-                            handler = lambda c, uid, p: SocialHandler.handle_friend_action(c, uid, int(p))
-                        elif prefix == "msg_friend_":
-                            handler = lambda c, uid, p: SocialHandler.handle_msg_friend(c, uid, int(p))
-                        elif prefix == "remove_friend_":
-                            handler = lambda c, uid, p: SocialHandler.handle_remove_friend(c, uid, int(p))
-                        elif prefix == "admin_unban_":
-                            tid = target_id if target_id != 0 else (int(action.split("_")[-1]) if action.split("_")[-1].isdigit() else 0)
-                            handler = lambda c, uid, p, t=tid: AdminHandler.handle_unban_request(c, uid, t)
-
-                        if handler:
-                            response = await handler(client, user_id, param)
-                            return await process_response(client, query, response)
-                    except Exception as e:
-                        logger.error(f"Error parsing prefixed callback {data}: {e}")
-
-        if handler:
-            try:
-                response = await handler(client, user_id, None)
-                if response:
-                    await process_response(client, query, response)
-            except Exception as e:
-                logger.exception(f"Error in modular handler for {data}: {e}")
-                await query.answer("❌ An internal error occurred.", show_alert=True)
-        else:
-            await query.answer(f"Action {data} not yet refactored.")
-
-    finally:
-        # Always release the action lock — prevents deadlocks on any exception path
-        await distributed_state.release_action_lock(user_id)
+    await query.answer()

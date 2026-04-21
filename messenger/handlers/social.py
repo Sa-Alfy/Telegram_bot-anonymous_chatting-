@@ -4,7 +4,7 @@
 # ═══════════════════════════════════════════════════════════════════════
 
 from messenger_api import send_message, send_quick_replies
-from messenger.ui import (
+from adapters.messenger.ui_factory import (
     IDLE_MENU_BUTTONS, FRIEND_CONFIRM_BUTTONS, CHAT_MENU_BUTTONS,
     START_MENU_BUTTONS, END_MENU_BUTTONS, get_chat_menu_buttons
 )

@@ -21,7 +21,7 @@ from utils.platform_adapter import PlatformAdapter
 from utils.content_filter import check_message, get_user_warning, SEVERITY_AUTO_BAN, SEVERITY_BLOCK
 from utils.ui_formatters import format_session_summary, get_match_found_text
 from utils.behavior_tracker import behavior_tracker
-from messenger.ui import *
+from adapters.messenger.ui_factory import *
 from messenger.utils import _uid, _raw, _platform, _send_to, _send_menu_to, _get_or_create_messenger_user
 
 # ─────────────────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ def _map_reply_markup(reply_markup) -> list:
     buttons. Matches against callback_data values (lowercase with 
     underscores) which are stable, rather than display text which changes.
     """
-    from messenger.ui import (
+    from adapters.messenger.ui_factory import (
         get_chat_menu_buttons, get_end_menu_buttons,
         get_start_menu_buttons, get_search_pref_buttons,
         get_retry_search_buttons
@@ -167,9 +167,11 @@ def _send_hero_start(psid: str, coins: int, is_guest: bool):
     }]
     send_generic_template(psid, elements)
     if is_guest:
-        from utils.renderer import Renderer
-        response = Renderer.render_profile_menu("messenger", "HOME")
-        send_quick_replies(psid, "⚠️ Guest Mode: No rewards earned.", response["quick_replies"])
+        buttons = [
+            {"title": "🔍 Find Partner", "payload": StateBoundPayload.encode("search", "0", "HOME")},
+            {"title": "👤 Edit Profile", "payload": StateBoundPayload.encode("onboarding_start", "0", "HOME")}
+        ]
+        send_quick_replies(psid, "⚠️ Guest Mode: No rewards earned.", buttons)
 
 
 async def _handle_start(psid: str, virtual_id: int, user: dict):
@@ -212,9 +214,9 @@ async def _notify_partner_matched(partner_virtual_id: int):
                 if show_safety:
                     asyncio.create_task(UserRepository.update(partner_virtual_id, safety_last_seen=int(now)))
 
-                from utils.renderer import Renderer
-                response = Renderer.render_match_found("messenger", partner_virtual_id, show_safety=show_safety)
-                send_quick_replies(partner_psid, response["text"], response["quick_replies"])
+                text = get_match_found_text(is_rematch=False, include_safety=show_safety)
+                buttons = get_chat_menu_buttons(UserState.CHATTING, partner_virtual_id)
+                send_quick_replies(partner_psid, text, buttons)
                 
                 warning = await behavior_tracker.get_match_warning(partner_virtual_id)
                 if warning: send_message(partner_psid, warning)

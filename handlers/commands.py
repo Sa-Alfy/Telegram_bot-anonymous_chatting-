@@ -5,7 +5,7 @@ from handlers.actions.social import SocialHandler
 from handlers.actions.economy import EconomyHandler
 from handlers.callbacks import handle_help
 from utils.helpers import update_user_ui
-from utils.keyboard import start_menu
+from adapters.telegram.keyboards import start_menu
 from database.repositories.user_repository import UserRepository
 
 @Client.on_message(filters.command("help") & filters.private)

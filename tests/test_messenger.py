@@ -109,7 +109,7 @@ class TestMessengerHandlers:
     @pytest.mark.asyncio
     async def test_map_reply_markup_start_menu(self):
         from messenger_handlers import _map_reply_markup
-        from utils.keyboard import start_menu
+        from adapters.telegram.keyboards import start_menu
         markup = start_menu(is_guest=False)
         qr = _map_reply_markup(markup)
         assert qr is not None
