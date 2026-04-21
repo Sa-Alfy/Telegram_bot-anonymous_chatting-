@@ -3,6 +3,7 @@
 def get_messenger_home_buttons():
     return [
         {"title": "🔍 Find Partner", "payload": "START_SEARCH"},
+        {"title": "🛍 Seasonal Shop", "payload": "SEASONAL_SHOP"},
         {"title": "👤 Profile",     "payload": "CMD_PROFILE"},
         {"title": "📊 Stats",       "payload": "STATS"}
     ]

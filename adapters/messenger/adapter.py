@@ -47,6 +47,9 @@ class MessengerAdapter(BaseAdapter):
                 await self.render_tools(psid, mid)
                 return None
 
+            # Non-engine events (Shop, Profile, Stats) return None to fallback to messenger_handlers.py
+            return None
+
         elif msg.get("text"):
             text = msg.get("text").strip().lower()
             if text in ["/start", "menu"]:
