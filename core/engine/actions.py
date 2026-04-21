@@ -49,6 +49,11 @@ class ActionRouter:
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.START_SEARCH_LUA, keys, [uid, str(ts), pref])
             result = {"success": code in {1, 2}, "state": msg, "version": ver}
 
+        elif etype in {"STOP_SEARCH", "CANCEL_SEARCH"}:
+            keys = [f"sm:state:{uid}", "sm:queue", f"sm:match:pref:{uid}", f"sm:ver:u:{uid}"]
+            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.STOP_SEARCH_LUA, keys, [uid, str(ts)])
+            result = {"success": code == 1, "state": msg, "version": ver}
+
         elif etype == "CONNECT":
             partner_id = await distributed_state.get_partner(uid)
             if not partner_id: return {"success": False, "error": "No partner found"}
@@ -96,6 +101,31 @@ class ActionRouter:
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SUBMIT_VOTE_LUA, keys, [uid, mid, vtype, str(vval), str(ts)])
             signals = await redis.hgetall(f"sm:vote:{mid}:{uid}")
             result = {"success": code == 1, "state": msg, "version": ver, "signals": signals}
+            
+            # --- PERSISTENCE BRIDGE: Sync engine vote to Supabase ---
+            if result["success"] and mid.startswith("m_"):
+                try:
+                    # Extract partner_id from mid (format: m_user1_user2)
+                    parts = mid.split("_")
+                    u1, u2 = parts[1], parts[2]
+                    p_uid = u2 if uid.endswith(u1) else u1 # Robust check handles 'msg_' prefix mismatch
+                    
+                    from database.repositories.vote_repository import VoteRepository
+                    # Map engine signals to DB format
+                    db_vote_type = vval if vtype == "reputation" else None # 'like'/'dislike'
+                    db_gender_vote = vval if vtype == "identity" else None # 'male'/'female'
+                    
+                    if vval == "good": db_vote_type = "like"
+                    elif vval == "bad": db_vote_type = "dislike"
+                    
+                    # Clean PSID for DB int4/int8 compatibility
+                    c_uid = int(uid[4:]) if uid.startswith("msg_") else int(uid)
+                    c_pid = int(p_uid[4:]) if p_uid.startswith("msg_") else int(p_uid)
+                    
+                    await VoteRepository.submit_vote(voter_id=c_uid, voted_id=c_pid, 
+                                                   vote_type=db_vote_type, gender_vote=db_gender_vote)
+                except Exception as e:
+                    logger.error(f"Persistence Bridge failed for VOTE: {e}")
 
         elif etype == "TIMEOUT_VOTING":
             keys = [
@@ -148,7 +178,12 @@ class ActionRouter:
             return
 
         # 2. Select Adapter
-        adapter = app_state.msg_adapter if user_id.startswith("msg_") else app_state.tg_adapter
+        is_messenger = user_id.startswith("msg_")
+        if not is_messenger and user_id.isdigit():
+            if int(user_id) >= 10**15:
+                is_messenger = True
+        
+        adapter = app_state.msg_adapter if is_messenger else app_state.tg_adapter
         
         # 3. Perform Render
         payload = {"match_id": match_id}

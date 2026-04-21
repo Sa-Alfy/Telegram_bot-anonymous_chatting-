@@ -20,14 +20,19 @@ class TelegramAdapter(BaseAdapter):
             data = raw_update.data
             uid = str(raw_update.from_user.id)
             
-            # Handle legacy StateBoundPayload format
-            action, target_str, state_hint = StateBoundPayload.decode(data)
+            # Decode payload using the now-robust decode logic
+            action, target_str, state_gate = StateBoundPayload.decode(data)
             action = action.upper()
-            mid = target_str if target_str.startswith("m_") else f"m_{uid}_{target_str}" if target_str != "0" else "global"
+            
+            # Match ID resolution (Contextual)
+            # If state_gate looks like a partner ID (numeric) or a match ID (m_...)
+            ctx_id = state_gate if (state_gate.startswith("m_") or state_gate.isdigit()) else target_str
+            mid = ctx_id if ctx_id.startswith("m_") else f"m_{uid}_{ctx_id}" if (ctx_id and ctx_id != "0") else "global"
 
             if action in {"SEARCH", "START_SEARCH"}:
                 return self.create_event("SHOW_PREFS", uid)
             elif action == "SEARCH_PREF":
+                # target_str contains the chosen preference (Male/Female/Any)
                 return self.create_event("START_SEARCH", uid, payload={"pref": target_str})
             elif action in {"CANCEL_SEARCH", "STOP_SEARCH"}:
                 return self.create_event("STOP_SEARCH", uid)
@@ -37,16 +42,14 @@ class TelegramAdapter(BaseAdapter):
                 return self.create_event("NEXT_MATCH", uid, mid)
             elif action == "SKIP_VOTE":
                 return self.create_event("SKIP_VOTE", uid, mid)
-            elif action.startswith("VOTE"):
-                # VOTE_reputation_like_123 or VOTE:reputation:like:m_1_2
-                if ":" in action:
-                    parts = action.split(":")
-                else:
-                    parts = action.split("_")
-                
-                sig = parts[1]
-                val = parts[2]
-                return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
+            elif action == "RECOVER":
+                return self.create_event("RECOVER", uid)
+            elif action == "VOTE":
+                # Format: VOTE:sig:val:state -> target_str is "sig:val"
+                parts = target_str.split(":")
+                if len(parts) >= 2:
+                    sig, val = parts[0], parts[1]
+                    return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
             
             # Non-engine events (Stats, Shop, etc.) return None to fallback to legacy dispatcher
             return None
@@ -58,6 +61,8 @@ class TelegramAdapter(BaseAdapter):
                 return self.create_event("CMD_START", uid)
             elif text == "/search":
                 return self.create_event("SHOW_PREFS", uid)
+            elif text == "/recover":
+                return self.create_event("RECOVER", uid)
 
         return None
 

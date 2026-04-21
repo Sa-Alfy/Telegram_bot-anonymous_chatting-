@@ -205,6 +205,28 @@ class RedisScripts:
         redis.call("DEL", KEYS[3])
         return {1, "TIMEOUT_CLEANUP", tostring(ver)}
     """
+    
+    # 7. STOP SEARCH (Manual Cancel)
+    # KEYS: 1:state:user, 2:queue, 3:match_pref:user, 4:user_ver:id
+    # ARGV: 1:user_id, 2:now
+    STOP_SEARCH_LUA = """
+        local state_key = KEYS[1]
+        local queue_key = KEYS[2]
+        
+        -- Remove from queue
+        redis.call("LREM", queue_key, 0, ARGV[1])
+        
+        -- Cleanup preference
+        redis.call("DEL", KEYS[3])
+        
+        -- Reset state
+        redis.call("SET", state_key, "HOME")
+        
+        -- Increment User Version
+        local ver = redis.call("INCR", KEYS[4])
+        
+        return {1, "HOME", tostring(ver)}
+    """
 
     @staticmethod
     async def execute(redis, script: str, keys: List[str], args: List[str]) -> Tuple[int, str, Optional[str]]:

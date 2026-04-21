@@ -56,7 +56,8 @@ class MatchmakingService:
         from database.repositories.user_repository import UserRepository
         from utils.ui_formatters import get_match_found_text
         from utils.helpers import update_user_ui
-        from utils.keyboard import chat_menu, persistent_chat_menu
+        from adapters.telegram.keyboards import get_chat_keyboard
+        from utils.keyboard import persistent_chat_menu
         from core.behavior_engine import behavior_engine
         from core.engine.state_machine import UnifiedState
         from services.distributed_state import distributed_state
@@ -112,19 +113,25 @@ class MatchmakingService:
                     # Messenger Path
                     from messenger_api import send_quick_replies
                     from messenger.ui import get_chat_menu_buttons
-                    buttons = get_chat_menu_buttons(UserState.CHATTING)
-                    psid = user.get("username", "")[4:] if user.get("username", "").startswith("msg_") else None
-                    if psid:
-                        send_quick_replies(psid, match_text, buttons)
-                        # Optional: Send contextual hint
-                        hint = await behavior_engine.get_contextual_hint(uid, "connected")
-                        if hint: from messenger_api import send_message; send_message(psid, f"💡 {hint}")
+                    psid = str(uid)
+                    buttons = get_chat_menu_buttons(UserState.CHATTING, partner_id=partner_id)
+                    
+                    send_result = send_quick_replies(psid, match_text, buttons)
+                    if send_result and "error" in send_result:
+                        logger.error(f"Messenger match notification failed for {psid}: {send_result['error']}")
+                    
+                    # Optional: Send contextual hint
+                    hint = await behavior_engine.get_contextual_hint(uid, "connected")
+                    if hint: 
+                        from messenger_api import send_message
+                        send_message(psid, f"💡 {hint}")
                 else:
                     # Telegram Path
                     # Send persistent keyboard first so it's ready
                     await client.send_message(uid, "🎮 **Match controls ready.**", reply_markup=persistent_chat_menu())
-                    # Send inline match notification
-                    await update_user_ui(client, uid, match_text, chat_menu(UserState.CHATTING, partner_id))
+                    # Send inline match notification with NEW engine keyboard and force a fresh message
+                    match_id = f"m_{uid}_{partner_id}"
+                    await update_user_ui(client, uid, match_text, get_chat_keyboard(match_id), force_new=True)
 
             except Exception as e:
                 logger.error(f"Notification failed for {uid} in match {user1_id}-{user2_id}: {e}")

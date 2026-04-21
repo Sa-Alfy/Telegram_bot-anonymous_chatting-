@@ -118,15 +118,16 @@ def get_search_pref_buttons(state: str = UserState.HOME):
         {"title": "❌ Cancel",  "payload": StateBoundPayload.encode("cancel_search", "0", state)},
     ]
 
-def get_chat_menu_buttons(state: str = UserState.HOME):
+def get_chat_menu_buttons(state: str = UserState.HOME, partner_id: int = 0):
+    target = str(partner_id)
     return [
-        {"title": "⏭ Next",        "payload": StateBoundPayload.encode("NEXT", "0", state)},
-        {"title": "🛑 Stop",        "payload": StateBoundPayload.encode("STOP", "0", state)},
-        {"title": "👁 Reveal",      "payload": StateBoundPayload.encode("REVEAL", "0", state)},
-        {"title": "⚠️ Report",      "payload": StateBoundPayload.encode("REPORT", "0", state)},
-        {"title": "🚫 Block",       "payload": StateBoundPayload.encode("BLOCK_PARTNER", "0", state)},
-        {"title": "💌 Add Friend",  "payload": StateBoundPayload.encode("ADD_FRIEND", "0", state)},
-        {"title": "🎲 Icebreaker",  "payload": StateBoundPayload.encode("ICEBREAKER", "0", state)},
+        {"title": "⏭ Next",        "payload": StateBoundPayload.encode("NEXT", target, state)},
+        {"title": "🛑 Stop",        "payload": StateBoundPayload.encode("STOP", target, state)},
+        {"title": "👁 Reveal",      "payload": StateBoundPayload.encode("REVEAL", target, state)},
+        {"title": "⚠️ Report",      "payload": StateBoundPayload.encode("REPORT", target, state)},
+        {"title": "🚫 Block",       "payload": StateBoundPayload.encode("BLOCK_PARTNER", target, state)},
+        {"title": "💌 Add Friend",  "payload": StateBoundPayload.encode("ADD_FRIEND", target, state)},
+        {"title": "🎲 Icebreaker",  "payload": StateBoundPayload.encode("ICEBREAKER", target, state)},
     ]
 
 def get_end_menu_buttons(state: str = UserState.HOME, partner_id: int = None):
