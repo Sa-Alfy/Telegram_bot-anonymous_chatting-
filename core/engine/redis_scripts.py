@@ -124,8 +124,8 @@ class RedisScripts:
     END_CHAT_LUA = """
         if redis.call("EXISTS", KEYS[8]) == 1 then return {2, "ALREADY_ENDED"} end
 
-        redis.call("SET", KEYS[1], "VOTING")
-        redis.call("SET", KEYS[2], "VOTING")
+        redis.call("SET", KEYS[1], "HOME")
+        redis.call("SET", KEYS[2], "HOME")
         redis.call("DEL", KEYS[3])
         redis.call("DEL", KEYS[4])
 
@@ -137,7 +137,7 @@ class RedisScripts:
         redis.call("RPUSH", KEYS[7], ARGV[4] .. ":SESSION_END:" .. ARGV[3] .. ":ver:" .. ver)
 
         redis.call("SET", KEYS[8], "1", "EX", 30)
-        return {1, "VOTING", tostring(ver)}
+        return {1, "HOME", tostring(ver)}
     """
 
     # 4.5 SKIP VOTE (The Safety Exit)
@@ -145,7 +145,8 @@ class RedisScripts:
     # ARGV: 1:user_id, 2:match_id, 3:now
     SKIP_VOTE_LUA = """
         if redis.call("EXISTS", KEYS[4]) == 1 then return {2, "ALREADY_PROCESSED"} end
-        if redis.call("GET", KEYS[1]) ~= "VOTING" then return {0, "NOT_IN_VOTING"} end
+        -- Optional: skip state check to allow voting from HOME
+        -- if redis.call("GET", KEYS[1]) ~= "VOTING" then return {0, "NOT_IN_VOTING"} end
 
         redis.call("SET", KEYS[1], "HOME")
         local ver = redis.call("INCR", KEYS[2])
@@ -160,7 +161,7 @@ class RedisScripts:
     # ARGV: 1:user_id, 2:match_id, 3:vote_type, 4:vote_value, 5:now
     SUBMIT_VOTE_LUA = """
         if redis.call("EXISTS", KEYS[6]) == 1 then return {2, "ALREADY_SUBMITTED"} end
-        if redis.call("GET", KEYS[1]) ~= "VOTING" then return {0, "NOT_IN_VOTING"} end
+        -- if redis.call("GET", KEYS[1]) ~= "VOTING" then return {0, "NOT_IN_VOTING"} end
 
         -- ACQUIRE VOTE LOCK (Issue 2)
         if not redis.call("SET", KEYS[3], "1", "NX", "EX", 5) then return {0, "LOCKED"} end

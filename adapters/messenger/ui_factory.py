@@ -264,8 +264,19 @@ def get_messenger_vote_card(match_id: str, signal: str):
         }
 def get_messenger_preferences_buttons():
     return [
-        {"title": "👫 Anyone", "payload": StateBoundPayload.encode("SEARCH_PREF", "Any", UnifiedState.PREFERENCES)},
-        {"title": "👨 Male",   "payload": StateBoundPayload.encode("SEARCH_PREF", "Male", UnifiedState.PREFERENCES)},
-        {"title": "👩 Female", "payload": StateBoundPayload.encode("SEARCH_PREF", "Female", UnifiedState.PREFERENCES)},
-        {"title": "🔙 Back",   "payload": StateBoundPayload.encode("STOP_SEARCH", "0", UnifiedState.SEARCHING)}
+        {"title": "👫 Anyone",  "payload": StateBoundPayload.encode("SEARCH_PREF", "Any", UnifiedState.PREFERENCES)},
+        {"title": "👨 Male",    "payload": StateBoundPayload.encode("SEARCH_PREF", "Male", UnifiedState.PREFERENCES)},
+        {"title": "👩 Female",  "payload": StateBoundPayload.encode("SEARCH_PREF", "Female", UnifiedState.PREFERENCES)},
+        {"title": "🔙 Back",    "payload": StateBoundPayload.encode("STOP_SEARCH", "0", UnifiedState.SEARCHING)}
+    ]
+
+def get_messenger_post_chat_buttons(match_id: str):
+    """Optional Voting: Combine search actions with voting."""
+    return [
+        {"title": "🔍 Find New",    "payload": StateBoundPayload.encode("START_SEARCH", "0", UnifiedState.HOME)},
+        {"title": "👍 Like",        "payload": StateBoundPayload.encode("VOTE", "reputation:good", match_id)},
+        {"title": "👎 Dislike",     "payload": StateBoundPayload.encode("VOTE", "reputation:bad", match_id)},
+        {"title": "🛍 Shop",        "payload": StateBoundPayload.encode("SEASONAL_SHOP", "0", UnifiedState.HOME)},
+        {"title": "📊 Stats",       "payload": StateBoundPayload.encode("STATS", "0", UnifiedState.HOME)},
+        {"title": "🏠 Menu",        "payload": StateBoundPayload.encode("CMD_START", "0", UnifiedState.HOME)}
     ]

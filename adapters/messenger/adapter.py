@@ -92,7 +92,12 @@ class MessengerAdapter(BaseAdapter):
 
             res = None
             if state == UnifiedState.HOME:
-                res = send_quick_replies(psid, "🏠 **Main Menu**\nWelcome! Tap below to start meeting people.", get_messenger_home_buttons())
+                match_id = extra.get("match_id") if extra else None
+                if match_id:
+                    from adapters.messenger.ui_factory import get_messenger_post_chat_buttons
+                    res = send_quick_replies(psid, "🏁 **Chat Ended**\nHow was your experience? You can also start a new search immediately.", get_messenger_post_chat_buttons(match_id))
+                else:
+                    res = send_quick_replies(psid, "🏠 **Main Menu**\nWelcome! Tap below to start meeting people.", get_messenger_home_buttons())
             elif state == UnifiedState.PREFERENCES:
                 res = send_quick_replies(psid, "🔍 Who are you looking for today?", get_messenger_preferences_buttons())
             elif state == UnifiedState.SEARCHING:

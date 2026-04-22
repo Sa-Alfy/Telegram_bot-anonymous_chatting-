@@ -97,12 +97,13 @@ class ActionRouter:
             p_uid = str(stats["partner_id"])
             result = {
                 "success": True, 
-                "state": UnifiedState.VOTING,
-                "version": "1", # MatchmakingService.disconnect handles versioning via atomic_disconnect
+                "state": UnifiedState.HOME,
+                "version": "1", 
+                "match_id": mid,
                 "payload": stats,
                 "notify_partner": {
                     "user_id": p_uid, 
-                    "state": UnifiedState.VOTING, 
+                    "state": UnifiedState.HOME, 
                     "match_id": mid,
                     "payload": stats
                 }
