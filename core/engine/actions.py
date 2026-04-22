@@ -159,7 +159,7 @@ class ActionRouter:
 
         elif etype == "RECOVER":
             state = await redis.get(f"sm:state:{uid}") or UnifiedState.HOME
-            result = {"success": True, "state": state, "version": "0"}
+            result = {"success": True, "state": state, "version": "0", "force_render": True}
 
         elif etype == "NEXT_MATCH":
             state = await redis.get(f"sm:state:{uid}")
@@ -195,12 +195,9 @@ class ActionRouter:
         redis = distributed_state.redis
         import app_state
         
-        # 1. Check if render is actually needed (Issue 5 Gate)
-        last_render = await redis.get(f"sm:last_render:{user_id}")
-        last_ack = await redis.get(f"sm:render_ack:{user_id}")
-        
-        # Force render if state changed OR if previous render was never ACKed (Issue 4 ACK)
-        if state == last_render and last_ack == "1":
+        # Force render if state changed OR if previous render was never ACKed OR if explicitly forced (Issue 4/5)
+        force = extra.get("force_render") if extra else False
+        if state == last_render and last_ack == "1" and not force:
             logger.info(f"UI for {user_id} already consistent with {state}. Skipping render.")
             return
 

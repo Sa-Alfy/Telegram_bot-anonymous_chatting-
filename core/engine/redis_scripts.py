@@ -22,7 +22,7 @@ class RedisScripts:
 
         -- 2. State Validation
         local current = redis.call("GET", state_key)
-        if current and current ~= "HOME" then return {0, "INVALID_STATE", current} end
+        if current and current ~= "HOME" and current ~= "VOTING" then return {0, "INVALID_STATE", current} end
 
         -- 3. Execution
         redis.call("SET", state_key, "PREFERENCES")

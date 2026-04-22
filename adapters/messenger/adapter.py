@@ -52,6 +52,12 @@ class MessengerAdapter(BaseAdapter):
                 if len(parts) >= 2:
                     sig, val = parts[0], parts[1]
                     return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
+            elif action in {"CMD_START", "BACK_HOME", "HOME_MENU"}:
+                return self.create_event("SET_STATE", uid, payload={"new_state": "HOME"})
+            elif action in {"CMD_PROFILE", "PROFILE_MENU", "SETTINGS_MENU"}:
+                # While these are legacy-heavy, we should at least acknowledge the state if we have a state for it.
+                # If not, we just return None to let legacy handle it, but keep the event chain alive.
+                pass
             elif action == "TOOLS_MENU":
                 # This doesn't trigger a core action, just UI re-render
                 await self.render_tools(psid, mid)
