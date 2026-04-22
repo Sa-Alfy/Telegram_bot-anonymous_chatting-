@@ -9,24 +9,37 @@ class UnifiedState:
     CONNECTING = "CONNECTING"  # Handshake/Initialization phase
     CHAT_ACTIVE = "CHAT_ACTIVE"
     CHAT_END = "CHAT_END"      # Instant terminal state for chat
-    VOTING = "VOTING"          # Hard gate that must be completed
+    VOTING = "VOTING"
+    PROFILE = "PROFILE"
+    STATS = "STATS"
+    REG_GENDER = "REG_GENDER"
+    REG_INTERESTS = "REG_INTERESTS"
+    REG_LOCATION = "REG_LOCATION"
+    REG_BIO = "REG_BIO"
 
     # List of all valid states for validation
     ALL_STATES = {
-        HOME, PREFERENCES, SEARCHING, MATCHED, CONNECTING, CHAT_ACTIVE, CHAT_END, VOTING
+        HOME, PREFERENCES, SEARCHING, MATCHED, CONNECTING, CHAT_ACTIVE, CHAT_END, VOTING, PROFILE, STATS,
+        REG_GENDER, REG_INTERESTS, REG_LOCATION, REG_BIO
     }
 
     # Strict transition map (Backend Truth)
     # format: { current_state: { set_of_allowed_next_states } }
     TRANSITIONS = {
-        HOME: {PREFERENCES, SEARCHING},
+        HOME: {PREFERENCES, SEARCHING, PROFILE, STATS, REG_GENDER},
         PREFERENCES: {SEARCHING, HOME},
         SEARCHING: {HOME, MATCHED},
         MATCHED: {CONNECTING, HOME}, # Allow HOME if partner cancels during match found
         CONNECTING: {CHAT_ACTIVE, CHAT_END},
         CHAT_ACTIVE: {CHAT_END},
-        CHAT_END: {VOTING},          # UNCONDITIONAL GATE
-        VOTING: {SEARCHING, HOME},   # Only exit once signals are complete
+        CHAT_END: {VOTING, HOME},      
+        VOTING: {SEARCHING, HOME, PROFILE, STATS},   # Only exit once signals are complete
+        PROFILE: {HOME, SEARCHING, STATS, REG_GENDER},
+        STATS: {HOME, SEARCHING, PROFILE},
+        REG_GENDER: {REG_INTERESTS, HOME},
+        REG_INTERESTS: {REG_LOCATION, HOME},
+        REG_LOCATION: {REG_BIO, HOME},
+        REG_BIO: {HOME}
     }
 
     @classmethod

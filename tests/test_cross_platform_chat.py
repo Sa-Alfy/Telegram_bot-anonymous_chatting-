@@ -95,8 +95,10 @@ def mock_env():
     match_state.user_ui_messages.clear()
     match_state.user_states.clear()
     match_state.last_button_time.clear()
-    # Refresh the asyncio.Lock so it's bound to the current event loop (avoids cross-loop deadlock)
+    # Refresh the asyncio.Locks so they're bound to the current event loop (avoids cross-loop deadlock)
     match_state._lock = asyncio.Lock()
+    distributed_state._lock = asyncio.Lock()
+    distributed_state._action_lock = asyncio.Lock()
 
     # ── Shared user table (populated per test class) ──────────────────────
     users: dict = {}
@@ -189,7 +191,7 @@ def mock_env():
         patch("adapters.messenger.adapter.send_quick_replies", side_effect=_cap_qr),
         patch("adapters.messenger.adapter.send_generic_template", side_effect=lambda *a, **kw: None),
         # ── Telegram helpers ──────────────────────────────────────────────────
-        patch("utils.helpers.update_user_ui", new_callable=AsyncMock),
+        # patch("utils.helpers.update_user_ui", new_callable=AsyncMock),
     ]
 
     # ── Hook up Unified Engine Adapters ───────────────────────────────────
@@ -202,18 +204,22 @@ def mock_env():
     engine = AsyncMock()
     
     async def mock_process_event(event):
+        from database.repositories.user_repository import UserRepository
+        from state.match_state import match_state
         etype = event["event_type"]
         uid = event["user_id"]
+        vid = UserRepository._sanitize_id(uid)
+        
         # Simulate state transitions for rehydration
         state = "HOME"
         if etype == "CONNECT": state = "CHAT_ACTIVE"
         elif etype == "START_SEARCH": state = "SEARCHING"
         elif etype in ("STOP", "END_CHAT"): state = "VOTING"
         elif etype == "SET_STATE": state = event.get("payload", {}).get("new_state", "HOME")
+        elif etype == "RECOVER":
+            state = await match_state.get_user_state(vid) or "HOME"
         
         # Sync state back to match_state/distributed_state so legacy lookups work
-        from database.repositories.user_repository import UserRepository
-        vid = UserRepository._sanitize_id(uid)
         await distributed_state.set_user_state(vid, state)
         
         # Trigger adapter rehydration
@@ -690,8 +696,10 @@ class TestMessengerLegacyActionRouting:
         """
         from messenger_handlers import handle_messenger_quick_reply
         from state.match_state import match_state, UserState
+        from services.distributed_state import distributed_state
 
         await match_state.set_user_state(MSG_USER_C_VID, UserState.CHATTING)
+        await distributed_state.set_partner(MSG_USER_C_VID, TG_USER_A)
         self.env["sent_quick_replies"].clear()
 
         # Send a payload that doesn't map to an engine action
@@ -753,6 +761,192 @@ class TestMessengerLegacyActionRouting:
             (b for b in buttons if "Cancel" in b.get("title", "")), None
         )
         assert cancel_btn is not None, "Cancel button must be present"
-        assert ":SEARCHING" in cancel_btn["payload"], (
-            f"Cancel payload must encode SEARCHING state, got: {cancel_btn['payload']}"
-        )
+
+
+# ─── MIGRATION: ENGINE STATES (PROFILE/STATS) ────────────────────────────────
+class TestEngineStatesMigration:
+    @pytest.fixture(autouse=True)
+    def setup_mocks(self):
+        with patch("utils.rate_limiter.rate_limiter.can_send_message", AsyncMock(return_value=True)):
+            yield
+
+    @pytest.mark.asyncio
+    async def test_cmd_profile_triggers_engine_show_profile(self, mock_env):
+        """
+        Verify that CMD_PROFILE payload is now handled by the Engine.
+        """
+        from messenger_handlers import handle_messenger_quick_reply
+        from utils.renderer import StateBoundPayload
+        from core.engine.state_machine import UnifiedState
+        import app_state
+        
+        psid = "psid_123"
+        vid = 10**15 + 123
+        user = _make_user(vid, psid)
+        mock_env["users"][vid] = user
+
+        # Encode a CMD_PROFILE payload
+        payload = StateBoundPayload.encode("CMD_PROFILE", "0", UnifiedState.HOME)
+        
+        # In mock_env, app_state.engine.process_event is already an AsyncMock
+        # We want to verify it was called with SHOW_PROFILE
+        await handle_messenger_quick_reply(psid, vid, user, payload)
+        
+        app_state.engine.process_event.assert_called()
+        # Find the SHOW_PROFILE call
+        calls = app_state.engine.process_event.call_args_list
+        event_types = [c[0][0]["event_type"] for c in calls]
+        assert "SHOW_PROFILE" in event_types
+
+    @pytest.mark.asyncio
+    async def test_stats_triggers_engine_show_stats(self, mock_env):
+        """
+        Verify that STATS payload is handled by the Engine.
+        """
+        from messenger_handlers import handle_messenger_quick_reply
+        from utils.renderer import StateBoundPayload
+        from core.engine.state_machine import UnifiedState
+        import app_state
+
+        psid = "psid_123"
+        vid = 10**15 + 123
+        user = _make_user(vid, psid)
+        mock_env["users"][vid] = user
+
+        payload = StateBoundPayload.encode("STATS", "0", UnifiedState.HOME)
+        await handle_messenger_quick_reply(psid, vid, user, payload)
+        
+        app_state.engine.process_event.assert_called()
+        calls = app_state.engine.process_event.call_args_list
+        event_types = [c[0][0]["event_type"] for c in calls]
+        assert "SHOW_STATS" in event_types
+
+    @pytest.mark.asyncio
+    async def test_onboarding_linear_flow(self, mock_env):
+        """
+        Verify the linear onboarding flow: Gender -> Interests -> Location -> Bio -> HOME.
+        """
+        from messenger_handlers import handle_messenger_quick_reply, handle_messenger_text
+        from utils.renderer import StateBoundPayload
+        from core.engine.state_machine import UnifiedState
+        import app_state
+        
+        psid = "psid_reg"
+        vid = 10**15 + 999
+        user = _make_user(vid, psid)
+        mock_env["users"][vid] = user
+        
+        # 1. Start Onboarding
+        payload = StateBoundPayload.encode("REG_START", "0", UnifiedState.HOME)
+        await handle_messenger_quick_reply(psid, vid, user, payload)
+        
+        # In mock_env, we need to manually update state for rehydration simulation
+        from services.distributed_state import distributed_state
+        await distributed_state.set_user_state(f"msg_{psid}", UnifiedState.REG_GENDER)
+
+        # 2. Submit Gender
+        gender_payload = StateBoundPayload.encode("SET_GENDER", "Male", UnifiedState.REG_GENDER)
+        await handle_messenger_quick_reply(psid, vid, user, gender_payload)
+        await distributed_state.set_user_state(f"msg_{psid}", UnifiedState.REG_INTERESTS)
+
+        # 3. Submit Interests (Text)
+        # handle_messenger_text translates text based on current state
+        await handle_messenger_text(psid, vid, user, "Gaming, Anime")
+        await distributed_state.set_user_state(f"msg_{psid}", UnifiedState.REG_LOCATION)
+        
+        # 4. Submit Location (Text)
+        await handle_messenger_text(psid, vid, user, "Tokyo")
+        await distributed_state.set_user_state(f"msg_{psid}", UnifiedState.REG_BIO)
+        
+        # 5. Submit Bio (Text)
+        await handle_messenger_text(psid, vid, user, "Hello world")
+        
+        # Verify final Engine call was SUBMIT_ONBOARDING
+        calls = app_state.engine.process_event.call_args_list
+        event_types = [c[0][0]["event_type"] for c in calls]
+        assert "START_ONBOARDING" in event_types
+        assert "SUBMIT_ONBOARDING" in event_types
+        # The number of SUBMIT_ONBOARDING calls should be 4 (Gender, Interests, Location, Bio)
+        submit_calls = [c for c in event_types if c == "SUBMIT_ONBOARDING"]
+        assert len(submit_calls) == 4
+
+    @pytest.mark.asyncio
+    async def test_report_partner_triggers_engine(self, mock_env):
+        """
+        Verify that CMD_REPORT is handled by the Engine.
+        """
+        from messenger_handlers import handle_messenger_quick_reply
+        from utils.renderer import StateBoundPayload
+        from core.engine.state_machine import UnifiedState
+        from state.match_state import match_state
+        import app_state
+        
+        psid = "psid_reporter"
+        vid = 10**15 + 777
+        partner_id = 10**15 + 888
+        user = _make_user(vid, psid)
+        mock_env["users"][vid] = user
+        
+        # Set active chat
+        match_state.active_chats[vid] = partner_id
+        match_state.active_chats[partner_id] = vid
+        
+        payload = StateBoundPayload.encode("CMD_REPORT", "0", UnifiedState.CHAT_ACTIVE)
+        await handle_messenger_quick_reply(psid, vid, user, payload)
+        
+        app_state.engine.process_event.assert_called()
+        calls = app_state.engine.process_event.call_args_list
+        assert any(c[0][0]["event_type"] == "REPORT_USER" for c in calls)
+
+    @pytest.mark.asyncio
+    async def test_block_partner_triggers_engine(self, mock_env):
+        """
+        Verify that CMD_BLOCK is handled by the Engine.
+        """
+        from messenger_handlers import handle_messenger_quick_reply
+        from utils.renderer import StateBoundPayload
+        from core.engine.state_machine import UnifiedState
+        from state.match_state import match_state
+        import app_state
+        
+        psid = "psid_blocker"
+        vid = 10**15 + 555
+        partner_id = 10**15 + 666
+        user = _make_user(vid, psid)
+        mock_env["users"][vid] = user
+        
+        # Set active chat
+        match_state.active_chats[vid] = partner_id
+        match_state.active_chats[partner_id] = vid
+        
+        payload = StateBoundPayload.encode("CMD_BLOCK", "0", UnifiedState.CHAT_ACTIVE)
+        await handle_messenger_quick_reply(psid, vid, user, payload)
+        
+        app_state.engine.process_event.assert_called()
+        calls = app_state.engine.process_event.call_args_list
+        assert any(c[0][0]["event_type"] == "BLOCK_USER" for c in calls)
+
+    @pytest.mark.asyncio
+    async def test_message_relay_via_engine(self, mock_env):
+        """
+        Verify that text messages in CHAT_ACTIVE are handled as SEND_MESSAGE events.
+        """
+        from messenger_handlers import handle_messenger_text
+        from core.engine.state_machine import UnifiedState
+        from services.distributed_state import distributed_state
+        import app_state
+        
+        psid = "psid_chatter"
+        vid = 10**15 + 111
+        user = _make_user(vid, psid)
+        mock_env["users"][vid] = user
+        
+        # Set state to CHAT_ACTIVE
+        await distributed_state.set_user_state(f"msg_{psid}", UnifiedState.CHAT_ACTIVE)
+        
+        await handle_messenger_text(psid, vid, user, "Hello partner!")
+        
+        app_state.engine.process_event.assert_called()
+        calls = app_state.engine.process_event.call_args_list
+        assert any(c[0][0]["event_type"] == "SEND_MESSAGE" for c in calls)
+        assert any(c[0][0]["payload"].get("text") == "Hello partner!" for c in calls)

@@ -49,39 +49,46 @@ class DistributedState:
             async with self._action_lock:
                 pass
 
-    async def get_partner(self, user_id: Any) -> Optional[str]:
+    async def get_partner(self, user_id: Any) -> Optional[Any]:
+        u_str = str(user_id)
         if self.redis:
-            val = await self.redis.get(f"sm:partner:{user_id}")
+            val = await self.redis.get(f"sm:partner:{u_str}")
+            if val and val.isdigit(): return int(val)
             return str(val) if val else None
 
         else:
             async with self._lock:
-                return self._fallback_store.get(f"chat:{user_id}")
+                val = self._fallback_store.get(f"chat:{u_str}")
+                if isinstance(val, str) and val.isdigit(): return int(val)
+                return val
 
     async def set_partner(self, user1: Any, user2: Any):
+        u1_str, u2_str = str(user1), str(user2)
         if self.redis:
-            await self.redis.set(f"sm:partner:{user1}", str(user2))
-            await self.redis.set(f"sm:partner:{user2}", str(user1))
+            await self.redis.set(f"sm:partner:{u1_str}", u2_str)
+            await self.redis.set(f"sm:partner:{u2_str}", u1_str)
 
         else:
             async with self._lock:
-                self._fallback_store[f"chat:{user1}"] = user2
-                self._fallback_store[f"chat:{user2}"] = user1
+                self._fallback_store[f"chat:{u1_str}"] = u2_str
+                self._fallback_store[f"chat:{u2_str}"] = u1_str
 
-    async def clear_partner(self, user_id: Any) -> Optional[str]:
+    async def clear_partner(self, user_id: Any) -> Optional[Any]:
         partner_id = await self.get_partner(user_id)
-        if self.redis:
-            await self.redis.delete(f"sm:partner:{user_id}")
-            if partner_id:
-                partner_await = await self.redis.get(f"sm:partner:{partner_id}")
-                if partner_await and str(partner_await) == str(user_id):
-                    await self.redis.delete(f"sm:partner:{partner_id}")
+        u_str = str(user_id)
+        p_str = str(partner_id) if partner_id else None
 
+        if self.redis:
+            await self.redis.delete(f"sm:partner:{u_str}")
+            if p_str:
+                partner_await = await self.redis.get(f"sm:partner:{p_str}")
+                if partner_await and str(partner_await) == u_str:
+                    await self.redis.delete(f"sm:partner:{p_str}")
         else:
             async with self._lock:
-                self._fallback_store.pop(f"chat:{user_id}", None)
-                if partner_id and self._fallback_store.get(f"chat:{partner_id}") == user_id:
-                    self._fallback_store.pop(f"chat:{partner_id}", None)
+                self._fallback_store.pop(f"chat:{u_str}", None)
+                if p_str and str(self._fallback_store.get(f"chat:{p_str}")) == u_str:
+                    self._fallback_store.pop(f"chat:{p_str}", None)
         return partner_id
 
     async def is_in_chat(self, user_id: Any) -> bool:
@@ -171,25 +178,27 @@ class DistributedState:
     """
 
     async def get_user_state(self, user_id: Any) -> Optional[str]:
+        u_str = str(user_id)
         if self.redis:
-            return await self.redis.get(f"sm:state:{user_id}")
+            return await self.redis.get(f"sm:state:{u_str}")
         else:
             async with self._lock:
-                return self._fallback_store.get(f"sm:state:{user_id}")
+                return self._fallback_store.get(f"sm:state:{u_str}")
 
 
     async def set_user_state(self, user_id: Any, state: Optional[str]):
+        u_str = str(user_id)
         if self.redis:
             if state is None:
-                await self.redis.delete(f"sm:state:{user_id}")
+                await self.redis.delete(f"sm:state:{u_str}")
             else:
-                await self.redis.set(f"sm:state:{user_id}", state)
+                await self.redis.set(f"sm:state:{u_str}", state)
         else:
             async with self._lock:
                 if state is None:
-                    self._fallback_store.pop(f"sm:state:{user_id}", None)
+                    self._fallback_store.pop(f"sm:state:{u_str}", None)
                 else:
-                    self._fallback_store[f"sm:state:{user_id}"] = state
+                    self._fallback_store[f"sm:state:{u_str}"] = state
 
 
     async def is_duplicate_message(self, message_id: str) -> bool:
@@ -483,6 +492,11 @@ class DistributedState:
                 str(user_id), str(partner_id), str(time.time())
             )
             return int(result[0]) == 1, result[1]
+        # Memory Fallback
+        await self.set_partner(user_id, partner_id)
+        now = time.time()
+        await self.set_chat_start(user_id, now)
+        await self.set_chat_start(partner_id, now)
         return True, "FALLBACK_OK"
 
     async def atomic_disconnect(self, user_id: int, partner_id: int) -> tuple[bool, float, float]:
@@ -506,7 +520,11 @@ class DistributedState:
             except:
                 startA = startB = time.time()
             return int(result[0]) == 1, startA, startB
-        return True, time.time(), time.time()
+        # Memory Fallback
+        startA = await self.pop_chat_start(user_id)
+        startB = await self.pop_chat_start(partner_id)
+        await self.clear_partner(user_id)
+        return True, startA, startB
 
     async def force_disconnect_single(self, user_id: int):
         """Emergency reset for a single user via Lua."""

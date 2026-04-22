@@ -52,12 +52,32 @@ class MessengerAdapter(BaseAdapter):
                 if len(parts) >= 2:
                     sig, val = parts[0], parts[1]
                     return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
+            elif action in {"CMD_PROFILE", "PROFILE_MENU", "EDIT_PROFILE"}:
+                return self.create_event("SHOW_PROFILE", uid)
+            elif action in {"CMD_STATS", "STATS"}:
+                return self.create_event("SHOW_STATS", uid)
+            elif action in {"CMD_REPORT", "REPORT_PARTNER"}:
+                return self.create_event("REPORT_USER", uid)
+            elif action in {"CMD_BLOCK", "BLOCK_PARTNER"}:
+                return self.create_event("BLOCK_USER", uid)
+            elif action == "CMD_HELP":
+                return self.create_event("SHOW_HELP", uid)
+            elif action == "DELETE_DATA_CONFIRM":
+                return self.create_event("DELETE_USER_DATA", uid)
+            elif action in {"SEASONAL_SHOP", "SHOP_MENU"}:
+                return self.create_event("SHOW_SHOP", uid)
+            elif action in {"BUY_VIP", "BUY_OG", "BUY_WHALE"}:
+                return self.create_event("PURCHASE_ITEM", uid, payload={"item_id": action})
+            elif action == "REVEAL":
+                return self.create_event("REVEAL_IDENTITY", uid)
+            elif action == "ICEBREAKER":
+                return self.create_event("SEND_ICEBREAKER", uid)
             elif action in {"CMD_START", "BACK_HOME", "HOME_MENU"}:
                 return self.create_event("SET_STATE", uid, payload={"new_state": "HOME"})
-            elif action in {"CMD_PROFILE", "PROFILE_MENU", "SETTINGS_MENU"}:
-                # While these are legacy-heavy, we should at least acknowledge the state if we have a state for it.
-                # If not, we just return None to let legacy handle it, but keep the event chain alive.
-                pass
+            elif action in {"START_ONBOARDING", "REG_START"}:
+                return self.create_event("START_ONBOARDING", uid)
+            elif action == "SET_GENDER":
+                return self.create_event("SUBMIT_ONBOARDING", uid, payload={"field": "gender", "value": target_str})
             elif action == "TOOLS_MENU":
                 # This doesn't trigger a core action, just UI re-render
                 await self.render_tools(psid, mid)
@@ -67,9 +87,38 @@ class MessengerAdapter(BaseAdapter):
             return None
 
         elif msg.get("text"):
-            text = msg.get("text").strip().lower()
-            if text in ["/start", "menu"]:
+            from services.distributed_state import distributed_state
+            state = await distributed_state.get_user_state(uid)
+            text = msg.get("text").strip()
+            
+            if state in {UnifiedState.REG_INTERESTS, UnifiedState.REG_LOCATION, UnifiedState.REG_BIO}:
+                return self.create_event("SUBMIT_ONBOARDING", uid, payload={"value": text})
+
+            t_lower = text.lower()
+            if t_lower in ["/start", "menu"]:
                 return self.create_event("CMD_START", uid)
+            elif t_lower == "/report":
+                return self.create_event("REPORT_USER", uid)
+            elif t_lower == "/block":
+                return self.create_event("BLOCK_USER", uid)
+            elif t_lower == "/help":
+                return self.create_event("SHOW_HELP", uid)
+            elif t_lower == "/delete":
+                return self.create_event("DELETE_USER_DATA", uid)
+            elif t_lower == "/shop":
+                return self.create_event("SHOW_SHOP", uid)
+
+            if state == UnifiedState.CHAT_ACTIVE and not t_lower.startswith("/"):
+                return self.create_event("SEND_MESSAGE", uid, payload={"text": text})
+
+        elif msg.get("attachments"):
+            from services.distributed_state import distributed_state
+            state = await distributed_state.get_user_state(uid)
+            if state == UnifiedState.CHAT_ACTIVE:
+                att = msg["attachments"][0]
+                m_type = att.get("type", "image")
+                url = att.get("payload", {}).get("url")
+                return self.create_event("SEND_MEDIA", uid, payload={"media_type": m_type, "url": url})
 
         return None
 
@@ -89,15 +138,65 @@ class MessengerAdapter(BaseAdapter):
                     psid = u["username"][4:]
             
             mid = payload.get("match_id") if payload else "global"
+            vid = int(payload.get("vid")) if payload and payload.get("vid") else None
 
+            # ── Economy / Shop Logic ──────────────────────────────────────
+            if payload and payload.get("show_shop"):
+                send_message(psid, "🛍 **Seasonal Shop**\nUse your coins to buy exclusive badges!")
+                from adapters.messenger.ui_factory import get_shop_carousel
+                send_generic_template(psid, get_shop_carousel())
+                return True
+                
+            if payload and payload.get("item_name"):
+                from database.repositories.user_repository import UserRepository
+                from adapters.messenger.ui_factory import get_start_menu_buttons
+                # The engine already updated the DB, we just confirm
+                user = await UserRepository.get_by_telegram_id(int(user_id.replace("msg_", ""))) if user_id.replace("msg_", "").isdigit() else None
+                coins = user.get("coins", 0) if user else 0
+                send_quick_replies(
+                    psid,
+                    f"✅ **Purchase Successful!**\n\n🎁 {payload['item_name']} activated!\n💰 Balance: {coins} coins",
+                    get_start_menu_buttons(state)
+                )
+                return True
+
+            if payload and payload.get("response"):
+                # Bridge: Handle legacy response dict from Economy/Matching handlers
+                resp = payload["response"]
+                if "text" in resp:
+                    from messenger_handlers import _map_reply_markup
+                    buttons = _map_reply_markup(resp.get("reply_markup"))
+                    if buttons: send_quick_replies(psid, resp["text"], buttons)
+                    else: send_message(psid, resp["text"])
+                return True
+
+            logger.info(f"[RENDER] User:{user_id} State:{state} Payload:{payload}")
             res = None
             if state == UnifiedState.HOME:
-                match_id = extra.get("match_id") if extra else None
+                match_id = payload.get("match_id") if payload else None
                 if match_id:
                     from adapters.messenger.ui_factory import get_messenger_post_chat_buttons
                     res = send_quick_replies(psid, "🏁 **Chat Ended**\nHow was your experience? You can also start a new search immediately.", get_messenger_post_chat_buttons(match_id))
                 else:
                     res = send_quick_replies(psid, "🏠 **Main Menu**\nWelcome! Tap below to start meeting people.", get_messenger_home_buttons())
+            elif state == UnifiedState.PROFILE:
+                user_data = payload.get("user_data") if payload else {}
+                res = send_generic_template(psid, get_profile_dashboard_card(user_data, UnifiedState.PROFILE))
+            elif state == UnifiedState.STATS:
+                user_data = payload.get("user_data") if payload else {}
+                res = send_generic_template(psid, get_stats_card(user_data, UnifiedState.STATS))
+            elif state == UnifiedState.REG_GENDER:
+                from adapters.messenger.ui_factory import get_gender_buttons
+                res = send_quick_replies(psid, "🚻 **Step 1: Gender**\nHow do you identify? This helps us find better matches.", get_gender_buttons(UnifiedState.REG_GENDER))
+            elif state == UnifiedState.REG_INTERESTS:
+                from adapters.messenger.ui_factory import get_interests_skip_buttons
+                res = send_quick_replies(psid, "🎨 **Step 2: Interests**\nWhat do you like? (e.g. Anime, Gaming, Travel)\nType them below or skip.", get_interests_skip_buttons(UnifiedState.REG_INTERESTS))
+            elif state == UnifiedState.REG_LOCATION:
+                from adapters.messenger.ui_factory import get_location_skip_buttons
+                res = send_quick_replies(psid, "📍 **Step 3: Location**\nWhere are you from? (City/Country)\nType it below or skip.", get_location_skip_buttons(UnifiedState.REG_LOCATION))
+            elif state == UnifiedState.REG_BIO:
+                from adapters.messenger.ui_factory import get_bio_skip_buttons
+                res = send_quick_replies(psid, "📝 **Step 4: Bio**\nTell us a bit about yourself!\nType a short bio below or skip.", get_bio_skip_buttons(UnifiedState.REG_BIO))
             elif state == UnifiedState.PREFERENCES:
                 res = send_quick_replies(psid, "🔍 Who are you looking for today?", get_messenger_preferences_buttons())
             elif state == UnifiedState.SEARCHING:
