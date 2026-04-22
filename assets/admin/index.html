@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matchmaking Debugger</title>
+    <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+    <div id="auth-overlay">
+        <div class="auth-box">
+            <h2>Enter Debug Secret</h2>
+            <input type="password" id="auth-token" placeholder="Bearer Token">
+            <button onclick="authenticate()">Connect</button>
+            <div id="auth-error" class="error-text"></div>
+        </div>
+    </div>
+
+    <header>
+        <h1>Matchmaking Debugger</h1>
+        <div class="connection-status" id="ws-status">🔴 Disconnected</div>
+    </header>
+
+    <div class="dashboard-grid">
+        <!-- Panel 1: Global Stats & Stuck Detector -->
+        <section class="panel">
+            <h2>Global System</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="label">Queue Length</span>
+                    <span class="value" id="stat-queue-len">0</span>
+                </div>
+                <div class="stat-card">
+                    <span class="label">Active Sessions</span>
+                    <span class="value" id="stat-active-sessions">0</span>
+                </div>
+            </div>
+            
+            <h3>Stuck User Detector ⚠️</h3>
+            <div id="stuck-users-list" class="warning-list">
+                <!-- Populated via JS -->
+            </div>
+        </section>
+
+        <!-- Panel 2: User Inspector -->
+        <section class="panel">
+            <h2>User Inspector</h2>
+            <div class="search-box">
+                <input type="text" id="inspect-user-id" placeholder="Enter User ID">
+                <button onclick="inspectUser()">Inspect</button>
+            </div>
+            
+            <div id="user-inspector-content" class="inspector-content">
+                <div class="inspector-row"><span class="label">State:</span> <span id="ui-state">--</span></div>
+                <div class="inspector-row"><span class="label">Partner:</span> <span id="ui-partner">--</span></div>
+                <div class="inspector-row"><span class="label">Chat Start:</span> <span id="ui-chat-start">--</span></div>
+                <div class="inspector-actions">
+                    <button class="danger" onclick="forceDisconnect()">Force Disconnect</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Panel 3: Invariant Violations (Failure Highlight Engine) -->
+        <section class="panel full-width">
+            <h2>Failure Highlight Engine 🚨</h2>
+            <div id="violations-list" class="violations-container">
+                <!-- Violations appear here -->
+            </div>
+        </section>
+
+        <!-- Panel 4: Live Event Timeline (with Pipeline View + State Diffs) -->
+        <section class="panel full-width timeline-panel">
+            <div class="timeline-header">
+                <h2>Event Timeline & Pipeline View</h2>
+                <div class="filters">
+                    <input type="text" id="filter-trace" placeholder="Filter by trace_id">
+                    <input type="text" id="filter-user" placeholder="Filter by user_id">
+                    <button onclick="clearTimeline()">Clear</button>
+                </div>
+            </div>
+            <div id="timeline" class="terminal-view">
+                <!-- Events appear here -->
+            </div>
+        </section>
+    </div>
+
+    <script src="/static/admin.js"></script>
+</body>
+</html>

@@ -7,6 +7,7 @@ from utils.logger import logger
 from core.engine.state_machine import UnifiedState
 from core.engine.redis_scripts import RedisScripts
 from services.distributed_state import distributed_state
+from core.telemetry import EventLogger, TelemetryEvent, with_trace_id
 
 class ActionRouter:
     """Idempotent Event Router for the Unified Matchmaking system.
@@ -20,6 +21,7 @@ class ActionRouter:
         return f"sm:idemp:{h}"
 
     @classmethod
+    @with_trace_id
     async def process_event(cls, event: Dict[str, Any]) -> Dict[str, Any]:
         etype = event.get("event_type")
         uid = str(event.get("user_id"))
@@ -27,10 +29,25 @@ class ActionRouter:
         ts = event.get("timestamp", int(time.time()))
         payload = event.get("payload", {})
 
+        EventLogger.log_event(
+            event=TelemetryEvent.ACTION_START,
+            layer="action_router",
+            status=TelemetryEvent.INFO,
+            user_id=uid,
+            data={"action": etype, "match_id": mid, "payload": payload}
+        )
+
         idemp_key = cls.generate_idemp_key(uid, etype, mid, ts)
         redis = distributed_state.redis
 
         if not redis:
+            EventLogger.log_event(
+                event=TelemetryEvent.ACTION_END,
+                layer="action_router",
+                status=TelemetryEvent.FAIL,
+                user_id=uid,
+                data={"error": "Redis not connected"}
+            )
             return {"success": False, "error": "Redis not connected"}
 
         logger.info(f"Processing Event: {etype} for User:{uid} (Match:{mid})")
@@ -411,6 +428,14 @@ class ActionRouter:
             if result.get("notify_partner"):
                 p_info = result["notify_partner"]
                 await cls._rehydrate_ui(p_info["user_id"], p_info["state"], p_info["match_id"])
+
+        EventLogger.log_event(
+            event=TelemetryEvent.ACTION_END,
+            layer="action_router",
+            status=TelemetryEvent.SUCCESS if result.get("success") else TelemetryEvent.FAIL,
+            user_id=uid,
+            data={"action": etype, "result_state": result.get("state")}
+        )
 
         return result
  

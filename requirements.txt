@@ -10,3 +10,6 @@ redis==5.0.3
 waitress==3.0.0
 pydantic>=2.0.0
 pyngrok==7.1.6
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+websockets>=11.0.3

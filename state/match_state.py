@@ -65,6 +65,17 @@ class MatchState:
 
     async def set_user_state(self, user_id: Any, state: str):
         c_uid = self._c_uid(user_id)
+        old_state = await self.get_user_state(c_uid)
+        
+        from core.telemetry import EventLogger, TelemetryEvent, InvariantEngine
+        partner_id = await self.get_partner(c_uid)
+        InvariantEngine.check_state_transition(c_uid, old_state, state, partner_id)
+        
+        EventLogger.log_event(
+            event=TelemetryEvent.STATE_CHANGE, layer="state_machine", status=TelemetryEvent.INFO,
+            user_id=c_uid, data={"old_state": old_state, "new_state": state}
+        )
+        
         self.user_states[c_uid] = state
         await distributed_state.set_user_state(c_uid, state)
 

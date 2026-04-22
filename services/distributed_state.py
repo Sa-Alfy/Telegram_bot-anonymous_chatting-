@@ -480,6 +480,11 @@ class DistributedState:
 
     async def atomic_claim_match(self, user_id: int, partner_id: int) -> tuple[bool, str]:
         """Atomically claim a match and initialize states via Lua."""
+        from core.telemetry import EventLogger, TelemetryEvent
+        EventLogger.log_event(
+            event=TelemetryEvent.REDIS_CALL, layer="distributed_state", status=TelemetryEvent.INFO,
+            user_id=user_id, peer_id=partner_id, data={"action": "atomic_claim_match"}
+        )
         if self.redis:
             keys = [
                 f"sm:state:{user_id}", f"sm:state:{partner_id}",
@@ -493,7 +498,14 @@ class DistributedState:
                 *keys,
                 str(user_id), str(partner_id), str(time.time())
             )
-            return int(result[0]) == 1, result[1]
+            success = int(result[0]) == 1
+            EventLogger.log_event(
+                event=TelemetryEvent.REDIS_RESULT, layer="distributed_state",
+                status=TelemetryEvent.SUCCESS if success else TelemetryEvent.FAIL,
+                user_id=user_id, peer_id=partner_id, expected="MATCHED", actual=result[1],
+                data={"code": int(result[0])}
+            )
+            return success, result[1]
         # Memory Fallback
         await self.set_partner(user_id, partner_id)
         now = time.time()
@@ -503,6 +515,11 @@ class DistributedState:
 
     async def atomic_disconnect(self, user_id: int) -> dict:
         """Atomically disconnect a user from their partner via Lua."""
+        from core.telemetry import EventLogger, TelemetryEvent
+        EventLogger.log_event(
+            event=TelemetryEvent.REDIS_CALL, layer="distributed_state", status=TelemetryEvent.INFO,
+            user_id=user_id, data={"action": "atomic_disconnect"}
+        )
         now = time.time()
         if self.redis:
             keys = [
@@ -518,10 +535,19 @@ class DistributedState:
             )
             
             if int(result[0]) == 0:
+                EventLogger.log_event(
+                    event=TelemetryEvent.REDIS_RESULT, layer="distributed_state", status=TelemetryEvent.WARNING,
+                    user_id=user_id, expected="DISCONNECT", actual="NO_PARTNER"
+                )
                 return {"partner_id": None, "duration": 0, "ended_at": now}
                 
             partner_str = str(result[1])
             partner_id = int(partner_str) if partner_str.isdigit() else partner_str
+            
+            EventLogger.log_event(
+                event=TelemetryEvent.REDIS_RESULT, layer="distributed_state", status=TelemetryEvent.SUCCESS,
+                user_id=user_id, peer_id=partner_id, expected="DISCONNECT", actual="SUCCESS"
+            )
             
             try:
                 startA = float(result[2]) if result[2] else now
@@ -590,6 +616,11 @@ class DistributedState:
 
     async def atomic_rematch(self, user_id: int, partner_id: int) -> tuple[int, str]:
         """Atomically claim a rematch via Lua."""
+        from core.telemetry import EventLogger, TelemetryEvent
+        EventLogger.log_event(
+            event=TelemetryEvent.REDIS_CALL, layer="distributed_state", status=TelemetryEvent.INFO,
+            user_id=user_id, peer_id=partner_id, data={"action": "atomic_rematch"}
+        )
         if self.redis:
             # Canonical rematch key
             rkey = f"sm:rematch:{min(user_id, partner_id)}:{max(user_id, partner_id)}"
@@ -606,6 +637,11 @@ class DistributedState:
                 str(user_id), str(partner_id), str(time.time())
             )
             # return code, reason
+            EventLogger.log_event(
+                event=TelemetryEvent.REDIS_RESULT, layer="distributed_state", 
+                status=TelemetryEvent.SUCCESS if int(result[0]) == 1 else TelemetryEvent.INFO,
+                user_id=user_id, peer_id=partner_id, actual=result[1]
+            )
             return int(result[0]), result[1]
         
         return 0, "REDIS_REQUIRED"

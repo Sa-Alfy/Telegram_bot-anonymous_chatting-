@@ -14,8 +14,17 @@ class MatchmakingService:
     @staticmethod
     async def add_to_queue(user_id: int, gender_pref: str = "Any") -> bool:
         """Adds a user to the matchmaking queue, storing their gender and preference."""
+        from core.telemetry import EventLogger, TelemetryEvent
+        EventLogger.log_event(
+            event=TelemetryEvent.ACTION_START, layer="service", status=TelemetryEvent.INFO,
+            user_id=user_id, data={"action": "add_to_queue", "pref": gender_pref}
+        )
         user = await UserRepository.get_by_telegram_id(user_id)
         if not user:
+            EventLogger.log_event(
+                event=TelemetryEvent.ACTION_END, layer="service", status=TelemetryEvent.FAIL,
+                user_id=user_id, data={"error": "User not found"}
+            )
             return False
             
         # Priority logic
@@ -40,6 +49,14 @@ class MatchmakingService:
             pref=gender_pref,
             score=match_score
         )
+        
+        from core.telemetry import EventLogger, TelemetryEvent
+        EventLogger.log_event(
+            event=TelemetryEvent.ACTION_END, layer="service", 
+            status=TelemetryEvent.SUCCESS if success else TelemetryEvent.FAIL,
+            user_id=user_id, expected="IN_QUEUE", actual="IN_QUEUE" if success else "FAILED"
+        )
+        
         return success
 
     @staticmethod
@@ -66,6 +83,11 @@ class MatchmakingService:
                 logger.info(f"🎉 GLOBAL Match Created: {user_id} <-> {candidate}")
                 return candidate
                 
+        from core.telemetry import EventLogger, TelemetryEvent
+        EventLogger.log_event(
+            event=TelemetryEvent.ACTION_END, layer="service", status=TelemetryEvent.INFO,
+            user_id=user_id, expected="PARTNER_FOUND", actual="NONE_FOUND"
+        )
         return None
 
     @staticmethod
@@ -181,7 +203,14 @@ class MatchmakingService:
         # MatchState.disconnect handles both TG ints and MSG strings via DistributedState
         stats = await match_state.disconnect(user_id)
         partner_id = stats.get("partner_id")
+        
+        from core.telemetry import EventLogger, TelemetryEvent
+        
         if not partner_id:
+            EventLogger.log_event(
+                event=TelemetryEvent.ACTION_END, layer="service", status=TelemetryEvent.WARNING,
+                user_id=user_id, data={"action": "disconnect", "reason": "No partner found"}
+            )
             await match_state.remove_from_queue(user_id)
             return None
             

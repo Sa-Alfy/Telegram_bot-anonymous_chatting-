@@ -179,9 +179,11 @@ async def main():
 
     # Configure Behavioral Intelligence Engine with Redis
     from core.behavior_engine import behavior_engine
+    from core.telemetry import EventLogger
     if distributed_state.redis:
         behavior_engine.collector.configure(distributed_state.redis)
-        logger.info("Behavioral Engine initialized with Redis storage.")
+        EventLogger.set_redis(distributed_state.redis)
+        logger.info("Behavioral Engine & Telemetry initialized with Redis storage.")
     else:
         logger.info("Behavioral Engine running with InMemory storage (shared state disabled).")
 
