@@ -8,7 +8,7 @@ class PlatformAdapter:
         # Determine platform robustly
         is_messenger = False
         if isinstance(target_id, str):
-            is_messenger = target_id.startswith("msg_")
+            is_messenger = target_id.startswith("msg_") or (target_id.isdigit() and int(target_id) >= 10**15)
         elif isinstance(target_id, int):
             is_messenger = target_id >= 10**15
 

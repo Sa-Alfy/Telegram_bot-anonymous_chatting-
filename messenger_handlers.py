@@ -370,7 +370,7 @@ async def _notify_user(partner_virtual_id: Any, text: str):
     # Check platform robustly
     is_messenger = False
     if isinstance(partner_virtual_id, str):
-        is_messenger = partner_virtual_id.startswith("msg_")
+        is_messenger = partner_virtual_id.startswith("msg_") or (partner_virtual_id.isdigit() and int(partner_virtual_id) >= 10**15)
     elif isinstance(partner_virtual_id, int):
         is_messenger = partner_virtual_id >= 10**15
 
@@ -400,7 +400,7 @@ async def _notify_media(partner_virtual_id: Any, media_type: str, url: str, capt
     # Check platform robustly
     is_messenger = False
     if isinstance(partner_virtual_id, str):
-        is_messenger = partner_virtual_id.startswith("msg_")
+        is_messenger = partner_virtual_id.startswith("msg_") or (partner_virtual_id.isdigit() and int(partner_virtual_id) >= 10**15)
     elif isinstance(partner_virtual_id, int):
         is_messenger = partner_virtual_id >= 10**15
 
