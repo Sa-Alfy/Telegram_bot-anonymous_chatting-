@@ -73,7 +73,7 @@ class ActionRouter:
             partner_id = await distributed_state.get_partner(uid)
             if not partner_id: return {"success": False, "error": "No partner found"}
             p_uid = str(partner_id)
-            u1, u2 = sorted([uid, p_uid])
+            u1, u2 = sorted([str(uid), p_uid])
             match_id = f"m_{u1}_{u2}"
             
             keys = [
@@ -388,7 +388,7 @@ class ActionRouter:
             if current_state in {UnifiedState.CHAT_ACTIVE, UnifiedState.MATCHED, UnifiedState.CONNECTING}:
                 p_id = await match_state.get_partner(c_uid)
                 if p_id:
-                    mid = f"chat_{min(c_uid, p_id)}_{max(c_uid, p_id)}"
+                    mid = f"m_{min(c_uid, p_id)}_{max(c_uid, p_id)}"
                 elif current_state == UnifiedState.CHAT_ACTIVE:
                     # Downgrade to HOME if active chat lost its partner
                     current_state = UnifiedState.HOME

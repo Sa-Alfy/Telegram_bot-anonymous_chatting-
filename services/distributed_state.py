@@ -58,7 +58,7 @@ class DistributedState:
 
         else:
             async with self._lock:
-                val = self._fallback_store.get(f"chat:{u_str}")
+                val = self._fallback_store.get(f"sm:partner:{u_str}")
                 if isinstance(val, str) and val.isdigit(): return int(val)
                 return val
 
@@ -70,8 +70,8 @@ class DistributedState:
 
         else:
             async with self._lock:
-                self._fallback_store[f"chat:{u1_str}"] = u2_str
-                self._fallback_store[f"chat:{u2_str}"] = u1_str
+                self._fallback_store[f"sm:partner:{u1_str}"] = u2_str
+                self._fallback_store[f"sm:partner:{u2_str}"] = u1_str
 
     async def clear_partner(self, user_id: Any) -> Optional[Any]:
         partner_id = await self.get_partner(user_id)
@@ -86,9 +86,9 @@ class DistributedState:
                     await self.redis.delete(f"sm:partner:{p_str}")
         else:
             async with self._lock:
-                self._fallback_store.pop(f"chat:{u_str}", None)
-                if p_str and str(self._fallback_store.get(f"chat:{p_str}")) == u_str:
-                    self._fallback_store.pop(f"chat:{p_str}", None)
+                self._fallback_store.pop(f"sm:partner:{u_str}", None)
+                if p_str and str(self._fallback_store.get(f"sm:partner:{p_str}")) == u_str:
+                    self._fallback_store.pop(f"sm:partner:{p_str}", None)
         return partner_id
 
     async def is_in_chat(self, user_id: Any) -> bool:
@@ -533,9 +533,9 @@ class DistributedState:
             await self.redis.eval(self._FORCE_DISCONNECT_SINGLE_LUA, len(keys), *keys)
         else:
             async with self._lock:
-                self._fallback_store.pop(f"chat:{user_id}", None)
-                self._fallback_store[f"state:{user_id}"] = "HOME"
-                self._fallback_store.pop(f"chat_start:{user_id}", None)
+                self._fallback_store.pop(f"sm:partner:{user_id}", None)
+                self._fallback_store[f"sm:state:{user_id}"] = "HOME"
+                self._fallback_store.pop(f"sm:chat_start:{user_id}", None)
 
     async def validate_session(self, user_id: int, repair: bool = True) -> bool:
         """Strict invariant check: enforces bidirectional match integrity."""
