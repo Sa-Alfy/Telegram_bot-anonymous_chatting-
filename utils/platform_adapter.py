@@ -1,5 +1,6 @@
 from pyrogram import Client
 from utils.logger import logger
+from typing import Any
 
 class PlatformAdapter:
     @staticmethod

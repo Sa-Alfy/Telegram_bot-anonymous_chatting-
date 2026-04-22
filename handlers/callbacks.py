@@ -222,12 +222,30 @@ async def process_response(client: Client, query: CallbackQuery, response: Dict[
 
 @Client.on_callback_query()
 async def on_callback(client: Client, query: CallbackQuery):
-    user_id = str(query.from_user.id)
+    user_id_int = query.from_user.id
+    user_id = str(user_id_int)
+    data = query.data
     
-    # 1. Translate to Event via Adapter
+    # 1. Lockout Protection (Telegram UI)
+    now = time.time()
+    last_click = match_state.last_button_time.get(user_id_int, 0)
+    if now - last_click < 1.5:
+        return await query.answer("Please wait...", show_alert=False)
+    match_state.last_button_time[user_id_int] = now
+
+    # 2. Translate to Event via Adapter
     event = await app_state.tg_adapter.translate_event(query)
     if not event:
-        return
+        # LEGACY FALLBACK: Direct routing for non-engine buttons (search, stats, etc)
+        if data == "search":
+            from handlers.actions.matching import MatchingHandler
+            await MatchingHandler.handle_search(client, user_id_int)
+            return await query.answer()
+        elif data == "stats":
+            from handlers.actions.stats import StatsHandler
+            await StatsHandler.handle_stats(client, user_id_int)
+            return await query.answer()
+        return await query.answer()
         
     if event["event_type"] == "LEGACY_DISPATCH":
         raw = event["payload"]["raw_data"]
@@ -240,9 +258,7 @@ async def on_callback(client: Client, query: CallbackQuery):
             return await query.answer()
         return await query.answer(f"Action {action_key} not recognized.")
 
-    # 2. Concurrency check & Process via Engine
-    # ActionRouter.process_event handles all state transitions, symmetric partner notifications,
-    # and UI rehydration internally (Phase 5).
+    # 3. Concurrency check & Process via Engine
     result = await app_state.engine.process_event(event)
 
     if not result.get("success") and "error" in result:
@@ -253,6 +269,4 @@ async def on_callback(client: Client, query: CallbackQuery):
         # Attempt recovery re-render
         await app_state.engine.process_event({"event_type": "RECOVER", "user_id": user_id})
     
-    await query.answer()
-
     await query.answer()

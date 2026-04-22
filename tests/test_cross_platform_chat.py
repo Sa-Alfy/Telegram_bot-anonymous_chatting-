@@ -93,6 +93,8 @@ def mock_env():
     match_state.rematch_requests.clear()
     match_state.chat_start_times.clear()
     match_state.user_ui_messages.clear()
+    match_state.user_states.clear()
+    match_state.last_button_time.clear()
     # Refresh the asyncio.Lock so it's bound to the current event loop (avoids cross-loop deadlock)
     match_state._lock = asyncio.Lock()
 
@@ -207,18 +209,24 @@ def mock_env():
         if etype == "CONNECT": state = "CHAT_ACTIVE"
         elif etype == "START_SEARCH": state = "SEARCHING"
         elif etype in ("STOP", "END_CHAT"): state = "VOTING"
+        elif etype == "SET_STATE": state = event.get("payload", {}).get("new_state", "HOME")
+        
+        # Sync state back to match_state/distributed_state so legacy lookups work
+        from database.repositories.user_repository import UserRepository
+        vid = UserRepository._sanitize_id(uid)
+        await distributed_state.set_user_state(vid, state)
         
         # Trigger adapter rehydration
-        is_msg = str(uid).startswith("msg_") or int(uid) >= 10**15
+        is_msg = str(uid).startswith("msg_") or int(vid) >= 10**15
         adapter = app_state.msg_adapter if is_msg else app_state.tg_adapter
         await adapter.render_state(uid, state, event.get("payload", {}))
         
         # If CONNECT, notify partner too
         if etype == "CONNECT":
-            p_id = await match_state.get_partner(int(uid))
+            p_id = await match_state.get_partner(int(vid))
             if p_id:
                 p_uid = str(p_id)
-                is_p_msg = p_uid.startswith("msg_") or int(p_uid) >= 10**15
+                is_p_msg = p_uid.startswith("msg_") or int(p_id) >= 10**15
                 p_adapter = app_state.msg_adapter if is_p_msg else app_state.tg_adapter
                 await p_adapter.render_state(p_uid, state, {})
         
@@ -609,11 +617,15 @@ class TestMessengerLegacyActionRouting:
         from state.match_state import UserState
 
         payload = StateBoundPayload.encode("NEXT", "0", UserState.CHATTING)
-        with patch("messenger_handlers.MatchingHandler.handle_next", new_callable=AsyncMock) as mock_next:
-            await handle_messenger_quick_reply(
-                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, payload
-            )
-            mock_next.assert_called_once()
+        import app_state
+        app_state.engine.process_event.reset_mock()
+        
+        await handle_messenger_quick_reply(
+            MSG_USER_C_PSID, MSG_USER_C_VID, self.user, payload
+        )
+        # Check that it reached the engine with the correct event type
+        calls = [c.args[0]["event_type"] for c in app_state.engine.process_event.call_args_list]
+        assert "NEXT_MATCH" in calls
 
     # ── Fix A: STOP routes to handle_stop ────────────────────────────────────
     @pytest.mark.asyncio
@@ -624,11 +636,14 @@ class TestMessengerLegacyActionRouting:
         from state.match_state import UserState
 
         payload = StateBoundPayload.encode("STOP", "0", UserState.CHATTING)
-        with patch("messenger_handlers.MatchingHandler.handle_stop", new_callable=AsyncMock) as mock_stop:
-            await handle_messenger_quick_reply(
-                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, payload
-            )
-            mock_stop.assert_called_once()
+        import app_state
+        app_state.engine.process_event.reset_mock()
+        
+        await handle_messenger_quick_reply(
+            MSG_USER_C_PSID, MSG_USER_C_VID, self.user, payload
+        )
+        calls = [c.args[0]["event_type"] for c in app_state.engine.process_event.call_args_list]
+        assert "END_CHAT" in calls
 
     # ── Fix A: CANCEL_SEARCH routes to handle_cancel_search ──────────────────
     @pytest.mark.asyncio
@@ -639,11 +654,14 @@ class TestMessengerLegacyActionRouting:
         from state.match_state import UserState
 
         payload = StateBoundPayload.encode("CANCEL_SEARCH", "0", UserState.SEARCHING)
-        with patch("messenger_handlers.MatchingHandler.handle_cancel", new_callable=AsyncMock) as mock_cancel:
-            await handle_messenger_quick_reply(
-                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, payload
-            )
-            mock_cancel.assert_called_once()
+        import app_state
+        app_state.engine.process_event.reset_mock()
+        
+        await handle_messenger_quick_reply(
+            MSG_USER_C_PSID, MSG_USER_C_VID, self.user, payload
+        )
+        calls = [c.args[0]["event_type"] for c in app_state.engine.process_event.call_args_list]
+        assert "STOP_SEARCH" in calls
 
     # ── Fix A: PREF_ANY routes to handle_search_with_pref('Any') ─────────────
     @pytest.mark.asyncio
@@ -654,11 +672,14 @@ class TestMessengerLegacyActionRouting:
         from state.match_state import UserState
 
         payload = StateBoundPayload.encode("SEARCH_PREF", "Any", UserState.HOME)
-        with patch("messenger_handlers.MatchingHandler.handle_search_with_pref", new_callable=AsyncMock) as mock_sp:
-            await handle_messenger_quick_reply(
-                MSG_USER_C_PSID, MSG_USER_C_VID, self.user, payload
-            )
-            mock_sp.assert_called_once()
+        import app_state
+        app_state.engine.process_event.reset_mock()
+        
+        await handle_messenger_quick_reply(
+            MSG_USER_C_PSID, MSG_USER_C_VID, self.user, payload
+        )
+        calls = [c.args[0]["event_type"] for c in app_state.engine.process_event.call_args_list]
+        assert "START_SEARCH" in calls
 
     # ── Fix B: Unknown action while CHATTING → chat UI, not HOME ─────────────
     @pytest.mark.asyncio

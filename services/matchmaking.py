@@ -100,6 +100,23 @@ class MatchmakingService:
         except Exception as e:
             logger.error(f"Engine CONNECT failed for {user1_id}: {e}")
 
+        # 1.7 UI Delivery — Primary match notification for both users
+        match_text = get_match_found_text(include_safety=True)
+        for uid in uids:
+            try:
+                if isinstance(uid, str) and uid.startswith("msg_"):
+                    from messenger.utils import _raw
+                    psid = _raw(uid)
+                    import hashlib
+                    psid_hash = int(hashlib.sha256(psid.encode()).hexdigest(), 16)
+                    notify_id = (psid_hash % (10**15)) + 10**15
+                else:
+                    notify_id = int(uid)
+
+                await update_user_ui(client, notify_id, match_text, persistent_chat_menu(), force_new=True)
+            except Exception as e:
+                logger.error(f"Match notification failed for {uid}: {e}")
+
         # 2. Safety Warning & Additional Context (Post-Engine)
         for uid in uids:
             try:
@@ -171,7 +188,7 @@ class MatchmakingService:
         time_reward = duration_minutes * 2
         xp_reward = max(2, duration_minutes * 2)
         
-        from database.repositories.user_repository import get_active_event
+        from services.event_manager import get_active_event
         active_event = get_active_event()
         event_mult = active_event.get("multiplier", 1.0)
         
@@ -193,21 +210,21 @@ class MatchmakingService:
 
         # 3. DB COMMIT (Best effort)
         try:
-            await UserService.add_coins(user_id, u1_coins_total)
-            u1_levelup = await UserService.add_xp(user_id, u1_xp_total)
+            await UserService.add_coins(db_id, u1_coins_total)
+            u1_levelup = await UserService.add_xp(db_id, u1_xp_total)
             
             if u2:
-                await UserService.add_coins(partner_id, u2_coins_total)
-                u2_levelup = await UserService.add_xp(partner_id, u2_xp_total)
+                await UserService.add_coins(db_p_id, u2_coins_total)
+                u2_levelup = await UserService.add_xp(db_p_id, u2_xp_total)
             
                 await SessionRepository.create_and_end(
-                    user_id, partner_id, duration_seconds,
+                    db_id, db_p_id, duration_seconds,
                     u1_coins_total, u2_coins_total, u1_xp_total, u2_xp_total
                 )
-                await UserRepository.update(user_id, last_partner_id=partner_id)
-                await UserRepository.update(partner_id, last_partner_id=user_id)
+                await UserRepository.update(db_id, last_partner_id=db_p_id)
+                await UserRepository.update(db_p_id, last_partner_id=db_id)
         except Exception as e:
-            logger.error(f"Disconnect DB batch failed for {user_id}-{partner_id}: {e}")
+            logger.error(f"Disconnect DB batch failed for {db_id}-{db_p_id}: {e}")
 
         # 4. ALWAYS CLEAR STATE (Invariant Enforcement)
         try:

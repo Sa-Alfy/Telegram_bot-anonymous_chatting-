@@ -23,7 +23,7 @@ class UserState:
         return UnifiedState.can_transition(current, new_state)
 
     # States that ONLY the server/backend may set — never from a client payload.
-    SYSTEM_ONLY_STATES = {UnifiedState.MATCHED, UnifiedState.CHAT_ACTIVE, UnifiedState.VOTING}
+    SYSTEM_ONLY_STATES = {UnifiedState.MATCHED, UnifiedState.CHAT_ACTIVE, UnifiedState.VOTING, CONTENT_REVIEW}
 
     @staticmethod
     def is_client_settable(new_state: str) -> bool:
@@ -231,7 +231,7 @@ class MatchState:
                 self.rematch_requests[user_id] = partner_id
                 if self.rematch_requests.get(partner_id) == user_id:
                     if await distributed_state.is_in_chat(partner_id) or await distributed_state.is_in_chat(user_id):
-                        return False
+                        return False, 0
                     await distributed_state.set_partner(user_id, partner_id)
                     now = time.time()
                     self.chat_start_times[user_id] = now
@@ -242,8 +242,8 @@ class MatchState:
                     self.rematch_requests.pop(user_id, None)
                     self.rematch_requests.pop(partner_id, None)
                     logger.info(f"🔄 Rematch Successful: {user_id} <-> {partner_id}")
-                    return True
-                return False
+                    return True, 1
+                return False, 0
 
     async def add_to_chat(self, user_id: int, partner_id: int):
         async with self._lock:
@@ -276,6 +276,13 @@ class MatchState:
             self.last_message_time.clear()
             self.spam_count.clear()
             self.mute_until.clear()
+            
+            # Also clear the distributed state if possible
+            if hasattr(distributed_state, "clear_all"):
+                await distributed_state.clear_all()
+            elif hasattr(distributed_state, "_fallback_store"):
+                distributed_state._fallback_store.clear()
+                
             logger.info("🔄 Global State Cleared.")
 
     async def is_in_chat(self, user_id: int) -> bool:
@@ -297,12 +304,23 @@ class MatchState:
         """Engine-Aware State Setter: Increments sm:ver and triggers rehydration."""
         import app_state
         if app_state.engine:
-            uid = f"msg_{user_id}" if user_id >= 10**15 else str(user_id)
+            uid = str(user_id)
+            if user_id >= 10**15:
+                # Resolve real PSID for Messenger engine routing
+                from database.repositories.user_repository import UserRepository
+                u = await UserRepository.get_by_telegram_id(user_id)
+                if u and u.get("username", "").startswith("msg_"):
+                    uid = u["username"]
+                else:
+                    uid = f"msg_{user_id}"
+
             await app_state.engine.process_event({
                 "event_type": "SET_STATE",
                 "user_id": uid,
-                "payload": {"new_state": state or "HOME"}
+                "payload": {"new_state": state if state is not None else "HOME"}
             })
+            # Ensure we also update distributed_state (Authoritative for lookups)
+            await distributed_state.set_user_state(user_id, state)
         else:
             # Fallback for startup/pre-init
             await distributed_state.set_user_state(user_id, state)

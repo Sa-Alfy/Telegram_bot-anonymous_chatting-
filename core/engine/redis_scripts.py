@@ -36,7 +36,7 @@ class RedisScripts:
 
     # 1. START SEARCH
     # KEYS: 1:state:user, 2:queue, 3:idemp:hash, 4:user_ver:id, 5:match_pref:user
-    # ARGV: 1:user_id, 2:timestamp, 3:preference
+    # ARGV: 1:user_id, 2:timestamp, 3:preference, 4:priority ("1" or "0")
     START_SEARCH_LUA = """
         local state_key = KEYS[1]
         local queue_key = KEYS[2]
@@ -63,7 +63,11 @@ class RedisScripts:
         end
         
         redis.call("LREM", queue_key, 0, ARGV[1])
-        redis.call("LPUSH", queue_key, ARGV[1])
+        if ARGV[4] == "1" then
+            redis.call("LPUSH", queue_key, ARGV[1])
+        else
+            redis.call("RPUSH", queue_key, ARGV[1])
+        end
         redis.call("SET", idemp_key, "1", "EX", 30)
         
         -- Increment User Version

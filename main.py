@@ -135,6 +135,7 @@ async def start_reconciler_loop():
     """Background task that force-heals desynced states using the Reconciler engine."""
     from core.engine.reconciler import Reconciler
     from state.match_state import match_state
+    from services.distributed_state import distributed_state
     import app_state
     
     logger.info("🛠 Reconciler loop started.")
@@ -143,7 +144,7 @@ async def start_reconciler_loop():
             await asyncio.sleep(60) # Run every minute
             
             # Reconcile waiting queue users
-            waiting = await match_state.get_waiting_users()
+            waiting = await distributed_state.get_queue_candidates()
             for uid in waiting:
                 await app_state.reconciler.reconcile_user(uid)
 

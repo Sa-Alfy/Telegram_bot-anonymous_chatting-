@@ -5,20 +5,25 @@ from database.connection import db
 
 class UserRepository:
     @staticmethod
-    async def get_by_telegram_id(telegram_id: Any) -> Optional[Dict[str, Any]]:
-        """Fetch a user profile by Telegram ID with NULL-safety sanitisation.
-        Now handles polymorphic IDs (Messenger string IDs and Telegram integer IDs).
+    def _sanitize_id(telegram_id: Any) -> int:
+        """Derive a virtual integer DB ID from any platform identifier.
+        Handles: msg_<PSID> strings, plain digit strings, and raw integers.
         """
-        # Derive virtual integer ID if it's a Messenger prefixed string
         if isinstance(telegram_id, str) and telegram_id.startswith("msg_"):
             import hashlib
             psid = telegram_id[4:]
             psid_hash = int(hashlib.sha256(psid.encode()).hexdigest(), 16)
-            db_id = (psid_hash % (10**15)) + 10**15
+            return (psid_hash % (10**15)) + 10**15
         elif isinstance(telegram_id, str) and telegram_id.isdigit():
-            db_id = int(telegram_id)
-        else:
-            db_id = telegram_id
+            return int(telegram_id)
+        return int(telegram_id) if telegram_id is not None else 0
+
+    @staticmethod
+    async def get_by_telegram_id(telegram_id: Any) -> Optional[Dict[str, Any]]:
+        """Fetch a user profile by Telegram ID with NULL-safety sanitisation.
+        Now handles polymorphic IDs (Messenger string IDs and Telegram integer IDs).
+        """
+        db_id = UserRepository._sanitize_id(telegram_id)
 
         row = await db.fetchone("SELECT * FROM users WHERE telegram_id = $1", (db_id,))
         if not row:
@@ -61,8 +66,9 @@ class UserRepository:
         return user_data
 
     @staticmethod
-    async def create(telegram_id: int, username: str = None, first_name: str = None) -> Dict[str, Any]:
+    async def create(telegram_id: Any, username: str = None, first_name: str = None) -> Dict[str, Any]:
         """Create a new user with default settings."""
+        db_id = UserRepository._sanitize_id(telegram_id)
         default_profile = {
             "coins": 10,
             "xp": 0,
@@ -82,7 +88,7 @@ class UserRepository:
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         """
         params = (
-            telegram_id, username, first_name,
+            db_id, username, first_name,
             default_profile["coins"], default_profile["xp"], default_profile["level"],
             default_profile["vip_status"], default_profile["total_matches"],
             default_profile["total_chat_time"], default_profile["is_blocked"],
@@ -91,13 +97,14 @@ class UserRepository:
         )
         
         await db.execute(query, params)
-        return await UserRepository.get_by_telegram_id(telegram_id)
+        return await UserRepository.get_by_telegram_id(db_id)
 
     @staticmethod
-    async def update(telegram_id: int, **kwargs) -> bool:
+    async def update(telegram_id: Any, **kwargs) -> bool:
         """Update user profile fields.
         H3: JSON fields are merged atomically at DB level (no read-modify-write race).
         """
+        db_id = UserRepository._sanitize_id(telegram_id)
         if not kwargs:
             return False
             
@@ -132,34 +139,37 @@ class UserRepository:
         if not updates:
             return False
             
-        params.append(telegram_id)
+        params.append(db_id)
         query = f"UPDATE users SET {', '.join(updates)} WHERE telegram_id = ${len(params)}"
         await db.execute(query, tuple(params))
         return True
 
     @staticmethod
-    async def increment_coins(telegram_id: int, amount: int) -> int:
+    async def increment_coins(telegram_id: Any, amount: int) -> int:
         """Atomically increment user coins and return new value."""
+        db_id = UserRepository._sanitize_id(telegram_id)
         row = await db.fetchone(
             "UPDATE users SET coins = coins + $1 WHERE telegram_id = $2 RETURNING coins",
-            (amount, telegram_id)
+            (amount, db_id)
         )
         return row["coins"] if row else 0
 
     @staticmethod
-    async def increment_xp(telegram_id: int, amount: int) -> int:
+    async def increment_xp(telegram_id: Any, amount: int) -> int:
         """Atomically increment user XP and return new value."""
+        db_id = UserRepository._sanitize_id(telegram_id)
         row = await db.fetchone(
             "UPDATE users SET xp = xp + $1 WHERE telegram_id = $2 RETURNING xp",
-            (amount, telegram_id)
+            (amount, db_id)
         )
         return row["xp"] if row else 0
 
     @staticmethod
-    async def set_blocked(telegram_id: int, status: bool) -> bool:
+    async def set_blocked(telegram_id: Any, status: bool) -> bool:
         """Set user blocked status."""
+        db_id = UserRepository._sanitize_id(telegram_id)
         query = "UPDATE users SET is_blocked = $1 WHERE telegram_id = $2"
-        await db.execute(query, (bool(status), telegram_id))
+        await db.execute(query, (bool(status), db_id))
         return True
 
     # ─────────────────────────────────────────────────────────────────
@@ -167,17 +177,19 @@ class UserRepository:
     # ─────────────────────────────────────────────────────────────────
 
     @staticmethod
-    async def set_consent(telegram_id: int) -> bool:
+    async def set_consent(telegram_id: Any) -> bool:
         """Record that user has accepted privacy policy and ToS."""
+        db_id = UserRepository._sanitize_id(telegram_id)
         query = "UPDATE users SET consent_given_at = $1 WHERE telegram_id = $2"
-        await db.execute(query, (int(time.time()), telegram_id))
+        await db.execute(query, (int(time.time()), db_id))
         return True
 
     @staticmethod
-    async def has_consent(telegram_id: int) -> bool:
+    async def has_consent(telegram_id: Any) -> bool:
         """Check if user has given consent."""
+        db_id = UserRepository._sanitize_id(telegram_id)
         row = await db.fetchone(
-            "SELECT consent_given_at FROM users WHERE telegram_id = $1", (telegram_id,)
+            "SELECT consent_given_at FROM users WHERE telegram_id = $1", (db_id,)
         )
         if not row:
             return False
@@ -188,11 +200,12 @@ class UserRepository:
     # ─────────────────────────────────────────────────────────────────
 
     @staticmethod
-    async def soft_delete_user_data(telegram_id: int) -> bool:
+    async def soft_delete_user_data(telegram_id: Any) -> bool:
         """Anonymize user data — soft deletion per GDPR right to erasure.
         
         Nullifies all PII fields but retains the row for abuse-tracking purposes.
         """
+        db_id = UserRepository._sanitize_id(telegram_id)
         now = int(time.time())
         query = """
         UPDATE users SET
@@ -219,12 +232,12 @@ class UserRepository:
             data_deleted_at = $1
         WHERE telegram_id = $2
         """
-        await db.execute(query, (now, telegram_id))
+        await db.execute(query, (now, db_id))
         
         # Also clean up related tables
-        await db.execute("DELETE FROM friends WHERE user_id = $1 OR friend_id = $1", (telegram_id,))
-        await db.execute("DELETE FROM blocked_users WHERE blocker_id = $1 OR blocked_id = $1", (telegram_id,))
-        await db.execute("DELETE FROM reveal_history WHERE revealer_id = $1 OR revealed_id = $1", (telegram_id,))
+        await db.execute("DELETE FROM friends WHERE user_id = $1 OR friend_id = $1", (db_id,))
+        await db.execute("DELETE FROM blocked_users WHERE blocker_id = $1 OR blocked_id = $1", (db_id,))
+        await db.execute("DELETE FROM reveal_history WHERE revealer_id = $1 OR revealed_id = $1", (db_id,))
         
         # H4: Clean up Redis state so deleted user doesn't linger in active queues/sessions
         try:
@@ -244,7 +257,7 @@ class UserRepository:
             _log.getLogger(__name__).warning(f"Redis cleanup in soft_delete failed for {telegram_id}: {e}")
         
         import logging
-        logging.getLogger(__name__).info(f"Soft-deleted user data for ID ending ...{str(telegram_id)[-4:]}")
+        logging.getLogger(__name__).info(f"Soft-deleted user data for ID ending ...{str(db_id)[-4:]}")
         return True
 
     # ─────────────────────────────────────────────────────────────────

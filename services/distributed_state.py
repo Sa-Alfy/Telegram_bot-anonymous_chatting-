@@ -38,6 +38,17 @@ class DistributedState:
         else:
             logger.info("REDIS_URL not set. DistributedState using memory fallback.")
 
+    async def clear_all(self):
+        """Wipe all state (admin action or test cleanup)."""
+        if self.redis:
+            keys = await self.redis.keys("sm:*")
+            if keys: await self.redis.delete(*keys)
+        else:
+            async with self._lock:
+                self._fallback_store.clear()
+            async with self._action_lock:
+                pass
+
     async def get_partner(self, user_id: Any) -> Optional[str]:
         if self.redis:
             val = await self.redis.get(f"sm:partner:{user_id}")

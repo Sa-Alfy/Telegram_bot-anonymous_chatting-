@@ -70,7 +70,18 @@ class MessengerAdapter(BaseAdapter):
     async def render_state(self, user_id: str, state: str, payload: Optional[Dict[str, Any]] = None) -> bool:
         """Standardized Messenger rendering. Returns True for Render-ACK."""
         try:
-            psid = user_id[4:] if user_id.startswith("msg_") else user_id
+            # Robust PSID resolution: Handle msg_ prefix, and resolve virtual IDs via DB
+            psid = str(user_id)
+            if psid.startswith("msg_"):
+                psid = psid[4:]
+            
+            # If psid is a virtual ID (10^15 range), resolve it to real PSID from DB
+            if psid.isdigit() and 10**15 <= int(psid) < 2*10**15:
+                from database.repositories.user_repository import UserRepository
+                u = await UserRepository.get_by_telegram_id(int(psid))
+                if u and u.get("username", "").startswith("msg_"):
+                    psid = u["username"][4:]
+            
             mid = payload.get("match_id") if payload else "global"
 
             res = None

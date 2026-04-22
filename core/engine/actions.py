@@ -45,8 +45,23 @@ class ActionRouter:
 
         elif etype == "START_SEARCH":
             pref = payload.get("pref", "")
+            # Determine priority status from DB
+            priority_flag = "0"
+            try:
+                from database.repositories.user_repository import UserRepository
+                c_uid = UserRepository._sanitize_id(uid)
+                user = await UserRepository.get_by_telegram_id(c_uid)
+                if user:
+                    import time as _time
+                    timed_pack = user.get("priority_pack", {})
+                    if timed_pack.get("active") and timed_pack.get("expires_at", 0) > _time.time():
+                        priority_flag = "1"
+                    elif user.get("priority_matches", 0) > 0:
+                        priority_flag = "1"
+            except Exception as e:
+                logger.warning(f"Priority lookup failed for {uid}: {e}")
             keys = [f"sm:state:{uid}", "sm:queue", idemp_key, f"sm:ver:u:{uid}", f"sm:match:pref:{uid}"]
-            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.START_SEARCH_LUA, keys, [uid, str(ts), pref])
+            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.START_SEARCH_LUA, keys, [uid, str(ts), pref, priority_flag])
             result = {"success": code in {1, 2}, "state": msg, "version": ver}
 
         elif etype in {"STOP_SEARCH", "CANCEL_SEARCH"}:
@@ -74,7 +89,9 @@ class ActionRouter:
 
         elif etype == "END_CHAT":
             from services.matchmaking import MatchmakingService
-            stats = await MatchmakingService.disconnect(int(uid))
+            from database.repositories.user_repository import UserRepository
+            c_uid = UserRepository._sanitize_id(uid)
+            stats = await MatchmakingService.disconnect(c_uid)
             if not stats: return {"success": False, "error": "No active session"}
             
             p_uid = str(stats["partner_id"])
@@ -147,6 +164,10 @@ class ActionRouter:
         elif etype == "NEXT_MATCH":
             state = await redis.get(f"sm:state:{uid}")
             if state == UnifiedState.HOME:
+                return await cls.process_event({"event_type": "START_SEARCH", "user_id": uid, "timestamp": ts})
+            elif state == UnifiedState.CHAT_ACTIVE:
+                await cls.process_event({"event_type": "END_CHAT", "user_id": uid, "match_id": mid, "timestamp": ts})
+                await cls.process_event({"event_type": "SKIP_VOTE", "user_id": uid, "match_id": mid, "timestamp": ts})
                 return await cls.process_event({"event_type": "START_SEARCH", "user_id": uid, "timestamp": ts})
             result = {"success": False, "error": "VOTING_INCOMPLETE", "current_state": state}
 
