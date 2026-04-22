@@ -110,6 +110,9 @@ class MessengerAdapter(BaseAdapter):
 
             if state == UnifiedState.CHAT_ACTIVE and not t_lower.startswith("/"):
                 return self.create_event("SEND_MESSAGE", uid, payload={"text": text})
+            
+            if not t_lower.startswith("/"):
+                logger.info(f"DROPPED message from {uid} because state={state}")
 
         elif msg.get("attachments"):
             from services.distributed_state import distributed_state

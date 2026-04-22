@@ -91,14 +91,15 @@ class MatchmakingService:
             logger.error(f"Post-match DB updates failed for {user1_id}-{user2_id}: {e}")
 
         # 1.5 Sync engine states via ActionRouter (Unified Engine Step 3)
-        try:
-            await app_state.engine.process_event({
-                "event_type": "CONNECT",
-                "user_id": str(user1_id),
-                "timestamp": int(now)
-            })
-        except Exception as e:
-            logger.error(f"Engine CONNECT failed for {user1_id}: {e}")
+        for uid in uids:
+            try:
+                await app_state.engine.process_event({
+                    "event_type": "CONNECT",
+                    "user_id": str(uid),
+                    "timestamp": int(now)
+                })
+            except Exception as e:
+                logger.error(f"Engine CONNECT failed for {uid}: {e}")
 
         # 1.7 UI Delivery — Primary match notification for both users
         match_text = get_match_found_text(include_safety=True)

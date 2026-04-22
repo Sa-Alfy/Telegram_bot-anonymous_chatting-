@@ -167,6 +167,7 @@ async def handle_messenger_text(psid: str, virtual_id: int, user: dict, text: st
         event["user_id"] = str(virtual_id)
         result = await app_state.engine.process_event(event)
         if result.get("success"): return
+        logger.warning(f"Engine failed to process {event['event_type']} for {virtual_id}: {result.get('error', 'Unknown Error')}")
     
     # 2. Legacy Command Fallback
     if text_stripped.startswith("/"):
