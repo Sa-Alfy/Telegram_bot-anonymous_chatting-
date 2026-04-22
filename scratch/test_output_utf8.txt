@@ -1,0 +1,45 @@
+﻿.venv/Scripts/python.exe : TgCrypto is missing! Pyrogram will work the same, but at a much slower speed. More info: 
+https://docs.pyrogram.org/topics/speedups
+At line:1 char:1
++ .venv/Scripts/python.exe f:/Code/Youniq/scratch/test_cross_platform_m ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (TgCrypto is mis...topics/speedups:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+--- STANDALONE CROSS-PLATFORM RECORDING MOCKUP ---
+
+[Test 1: Telegram -> Telegram]
+[900101 (TG)] sending: 'Hello from Telegram!' to [900102 (TG)]
+Traceback (most recent call last):
+  File "f:\Code\Youniq\scratch\test_cross_platform_messaging.py", line 143, in <module>
+    asyncio.run(test_cross_platform_messaging())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pc\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\runners.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Users\pc\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\pc\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\base_events.py", line 719, in 
+run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "f:\Code\Youniq\scratch\test_cross_platform_messaging.py", line 76, in test_cross_platform_messaging
+    print("\u2705 Verified: Pyrogram message.copy() called for TG partner.")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pc\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>
+Exception ignored while calling deallocator <function AbstractConnection.__del__ at 0x00000269F807C670>:
+Traceback (most recent call last):
+  File "F:\Code\Youniq\.venv\Lib\site-packages\redis\asyncio\connection.py", line 216, in __del__
+  File "F:\Code\Youniq\.venv\Lib\site-packages\redis\asyncio\connection.py", line 223, in _close
+  File "C:\Users\pc\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\streams.py", line 352, in close
+  File "C:\Users\pc\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\sslproto.py", line 116, in close
+  File "C:\Users\pc\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\sslproto.py", line 627, in _start_shutdown
+  File "C:\Users\pc\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\base_events.py", line 793, in call_later
+  File "C:\Users\pc\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\base_events.py", line 806, in call_at
+  File "C:\Users\pc\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\base_events.py", line 550, in _check_closed
+RuntimeError: Event loop is closed
