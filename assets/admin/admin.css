@@ -63,6 +63,18 @@ button {
 button.danger { background: var(--danger); }
 button:hover { opacity: 0.9; }
 
+.copy-btn {
+    background: #30363d;
+    color: var(--text-main);
+    border: 1px solid var(--border);
+    font-size: 0.8em;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.copy-btn:hover { background: #8b949e; color: #fff; }
+.copy-mini { padding: 2px 6px; font-size: 0.7em; }
+
 input[type="text"] {
     background: var(--bg-main); border: 1px solid var(--border); color: var(--text-main);
     padding: 6px 12px; border-radius: 4px;
@@ -112,6 +124,7 @@ input[type="text"] {
 .tag-redis { background: #8957e5; color: white; }
 .tag-state { background: #d29922; color: #000; }
 .tag-violation { background: var(--danger); color: white; }
+.tag-msg { background: #ab47bc; color: white; }
 
 .status-success { color: var(--success); }
 .status-fail { color: var(--danger); font-weight: bold; }

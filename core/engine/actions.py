@@ -8,6 +8,7 @@ from core.engine.state_machine import UnifiedState
 from core.engine.redis_scripts import RedisScripts
 from services.distributed_state import distributed_state
 from core.telemetry import EventLogger, TelemetryEvent, with_trace_id
+from utils.platform_adapter import PlatformAdapter
 
 class ActionRouter:
     """Idempotent Event Router for the Unified Matchmaking system.
@@ -295,6 +296,10 @@ class ActionRouter:
             else:
                 is_safe, violation = check_message(text)
                 if not is_safe:
+                    EventLogger.log_event(
+                        event="MESSAGE_FILTERED", layer="content_filter", status=TelemetryEvent.WARNING,
+                        user_id=c_uid, peer_id=partner_id, data={"violation": violation}
+                    )
                     decision = await apply_enforcement(c_uid, violation)
                     action = decision["action"]
                     penalty = decision["penalty"]
@@ -315,14 +320,25 @@ class ActionRouter:
                     # Message is safe -> Relay
                     await UserService.increment_challenge(c_uid, "messages_sent")
                     
-                    # Determine partner platform and send
-                    await PlatformAdapter.send_cross_platform(
-                        app_state.telegram_app, 
-                        partner_id, 
-                        f"💬 {text}", 
-                        None
-                    )
-                    result = {"success": True}
+                    try:
+                        # Determine partner platform and send
+                        await PlatformAdapter.send_cross_platform(
+                            app_state.telegram_app, 
+                            partner_id, 
+                            f"💬 {text}", 
+                            None
+                        )
+                        EventLogger.log_event(
+                            event="MESSAGE_SENT", layer="message_relay", status=TelemetryEvent.SUCCESS,
+                            user_id=c_uid, peer_id=partner_id
+                        )
+                        result = {"success": True}
+                    except Exception as e:
+                        EventLogger.log_event(
+                            event="MESSAGE_FAILED", layer="message_relay", status=TelemetryEvent.FAIL,
+                            user_id=c_uid, peer_id=partner_id, data={"error": str(e)}
+                        )
+                        result = {"success": False, "error": "Delivery failed"}
 
         elif etype == "SHOW_SHOP":
             result = {"success": True, "show_shop": True}
@@ -384,16 +400,27 @@ class ActionRouter:
                 await behavior_tracker.record_message_sent(c_uid, f"[Media:{m_type}]")
                 await behavior_tracker.record_message_received(partner_id)
                 
-                # Relay
-                await PlatformAdapter.send_cross_platform(
-                    app_state.telegram_app,
-                    partner_id,
-                    caption,
-                    None,
-                    media_type=m_type,
-                    media_url=url
-                )
-                result = {"success": True}
+                try:
+                    # Relay
+                    await PlatformAdapter.send_cross_platform(
+                        app_state.telegram_app,
+                        partner_id,
+                        caption,
+                        None,
+                        media_type=m_type,
+                        media_url=url
+                    )
+                    EventLogger.log_event(
+                        event="MESSAGE_SENT", layer="message_relay", status=TelemetryEvent.SUCCESS,
+                        user_id=c_uid, peer_id=partner_id, data={"media_type": m_type}
+                    )
+                    result = {"success": True}
+                except Exception as e:
+                    EventLogger.log_event(
+                        event="MESSAGE_FAILED", layer="message_relay", status=TelemetryEvent.FAIL,
+                        user_id=c_uid, peer_id=partner_id, data={"error": str(e)}
+                    )
+                    result = {"success": False, "error": "Delivery failed"}
 
         elif etype == "RECOVER":
             from state.match_state import match_state

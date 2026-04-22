@@ -54,6 +54,14 @@ async def relay_message(client: Client, message: Message):
     partner_id = int(_p) if _p else None
     
     if partner_id:
+        # Dedup guard: prevent the same message from being relayed twice
+        from services.distributed_state import distributed_state
+        if distributed_state.redis:
+            dedup_key = f"relay:dedup:{user_id}:{message.id}"
+            already_sent = await distributed_state.redis.set(dedup_key, "1", nx=True, ex=10)
+            if not already_sent:
+                logger.warning(f"DEDUP: Blocked duplicate relay of msg {message.id} from {user_id}")
+                return
         from core.behavior_engine import behavior_engine
         await behavior_engine.record_message_sent(user_id, message.text or "", sentiment_score=None) # Consider plugging in a real sentiment model later
         await behavior_engine.record_message_received(partner_id)

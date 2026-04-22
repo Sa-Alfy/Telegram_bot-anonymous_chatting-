@@ -61,6 +61,7 @@ function getTagClass(event) {
     if (event === "REDIS_CALL" || event === "REDIS_RESULT") return "tag-redis";
     if (event === "STATE_CHANGE") return "tag-state";
     if (event === "INVARIANT_VIOLATION") return "tag-violation";
+    if (event.startsWith("MESSAGE_")) return "tag-msg";
     return "";
 }
 
@@ -105,6 +106,7 @@ function renderTimelineEvent(payload) {
             <span class="log-tag ${getTagClass(payload.event)}">${payload.event}</span>
             <span>[${payload.layer}]</span>
             <span class="log-tag" style="background:#444; cursor:pointer;" onclick="setTraceFilter('${payload.trace_id}')">${payload.trace_id.substring(0,8)}</span>
+            <button class="copy-btn copy-mini" style="margin-left:auto;">JSON</button>
         </div>
         <div>
             User: <strong>${payload.user_id || 'N/A'}</strong> 
@@ -116,6 +118,21 @@ function renderTimelineEvent(payload) {
             ${JSON.stringify(payload.data || {})}
         </div>
     `;
+
+    const copyBtn = div.querySelector('.copy-btn');
+    if (copyBtn) {
+        copyBtn.onclick = () => {
+            navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(() => {
+                const oldText = copyBtn.textContent;
+                copyBtn.textContent = "Copied!";
+                copyBtn.style.background = "var(--success)";
+                setTimeout(() => {
+                    copyBtn.textContent = oldText;
+                    copyBtn.style.background = "#30363d";
+                }, 2000);
+            });
+        };
+    }
 
     // Pipeline grouping (simple visual indent for same trace_id if consecutive, else just append)
     timeline.prepend(div);
@@ -140,12 +157,32 @@ function renderViolation(payload) {
     div.className = "violation-card";
     
     div.innerHTML = `
-        <strong>⚠ ${payload.event === 'INVARIANT_VIOLATION' ? 'INCONSISTENCY DETECTED' : 'PIPELINE FAILURE'}</strong><br>
-        User: ${payload.user_id || 'N/A'} ${payload.peer_id ? `| Peer: ${payload.peer_id}` : ''}<br>
-        Layer: ${payload.layer} <br>
-        Details: ${JSON.stringify(payload.data)}
-        ${payload.expected ? `<br>Expected: ${payload.expected} | Actual: ${payload.actual}` : ''}
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+                <strong>⚠ ${payload.event === 'INVARIANT_VIOLATION' ? 'INCONSISTENCY DETECTED' : 'PIPELINE FAILURE'}</strong><br>
+                User: ${payload.user_id || 'N/A'} ${payload.peer_id ? `| Peer: ${payload.peer_id}` : ''}<br>
+                Layer: ${payload.layer} <br>
+                Details: ${JSON.stringify(payload.data)}
+                ${payload.expected ? `<br>Expected: ${payload.expected} | Actual: ${payload.actual}` : ''}
+            </div>
+            <button class="copy-btn">Copy JSON</button>
+        </div>
     `;
+    
+    const copyBtn = div.querySelector('.copy-btn');
+    if (copyBtn) {
+        copyBtn.onclick = () => {
+            navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(() => {
+                const oldText = copyBtn.textContent;
+                copyBtn.textContent = "Copied!";
+                copyBtn.style.background = "var(--success)";
+                setTimeout(() => {
+                    copyBtn.textContent = oldText;
+                    copyBtn.style.background = "#30363d";
+                }, 2000);
+            });
+        };
+    }
     
     list.prepend(div);
     if (list.children.length > 20) list.lastChild.remove();
