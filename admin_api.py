@@ -6,7 +6,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPExcept
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import redis.asyncio as redis
+import redis.asyncio as redis_async
+import redis.exceptions as redis_exceptions
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -44,14 +45,14 @@ async def startup_event():
         print("WARNING: REDIS_URL not set in env.")
         return
 
-    redis_client = redis.from_url(redis_url, decode_responses=True)
+    redis_client = redis_async.from_url(redis_url, decode_responses=True)
     try:
         await redis_client.ping()
         print("Admin API connected to Redis.")
         # Setup Consumer Group
         try:
             await redis_client.xgroup_create("admin:events", "dashboard", id="0", mkstream=True)
-        except redis.exceptions.ResponseError as e:
+        except redis_exceptions.ResponseError as e:
             if "BUSYGROUP" not in str(e):
                 print(f"Error creating consumer group: {e}")
         

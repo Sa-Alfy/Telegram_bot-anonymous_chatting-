@@ -9,11 +9,27 @@ function authenticate() {
     authToken = document.getElementById("auth-token").value.trim();
     if (!authToken) return;
     
+    localStorage.setItem("debug_admin_token", authToken);
     document.getElementById("auth-overlay").style.display = "none";
+    initDashboard();
+}
+
+function initDashboard() {
     connectWebSocket();
     fetchStats();
-    setInterval(fetchStats, 5000);
+    if (window.statsInterval) clearInterval(window.statsInterval);
+    window.statsInterval = setInterval(fetchStats, 5000);
 }
+
+// Auto-load token on startup
+window.onload = () => {
+    const savedToken = localStorage.getItem("debug_admin_token");
+    if (savedToken) {
+        authToken = savedToken;
+        document.getElementById("auth-overlay").style.display = "none";
+        initDashboard();
+    }
+};
 
 function connectWebSocket() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -197,6 +213,7 @@ async function apiCall(endpoint, method = "GET") {
     });
     if (!response.ok) {
         if (response.status === 401) {
+            localStorage.removeItem("debug_admin_token");
             document.getElementById("auth-error").textContent = "Invalid Token!";
             document.getElementById("auth-overlay").style.display = "flex";
         }
