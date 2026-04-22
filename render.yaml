@@ -31,3 +31,19 @@ services:
         value: production
       - key: PYTHON_VERSION
         value: 3.11.0
+
+  - type: web
+    name: matchmaking-debug-dashboard
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn admin_api:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+    envVars:
+      - key: REDIS_URL
+        sync: false
+      - key: DEBUG_SECRET
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
