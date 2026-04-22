@@ -291,7 +291,10 @@ class ActionRouter:
             partner_id = await match_state.get_partner(c_uid)
             text = payload.get("text", "")
             
-            if not partner_id:
+            from utils.rate_limiter import rate_limiter
+            if not await rate_limiter.can_send_message(c_uid):
+                result = {"success": False, "error": "Rate limit exceeded. Please wait."}
+            elif not partner_id:
                 result = {"success": False, "error": "You're not chatting with anyone yet."}
             else:
                 is_safe, violation = check_message(text)
@@ -339,6 +342,50 @@ class ActionRouter:
                             user_id=c_uid, peer_id=partner_id, data={"error": str(e)}
                         )
                         result = {"success": False, "error": "Delivery failed"}
+                    
+        elif etype == "SEND_MEDIA":
+            from state.match_state import match_state
+            from services.user_service import UserService
+            import app_state
+            
+            c_uid = int(UserRepository._sanitize_id(uid))
+            partner_id = await match_state.get_partner(c_uid)
+            media_type = payload.get("media_type")
+            url = payload.get("url")
+            file_id = payload.get("file_id") # For Telegram-native media
+            
+            from utils.rate_limiter import rate_limiter
+            if not await rate_limiter.can_send_message(c_uid):
+                result = {"success": False, "error": "Rate limit exceeded."}
+            elif not partner_id:
+                result = {"success": False, "error": "No partner."}
+            else:
+                # VIP Check for certain media types
+                if media_type in ("voice", "video", "video_note"):
+                    user = await UserRepository.get_by_telegram_id(c_uid)
+                    if not user or not user.get("vip_status"):
+                        result = {"success": False, "error": "VIP required for this media type."}
+                        return result
+
+                try:
+                    await PlatformAdapter.send_cross_platform(
+                        app_state.telegram_app, 
+                        partner_id, 
+                        text=payload.get("caption", ""),
+                        media_type=media_type,
+                        media_url=url or file_id
+                    )
+                    EventLogger.log_event(
+                        event="MEDIA_SENT", layer="message_relay", status=TelemetryEvent.SUCCESS,
+                        user_id=c_uid, peer_id=partner_id, data={"type": media_type}
+                    )
+                    result = {"success": True}
+                except Exception as e:
+                    EventLogger.log_event(
+                        event="MEDIA_FAILED", layer="message_relay", status=TelemetryEvent.FAIL,
+                        user_id=c_uid, peer_id=partner_id, data={"error": str(e)}
+                    )
+                    result = {"success": False, "error": "Media delivery failed"}
 
         elif etype == "SHOW_SHOP":
             result = {"success": True, "show_shop": True}

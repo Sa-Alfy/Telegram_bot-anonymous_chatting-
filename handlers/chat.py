@@ -13,7 +13,6 @@ from utils.logger import logger
 from utils.helpers import update_user_ui
 from config import ADMIN_ID
 from database.repositories.report_repository import ReportRepository
-from services.chat_service import relay_message
 from database.connection import db
 from utils.content_filter import check_message, get_user_warning, SEVERITY_AUTO_BAN, SEVERITY_BLOCK
 
@@ -344,7 +343,7 @@ async def chat_handler(client: Client, message: Message):
                     logger.debug(f"Deduct amount error: {e}")
                     return await message.reply_text("❌ Invalid amount. Send a number:")
 
-    # Handle Photo Upload for Profile
+    # Handle Photo Upload for Profile (only when NOT in active chat)
     if message.photo:
         if not await match_state.is_in_chat(user_id):
             file_id = message.photo.file_id
@@ -352,53 +351,116 @@ async def chat_handler(client: Client, message: Message):
             await message.reply_text("📸 **Profile Photo Updated!**\nThis will be shown when you reveal your identity.")
             return
 
-    # Auto-Moderator filter (shared content_filter module)
-    if message.text:
-        is_safe, violation = check_message(message.text)
-        if not is_safe:
-            from utils.content_filter import apply_enforcement
-            decision = await apply_enforcement(user_id, violation)
-            final_sev = decision["final_severity"]
-            action = decision["action"]
-            penalty = decision["penalty"]
-            
-            # Apply economy penalty
-            if penalty > 0:
-                await UserService.deduct_coins(user_id, penalty)
-                
-            warning = get_user_warning(final_sev, decision["description"], penalty)
-            await message.reply_text(warning)
-            
-            if action in ("terminate_chat", "auto_ban_user") and await match_state.is_in_chat(user_id):
-                partner_id = await match_state.get_partner(user_id)
-                await MatchmakingService.disconnect(user_id)
-                if partner_id:
-                    await UserService.report_user(user_id, partner_id, f"Auto-Mod: {decision['description']}")
-                    await update_user_ui(client, partner_id, "❌ **Chat ended.** Your partner was removed by the Auto-Moderator.", end_menu())
-                
-                if action == "auto_ban_user":
-                    await UserRepository.set_blocked(user_id, True)
+    # ═══════════════════════════════════════════════════════════════
+    # UNIFIED ENGINE RELAY — All chat messages route through Engine
+    # This ensures: single delivery path, telemetry, content filter
+    # ═══════════════════════════════════════════════════════════════
+    import app_state
 
-                await message.reply_text("Your active session was terminated.", reply_markup=end_menu())
-            return
+    if await match_state.is_in_chat(user_id):
+        # ── Text Messages ────────────────────────────────────────
+        if message.text:
+            result = await app_state.engine.process_event({
+                "event_type": "SEND_MESSAGE",
+                "user_id": str(user_id),
+                "payload": {"text": message.text}
+            })
+            if result.get("success"):
+                # Track milestones in background
+                async def _track():
+                    try:
+                        milestone = await UserService.check_milestones(user_id, "messages_sent")
+                        if milestone:
+                            await client.send_message(user_id,
+                                f"🎖 **Mini-Challenge Reached!**\n"
+                                f"You've sent **{milestone['milestone']} messages**!\n"
+                                f"🎁 **Reward:** +{milestone['reward_xp']} XP, +{milestone['reward_coins']} coins")
+                    except Exception:
+                        pass
+                asyncio.create_task(_track())
+                return
+            else:
+                error = result.get("error", "")
+                if error:
+                    await message.reply_text(f"⚠️ {error}")
+                if result.get("terminated"):
+                    await update_user_ui(client, user_id, "Your active session was terminated.", end_menu())
+                return
 
-    # Tracking mini-challenges: messages_sent (only real chat messages, not setup inputs)
-    async def _track_milestones():
-        try:
-            await UserService.increment_challenge(user_id, "messages_sent")
-            milestone = await UserService.check_milestones(user_id, "messages_sent")
-            if milestone:
-                await client.send_message(
-                    user_id,
-                    f"🎖 **Mini-Challenge Reached!**\n"
-                    f"You've sent **{milestone['milestone']} messages**!\n"
-                    f"🎁 **Reward:** +{milestone['reward_xp']} XP, +{milestone['reward_coins']} coins"
+        # ── Media Messages (photo, sticker, video, etc.) ─────────
+        partner_id = await match_state.get_partner(user_id)
+        if partner_id:
+            from core.telemetry import EventLogger, TelemetryEvent
+
+            # VIP Media Filter
+            if message.voice or message.video or message.video_note or message.audio:
+                if not user.get("vip_status"):
+                    await message.reply_text("❌ **Premium Feature**\nYou must be a **VIP Member** to send Voice Notes or Videos!")
+                    return
+
+            try:
+                is_messenger = isinstance(partner_id, int) and partner_id >= 10**15
+                
+                if is_messenger:
+                    # TG → Messenger: Download and re-upload
+                    from utils.platform_adapter import PlatformAdapter
+                    import os
+                    
+                    if message.photo or message.sticker or message.video or message.animation:
+                        temp_path = await message.download()
+                        try:
+                            m_type = "image"
+                            if message.video or message.animation: m_type = "video"
+                            from messenger_api import send_attachment_file
+                            u = await UserRepository.get_by_telegram_id(partner_id)
+                            if u and u.get("username", "").startswith("msg_"):
+                                psid = u["username"][4:]
+                                res = send_attachment_file(psid, temp_path, file_type=m_type)
+                                if res and "error" in res:
+                                    await message.reply_text("⚠️ **Media failed to deliver.** Sending description instead.")
+                                else:
+                                    if message.caption:
+                                        from messenger_api import send_message as msg_send
+                                        msg_send(psid, f"💬 {message.caption}")
+                                    EventLogger.log_event(
+                                        event="MEDIA_SENT", layer="message_relay", status=TelemetryEvent.SUCCESS,
+                                        user_id=user_id, peer_id=partner_id, data={"type": m_type}
+                                    )
+                                    return
+                        finally:
+                            if temp_path and os.path.exists(temp_path):
+                                os.remove(temp_path)
+                    
+                    # Text fallback for unsupported media
+                    relay_text = message.text or message.caption or ""
+                    if not relay_text:
+                        media_type = "file"
+                        if message.photo: media_type = "photo 📸"
+                        elif message.video or message.video_note: media_type = "video 🎥"
+                        elif message.voice or message.audio: media_type = "voice note 🎤"
+                        elif message.sticker: media_type = "sticker"
+                        relay_text = f"📎 [Partner sent a {media_type}]"
+
+                    await PlatformAdapter.send_cross_platform(client, partner_id, f"💬 {relay_text}", None)
+                    EventLogger.log_event(
+                        event="MEDIA_SENT", layer="message_relay", status=TelemetryEvent.SUCCESS,
+                        user_id=user_id, peer_id=partner_id, data={"type": "fallback_text"}
+                    )
+                else:
+                    # TG → TG: Native copy (preserves formatting, stickers, etc.)
+                    await message.copy(chat_id=partner_id)
+                    EventLogger.log_event(
+                        event="MEDIA_SENT", layer="message_relay", status=TelemetryEvent.SUCCESS,
+                        user_id=user_id, peer_id=partner_id, data={"type": "native_copy"}
+                    )
+            except Exception as e:
+                logger.warning(f"Media relay failed from {user_id} to {partner_id}: {e}")
+                EventLogger.log_event(
+                    event="MEDIA_FAILED", layer="message_relay", status=TelemetryEvent.FAIL,
+                    user_id=user_id, peer_id=partner_id, data={"error": str(e)}
                 )
-        except Exception as e:
-            logger.debug(f"Milestone track failed: {e}")
-            pass
-            
-    asyncio.create_task(_track_milestones())
+                await message.reply_text("⚠️ **Delivery Error:** Your message couldn't be sent. Please try again.")
+        return
 
-    # Relay Message
-    await relay_message(client, message)
+    # ── Not in chat: ignore non-text silently ────────────────────
+    # (User sent a random message but isn't in a chat session)

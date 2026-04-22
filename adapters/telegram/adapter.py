@@ -53,16 +53,57 @@ class TelegramAdapter(BaseAdapter):
             
             # Non-engine events (Stats, Shop, etc.) return LEGACY_DISPATCH to fallback to legacy dispatcher
             return self.create_event("LEGACY_DISPATCH", uid, payload={"raw_data": data})
-        elif hasattr(raw_update, "text"):
-            # Text commands
+        elif hasattr(raw_update, "text") or hasattr(raw_update, "photo") or hasattr(raw_update, "sticker") or hasattr(raw_update, "video") or hasattr(raw_update, "animation") or hasattr(raw_update, "voice"):
+            # Telegram Message
             uid = str(raw_update.from_user.id)
-            text = raw_update.text
-            if text == "/start":
-                return self.create_event("CMD_START", uid)
-            elif text == "/search":
-                return self.create_event("SHOW_PREFS", uid)
-            elif text == "/recover":
-                return self.create_event("RECOVER", uid)
+            from services.distributed_state import distributed_state
+            state = await distributed_state.get_user_state(uid)
+
+            # 1. Handle Commands (regardless of state)
+            if hasattr(raw_update, "text"):
+                text = raw_update.text
+                if text == "/start":
+                    return self.create_event("CMD_START", uid)
+                elif text == "/search":
+                    return self.create_event("SHOW_PREFS", uid)
+                elif text == "/recover":
+                    return self.create_event("RECOVER", uid)
+                elif text == "/stop":
+                    return self.create_event("END_CHAT", uid)
+                elif text == "/next":
+                    return self.create_event("NEXT_MATCH", uid)
+
+            # 2. Handle Chat Messaging (only if state is CHAT_ACTIVE)
+            if state == UnifiedState.CHAT_ACTIVE:
+                if hasattr(raw_update, "text") and raw_update.text:
+                    if not raw_update.text.startswith("/"):
+                        return self.create_event("SEND_MESSAGE", uid, payload={"text": raw_update.text})
+                
+                # Media Handling
+                media_type = None
+                file_id = None
+                if raw_update.photo:
+                    media_type = "image"
+                    file_id = raw_update.photo.file_id
+                elif raw_update.sticker:
+                    media_type = "sticker"
+                    file_id = raw_update.sticker.file_id
+                elif raw_update.video:
+                    media_type = "video"
+                    file_id = raw_update.video.file_id
+                elif raw_update.animation:
+                    media_type = "animation"
+                    file_id = raw_update.animation.file_id
+                elif raw_update.voice:
+                    media_type = "voice"
+                    file_id = raw_update.voice.file_id
+                
+                if media_type:
+                    return self.create_event("SEND_MEDIA", uid, payload={
+                        "media_type": media_type,
+                        "file_id": file_id,
+                        "caption": raw_update.caption
+                    })
 
         return None
 
