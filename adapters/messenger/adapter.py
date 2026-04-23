@@ -221,10 +221,16 @@ class MessengerAdapter(BaseAdapter):
                 signals = payload.get("signals", {}) if payload else {}
                 if not signals.get("reputation"):
                     res = send_generic_template(psid, [get_messenger_vote_card(mid, "reputation")])
-                    if summary_text: send_message(psid, summary_text)
+                    if summary_text: 
+                        send_message(psid, summary_text)
+                    else:
+                        send_message(psid, "🏁 **Chat ended by stranger.**")
                 elif not signals.get("identity"):
                     res = send_generic_template(psid, [get_messenger_vote_card(mid, "identity")])
-                    if summary_text: send_message(psid, summary_text)
+                    if summary_text: 
+                        send_message(psid, summary_text)
+                    else:
+                        send_message(psid, "🏁 **Chat ended by stranger.**")
             
             # Check if API call returned an error
             if res and "error" in res:

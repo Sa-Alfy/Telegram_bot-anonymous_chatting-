@@ -202,8 +202,8 @@ class ActionRouter:
         elif etype == "SUBMIT_VOTE":
             vtype = payload.get("type")
             vval = payload.get("value")
-            keys = [f"sm:vote:{mid}:{uid}", f"sm:state:{uid}", f"sm:ver:m:{mid}", idemp_key]
-            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.VOTE_LUA, keys, [uid, mid, vtype, vval, str(ts)])
+            keys = [f"sm:state:{uid}", f"sm:vote:{mid}:{uid}", f"sm:vote_lock:{mid}", f"sm:ver:m:{mid}", f"sm:audit_log:{mid}", idemp_key]
+            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SUBMIT_VOTE_LUA, keys, [uid, mid, vtype, vval, str(ts)])
             signals = await redis.hgetall(f"sm:vote:{mid}:{uid}")
             result = {"success": code == 1, "state": msg, "version": ver, "signals": signals}
             
@@ -227,7 +227,7 @@ class ActionRouter:
 
         elif etype == "TIMEOUT_VOTING":
             keys = [
-                f"sm:state:{uid}", f"sm:ver:u:{uid}", idemp_key,
+                f"sm:state:{uid}", f"sm:vote:{mid}:{uid}", f"sm:vote_lock:{mid}",
                 f"sm:ver:m:{mid}", f"sm:audit_log:{mid}"
             ]
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.TIMEOUT_VOTING_LUA, keys, [uid, mid, str(ts)])

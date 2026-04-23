@@ -23,7 +23,7 @@ class RateLimiter:
         self.MESSAGE_COOLDOWN = 1.0       # seconds between messages
         self.MATCHMAKE_COOLDOWN = 3.0     # seconds between searches
         self.REPORT_COOLDOWN = 5.0        # seconds between reports
-        self.DAILY_MESSAGE_CAP = 500      # max messages per day
+        self.DAILY_MESSAGE_CAP = 5000     # max messages per day
         self.FLOOD_WINDOW = 60            # seconds
         self.FLOOD_MAX_CONNECTS = 10      # max connect/disconnect cycles per window
 
