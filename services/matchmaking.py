@@ -298,7 +298,11 @@ class MatchmakingService:
             "u2_xp_earned": u2_xp_total,
             "u1_levelup": u1_levelup,
             "u2_levelup": u2_levelup,
-            "total_matches": u1.get("total_matches", 0) if u1 else 0
+            "total_matches": u1.get("total_matches", 0) if u1 else 0,
+            "coins_balance": (u1.get("coins", 0) + u1_coins_total) if u1 else u1_coins_total,
+            "total_xp": (u1.get("xp", 0) + u1_xp_total) if u1 else u1_xp_total,
+            "u2_coins_balance": (u2.get("coins", 0) + u2_coins_total) if u2 else u2_coins_total,
+            "u2_total_xp": (u2.get("xp", 0) + u2_xp_total) if u2 else u2_xp_total
         }
 
     @staticmethod

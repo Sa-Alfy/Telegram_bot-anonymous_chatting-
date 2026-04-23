@@ -18,7 +18,7 @@ from messenger_api import (
 from utils.rate_limiter import rate_limiter
 from utils.platform_adapter import PlatformAdapter
 from utils.content_filter import check_message, get_user_warning, SEVERITY_AUTO_BAN, SEVERITY_BLOCK
-from utils.ui_formatters import format_session_summary, get_match_found_text
+from utils.ui_formatters import get_match_found_text
 from utils.behavior_tracker import behavior_tracker
 from adapters.messenger.ui_factory import *
 from messenger.utils import _uid, _raw, _platform, _send_to, _send_menu_to, _get_or_create_messenger_user
@@ -150,7 +150,7 @@ async def _notify_user(partner_virtual_id: Any, text: str):
 async def handle_messenger_text(psid: str, virtual_id: int, user: dict, text: str):
     """Route text messages (Async). Refactored for Engine."""
     if not await distributed_state.validate_session(virtual_id, repair=True):
-        await app_state.engine.process_event({"event_type": "RECOVER", "user_id": f"msg_{psid}"})
+        await app_state.engine.process_event({"event_type": "RECOVER", "user_id": str(virtual_id)})
         return
 
     if not await rate_limiter.can_send_message(virtual_id):

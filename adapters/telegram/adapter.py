@@ -143,7 +143,7 @@ class TelegramAdapter(BaseAdapter):
                 stats = payload.get("payload", {}) if payload else {}
                 summary_text = ""
                 if stats:
-                    summary_text = "📊 **Session Summary**\n" + format_session_summary(stats, is_user1=True) + "\n\n"
+                    summary_text = "📊 **Session Summary**\n" + format_session_summary(stats, is_user1=True, coins_balance=stats.get("coins_balance", 0)) + "\n\n"
                 
                 # 2. Determine Voting Step
                 signals = payload.get("signals", {}) if payload else {}

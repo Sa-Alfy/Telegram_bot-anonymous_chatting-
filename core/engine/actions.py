@@ -166,6 +166,25 @@ class ActionRouter:
             if not stats: return {"success": False, "error": "No active session"}
             
             p_uid = str(stats["partner_id"])
+            
+            # Create partner-facing stats by swapping U1/U2 fields
+            partner_stats = stats.copy()
+            partner_stats.update({
+                "user_id": p_uid,
+                "partner_id": uid,
+                "coins_earned": stats.get("u2_coins_earned", 0),
+                "xp_earned": stats.get("u2_xp_earned", 0),
+                "coins_balance": stats.get("u2_coins_balance", 0),
+                "total_xp": stats.get("u2_total_xp", 0),
+                "u1_levelup": stats.get("u2_levelup", False),
+                # Keep u2 fields for symmetry if needed, but the primary ones are now "ours"
+                "u2_coins_earned": stats.get("coins_earned", 0),
+                "u2_xp_earned": stats.get("xp_earned", 0),
+                "u2_coins_balance": stats.get("coins_balance", 0),
+                "u2_total_xp": stats.get("total_xp", 0),
+                "u2_levelup": stats.get("u1_levelup", False)
+            })
+
             return {
                 "success": True, 
                 "state": UnifiedState.VOTING,
@@ -176,7 +195,7 @@ class ActionRouter:
                     "user_id": p_uid, 
                     "state": UnifiedState.VOTING, 
                     "match_id": mid,
-                    "payload": stats
+                    "payload": partner_stats
                 }
             }
 

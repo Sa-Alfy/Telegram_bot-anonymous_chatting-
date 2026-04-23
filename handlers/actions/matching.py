@@ -12,7 +12,7 @@ from handlers.start import get_start_text
 from services.user_service import UserService
 from adapters.telegram.keyboards import retry_search_menu
 from state.match_state import UserState
-from utils.ui_formatters import format_session_summary, get_match_found_text
+from utils.ui_formatters import get_match_found_text
 from services.distributed_state import distributed_state
 
 

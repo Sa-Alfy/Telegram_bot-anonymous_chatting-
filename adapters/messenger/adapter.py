@@ -86,9 +86,23 @@ class MessengerAdapter(BaseAdapter):
             # Non-engine events return None to fallback
             return None
 
+        elif msg.get("attachments"):
+            from services.distributed_state import distributed_state
+            from database.repositories.user_repository import UserRepository
+            virtual_id = UserRepository._sanitize_id(uid)
+            state = await distributed_state.get_user_state(virtual_id)
+            if state == UnifiedState.CHAT_ACTIVE:
+                att = msg["attachments"][0]
+                m_type = att.get("type", "image")
+                url = att.get("payload", {}).get("url")
+                caption = msg.get("text", "").strip()
+                return self.create_event("SEND_MEDIA", uid, payload={"media_type": m_type, "url": url, "caption": caption})
+
         elif msg.get("text"):
             from services.distributed_state import distributed_state
-            state = await distributed_state.get_user_state(uid)
+            from database.repositories.user_repository import UserRepository
+            virtual_id = UserRepository._sanitize_id(uid)
+            state = await distributed_state.get_user_state(virtual_id)
             text = msg.get("text").strip()
             
             if state in {UnifiedState.REG_INTERESTS, UnifiedState.REG_LOCATION, UnifiedState.REG_BIO}:
@@ -113,15 +127,6 @@ class MessengerAdapter(BaseAdapter):
             
             if not t_lower.startswith("/"):
                 logger.info(f"DROPPED message from {uid} because state={state}")
-
-        elif msg.get("attachments"):
-            from services.distributed_state import distributed_state
-            state = await distributed_state.get_user_state(uid)
-            if state == UnifiedState.CHAT_ACTIVE:
-                att = msg["attachments"][0]
-                m_type = att.get("type", "image")
-                url = att.get("payload", {}).get("url")
-                return self.create_event("SEND_MEDIA", uid, payload={"media_type": m_type, "url": url})
 
         return None
 
@@ -211,7 +216,7 @@ class MessengerAdapter(BaseAdapter):
                 stats = payload.get("payload", {}) if payload else {}
                 summary_text = ""
                 if stats:
-                    summary_text = "📊 Session Summary\n" + format_session_summary(stats, is_user1=True) + "\n\n"
+                    summary_text = "📊 Session Summary\n" + format_session_summary(stats, is_user1=True, coins_balance=stats.get("coins_balance", 0)) + "\n\n"
 
                 signals = payload.get("signals", {}) if payload else {}
                 if not signals.get("reputation"):

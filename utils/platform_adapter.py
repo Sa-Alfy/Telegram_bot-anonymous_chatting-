@@ -59,10 +59,17 @@ class PlatformAdapter:
 
                 # 1. Handle Media First
                 if media_url:
-                    if media_type == "image":
+                    # Messenger requires a public URL for media attachments.
+                    # Telegram file_ids will NOT work here.
+                    is_url = str(media_url).startswith("http")
+                    
+                    if media_type == "image" and is_url:
                         send_image(psid, media_url)
-                    else:
+                    elif is_url:
                         send_message(psid, f"[\U0001f4ce {media_type.capitalize()}] {media_url}")
+                    else:
+                        # Fallback for Telegram native media (file_id)
+                        text = f"[\U0001f4ce {media_type.capitalize()} received] (View on Telegram)\n\n{text or ''}"
 
                 # 2. Handle Text + Buttons
                 buttons = []
