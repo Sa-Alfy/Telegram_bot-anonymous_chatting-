@@ -172,8 +172,22 @@ def get_goal_buttons(state: str = UserState.HOME):
 
 def get_interests_skip_buttons(state: str = UserState.HOME):
     return [
-        {"title": "⏩ Skip Interests", "payload": StateBoundPayload.encode("SET_INTERESTS_SKIP", "0", state)},
-        {"title": "🔙 Back To Profile",  "payload": StateBoundPayload.encode("BACK_HOME", "0", state)},
+        {"title": "\u23e9 Skip Interests", "payload": StateBoundPayload.encode("SET_INTERESTS_SKIP", "0", state)},
+        {"title": "\U0001f519 Back To Profile",  "payload": StateBoundPayload.encode("BACK_HOME", "0", state)},
+    ]
+
+def get_location_skip_buttons(state: str = UserState.HOME):
+    """Skip button for the location onboarding step."""
+    return [
+        {"title": "\u23e9 Skip Location", "payload": StateBoundPayload.encode("SET_LOCATION_SKIP", "0", state)},
+        {"title": "\U0001f519 Back", "payload": StateBoundPayload.encode("BACK_HOME", "0", state)},
+    ]
+
+def get_bio_skip_buttons(state: str = UserState.HOME):
+    """Skip button for the bio onboarding step."""
+    return [
+        {"title": "\u23e9 Skip Bio", "payload": StateBoundPayload.encode("SET_BIO_SKIP", "0", state)},
+        {"title": "\U0001f519 Back", "payload": StateBoundPayload.encode("BACK_HOME", "0", state)},
     ]
 
 CONSENT_BUTTONS = [
@@ -234,11 +248,13 @@ def get_messenger_chat_buttons(match_id: str):
     ]
 
 def get_messenger_tools_buttons(match_id: str):
-    """Hidden secondary actions."""
+    """Hidden secondary actions — Reactions added for Messenger parity with Telegram."""
     return [
-        {"title": "🧊 Icebreaker", "payload": StateBoundPayload.encode("ICEBREAKER", match_id, UnifiedState.CHAT_ACTIVE)},
-        {"title": "🔓 Reveal",      "payload": StateBoundPayload.encode("REVEAL", match_id, UnifiedState.CHAT_ACTIVE)},
-        {"title": "🚩 Report",      "payload": StateBoundPayload.encode("REPORT", match_id, UnifiedState.CHAT_ACTIVE)}
+        {"title": "\U0001f9ca Icebreaker", "payload": StateBoundPayload.encode("ICEBREAKER", match_id, UnifiedState.CHAT_ACTIVE)},
+        {"title": "\U0001f513 Reveal",      "payload": StateBoundPayload.encode("REVEAL", match_id, UnifiedState.CHAT_ACTIVE)},
+        {"title": "\U0001f6a9 Report",      "payload": StateBoundPayload.encode("REPORT", match_id, UnifiedState.CHAT_ACTIVE)},
+        {"title": "\u2764\ufe0f React Heart", "payload": StateBoundPayload.encode("REACT_HEART", match_id, UnifiedState.CHAT_ACTIVE)},
+        {"title": "\U0001f602 React Joy",  "payload": StateBoundPayload.encode("REACT_JOY", match_id, UnifiedState.CHAT_ACTIVE)},
     ]
 
 def get_messenger_vote_card(match_id: str, signal: str):

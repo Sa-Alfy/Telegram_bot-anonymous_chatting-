@@ -2,7 +2,11 @@
 
 from typing import Dict, Any, Optional
 from adapters.base import BaseAdapter
-from adapters.telegram.keyboards import *
+from adapters.telegram.keyboards import (
+    get_home_keyboard, get_searching_keyboard, get_chat_keyboard,
+    get_voting_keyboard, get_preferences_keyboard,
+    persistent_home_menu, persistent_chat_menu, get_error_keyboard
+)
 from core.engine.state_machine import UnifiedState
 from utils.renderer import StateBoundPayload
 from pyrogram import Client
@@ -115,56 +119,77 @@ class TelegramAdapter(BaseAdapter):
 
             if state == UnifiedState.HOME:
                 await self.client.send_message(
-                    uid, 
-                    "🏠 **Main Menu**\nWelcome back! Tap below to start.",
+                    uid,
+                    "\U0001f3e0 **Main Menu**\nWelcome back! Tap below to start.",
                     reply_markup=get_home_keyboard()
                 )
+                # Silently swap Reply Keyboard back to home layout
+                await self.client.send_message(uid, "\u200b", reply_markup=persistent_home_menu())
+
             elif state == UnifiedState.PREFERENCES:
                 await self.client.send_message(
                     uid,
-                    "🔍 **Matchmaking Preferences**\n\nWho are you looking for today?",
+                    "\U0001f50d **Matchmaking Preferences**\n\nWho are you looking for today?",
                     reply_markup=get_preferences_keyboard()
                 )
+
             elif state == UnifiedState.SEARCHING:
                 await self.client.send_message(
                     uid,
-                    "⏳ **Searching...**\nFinding someone for you. Please wait.",
+                    "\u23f3 **Searching...**\nFinding someone for you. Use the options below while you wait.",
                     reply_markup=get_searching_keyboard()
                 )
+
             elif state == UnifiedState.CHAT_ACTIVE:
                 await self.client.send_message(
                     uid,
-                    "🎉 **Connected!**\nYou are now chatting anonymously.",
+                    "\U0001f389 **Connected!**\nYou are now chatting anonymously.",
                     reply_markup=get_chat_keyboard(mid)
                 )
+                # Silently swap Reply Keyboard to chat layout
+                await self.client.send_message(uid, "\u200b", reply_markup=persistent_chat_menu())
+
             elif state == UnifiedState.VOTING:
                 # 1. Extract Stats for Summary
                 from utils.ui_formatters import format_session_summary
                 stats = payload.get("payload", {}) if payload else {}
                 summary_text = ""
                 if stats:
-                    summary_text = "📊 **Session Summary**\n" + format_session_summary(stats, is_user1=True, coins_balance=stats.get("coins_balance", 0)) + "\n\n"
-                
+                    summary_text = "\U0001f4ca **Session Summary**\n" + format_session_summary(stats, is_user1=True, coins_balance=stats.get("coins_balance", 0)) + "\n\n"
+
                 # 2. Determine Voting Step
                 signals = payload.get("signals", {}) if payload else {}
+                mid = mid or "global"
                 if not signals.get("reputation"):
                     await self.client.send_message(
                         uid,
-                        f"{summary_text}🗳 **Feedback Required**\nHow was your experience with this partner?",
+                        f"{summary_text}\U0001f5f3 **Feedback Required**\nHow was your experience with this partner?",
                         reply_markup=get_voting_keyboard(mid, "reputation")
                     )
                 elif not signals.get("identity"):
                     await self.client.send_message(
                         uid,
-                        f"🗳 **Identity Hint**\nOne more thing: What was their gender?",
+                        f"\U0001f5f3 **Identity Hint**\nOne more thing: What was their gender?",
                         reply_markup=get_voting_keyboard(mid, "identity")
                     )
+                else:
+                    # All votes done — push to Home
+                    await self.client.send_message(
+                        uid,
+                        "\U0001f3e0 **Back to Main Menu**\nReady for another chat?",
+                        reply_markup=get_home_keyboard()
+                    )
+                    await self.client.send_message(uid, "\u200b", reply_markup=persistent_home_menu())
             return True
         except Exception as e:
             from utils.logger import logger
             logger.error(f"Telegram Render Failed: {e}")
             return False
 
-
     async def send_error(self, user_id: str, error_msg: str):
-        await self.client.send_message(int(user_id), f"⚠️ **Error:** {error_msg}")
+        """Send an error message with recovery buttons so user is never stuck."""
+        await self.client.send_message(
+            int(user_id),
+            f"\u26a0\ufe0f **Error:** {error_msg}\n\n_Use the buttons below to recover._",
+            reply_markup=get_error_keyboard()
+        )

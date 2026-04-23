@@ -45,10 +45,23 @@ class SocialHandler:
 
     @staticmethod
     async def handle_back_to_chat(client: Client, user_id: int) -> Dict[str, Any]:
-        """Returns to the main chat menu."""
+        """Returns to the main chat menu, or home menu if user is not in a chat.
+        Guards against Admin 'Close Console' button returning a chat menu to a non-chat user.
+        """
+        from services.distributed_state import distributed_state
+        from core.engine.state_machine import UnifiedState
+        from adapters.telegram.keyboards import get_home_keyboard, get_chat_keyboard
+        state = await distributed_state.get_user_state(str(user_id))
+        if state == UnifiedState.CHAT_ACTIVE:
+            partner_id = await match_state.get_partner(user_id) or 0
+            return {
+                "text": "💬 **Chatting...**\nSelect an action below:",
+                "reply_markup": get_chat_keyboard(str(partner_id))
+            }
+        # Not in chat — return home instead of showing a stale chat menu
         return {
-            "text": "💬 **Chatting...**\nSelect an action below:",
-            "reply_markup": chat_menu()
+            "text": "🏠 **Main Menu**\nWelcome back!",
+            "reply_markup": get_home_keyboard()
         }
     
     @staticmethod

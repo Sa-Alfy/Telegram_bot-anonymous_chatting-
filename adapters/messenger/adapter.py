@@ -213,6 +213,7 @@ class MessengerAdapter(BaseAdapter):
                 res = send_quick_replies(psid, "🎉 **Connected!**\nChat anonymously. Tap 'Tools' for icebreakers.", get_messenger_chat_buttons(mid))
             elif state == UnifiedState.VOTING:
                 from utils.ui_formatters import format_session_summary
+                from adapters.messenger.ui_factory import get_messenger_post_chat_buttons
                 stats = payload.get("payload", {}) if payload else {}
                 summary_text = ""
                 if stats:
@@ -225,12 +226,12 @@ class MessengerAdapter(BaseAdapter):
                         send_message(psid, summary_text)
                     else:
                         send_message(psid, "🏁 **Chat ended by stranger.**")
+                    send_quick_replies(psid, "Or jump straight back in:", get_messenger_post_chat_buttons(mid))
                 elif not signals.get("identity"):
                     res = send_generic_template(psid, [get_messenger_vote_card(mid, "identity")])
-                    if summary_text: 
-                        send_message(psid, summary_text)
-                    else:
-                        send_message(psid, "🏁 **Chat ended by stranger.**")
+                    send_quick_replies(psid, "Or jump straight back in:", get_messenger_post_chat_buttons(mid))
+                else:
+                    res = send_quick_replies(psid, "🏠 **Back to Main Menu**\nReady for another chat?", get_messenger_home_buttons())
             
             # Check if API call returned an error
             if res and "error" in res:

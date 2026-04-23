@@ -263,14 +263,24 @@ class ActionRouter:
         elif etype == "SKIP_VOTE":
             keys = [f"sm:state:{uid}", f"sm:ver:m:{mid}", f"sm:audit_log:{mid}", idemp_key]
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SKIP_VOTE_LUA, keys, [uid, mid, str(ts)])
-            return {"success": code in {1, 2}, "state": msg, "version": ver}
+            # force_render=True ensures HOME render is not skipped by the ACK cache
+            # (prevents user getting stuck on a blank screen after voting)
+            return {"success": code in {1, 2}, "state": msg, "version": ver, "force_render": True}
 
         elif etype == "NEXT_MATCH":
             state = await redis.get(f"sm:state:{uid}")
             if state in (UnifiedState.CHAT_ACTIVE, UnifiedState.VOTING):
-                await cls.process_event({"event_type": "END_CHAT", "user_id": uid, "match_id": mid, "timestamp": ts})
-                await cls.process_event({"event_type": "SKIP_VOTE", "user_id": uid, "match_id": mid, "timestamp": ts})
-                return await cls.process_event({"event_type": "START_SEARCH", "user_id": uid, "timestamp": ts})
+                # Call _handle_event directly to suppress intermediate UI renders.
+                # Only the final START_SEARCH result is returned, so only ONE
+                # render fires (SEARCHING) instead of VOTING -> HOME -> SEARCHING flicker.
+                ec_key = cls.generate_idemp_key(uid, "END_CHAT", mid, ts)
+                sv_key = cls.generate_idemp_key(uid, "SKIP_VOTE", mid, ts)
+                ss_key = cls.generate_idemp_key(uid, "START_SEARCH", "global", ts)
+
+                if state == UnifiedState.CHAT_ACTIVE:
+                    await cls._handle_event("END_CHAT", uid, mid, ts, payload, ec_key, redis)
+                await cls._handle_event("SKIP_VOTE", uid, mid, ts, payload, sv_key, redis)
+                return await cls._handle_event("START_SEARCH", uid, "global", ts, {}, ss_key, redis)
             return {"success": False, "error": "VOTING_INCOMPLETE", "current_state": state}
 
         elif etype == "SHOW_PROFILE":

@@ -169,6 +169,12 @@ CALLBACK_MAP: Dict[str, Callable[[Client, int, Any], Coroutine[Any, Any, Dict[st
     # Leaderboard filters
     "lb_event": lambda c, uid, _: StatsHandler.handle_leaderboard_category(c, uid, "event"),
     "lb_all":   lambda c, uid, _: StatsHandler.handle_leaderboard_category(c, uid, "all"),
+    "lb_hourly": lambda c, uid, _: StatsHandler.handle_leaderboard_category(c, uid, "hourly"),
+    "lb_daily":  lambda c, uid, _: StatsHandler.handle_leaderboard_category(c, uid, "daily"),
+    "lb_weekly": lambda c, uid, _: StatsHandler.handle_leaderboard_category(c, uid, "weekly"),
+    "lb_vip":    lambda c, uid, _: StatsHandler.handle_leaderboard_category(c, uid, "vip"),
+    # Legacy search button — routes to preferences (engine SHOW_PREFS)
+    "search":   lambda c, uid, _: MatchingHandler.handle_search(c, uid),
     
     # Reactions
     "react_heart": lambda c, uid, _: SocialHandler.handle_reaction(c, uid, "heart"),
@@ -282,17 +288,9 @@ async def on_callback(client: Client, query: CallbackQuery):
     # 2. Translate to Event via Adapter
     event = await app_state.tg_adapter.translate_event(query)
     if not event:
-        # LEGACY FALLBACK: Direct routing for non-engine buttons (search, stats, etc)
-        if data == "search":
-            from handlers.actions.matching import MatchingHandler
-            await MatchingHandler.handle_search(client, user_id_int)
-            return await query.answer()
-        elif data == "stats":
-            from handlers.actions.stats import StatsHandler
-            await StatsHandler.handle_stats(client, user_id_int)
-            return await query.answer()
+        # LEGACY FALLBACK: for unrecognised callbacks not yet in CALLBACK_MAP
         return await query.answer()
-        
+
     if event["event_type"] == "LEGACY_DISPATCH":
         raw = event["payload"]["raw_data"]
         action_key = raw.split(":")[0].lower()

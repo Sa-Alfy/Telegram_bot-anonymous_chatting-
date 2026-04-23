@@ -204,9 +204,12 @@ def chat_menu(current_state: str = UserState.CHATTING, partner_id: int = 0):
     ])
 
 def persistent_chat_menu():
-    """Telegram Persistent Reply Keyboard for easier access during chat."""
+    """Telegram Persistent Reply Keyboard during chat.
+    NOTE: 'Stop Chatting' intentionally removed — only ONE end-chat button exists
+    (the inline 🛑 End Chat button). This prevents duplicate action confusion.
+    """
     return ReplyKeyboardMarkup([
-        [KeyboardButton("⏮ Next (Skip)"), KeyboardButton("🛑 Stop Chatting")],
+        [KeyboardButton("⏮ Next (Skip)")],
         [KeyboardButton("👤 My Stats"), KeyboardButton("ℹ️ Help")]
     ], resize_keyboard=True)
 
@@ -384,49 +387,79 @@ def retry_search_menu(current_state: str = UserState.HOME):
 # ─────────────────────────────────────────────────────────────────────
 
 def get_home_keyboard():
+    """Unified engine home keyboard — matches legacy start_menu() feature set."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔍 Find Partner", callback_data=StateBoundPayload.encode("START_SEARCH", "0", UnifiedState.HOME))],
-        [InlineKeyboardButton("👤 Profile", callback_data="CMD_PROFILE"), InlineKeyboardButton("📊 Stats", callback_data="STATS")]
+        [
+            InlineKeyboardButton("👤 Profile", callback_data="CMD_PROFILE"),
+            InlineKeyboardButton("📊 Stats", callback_data="stats")
+        ],
+        [
+            InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard"),
+            InlineKeyboardButton("🛍 Shop", callback_data="seasonal_shop")
+        ],
+        [InlineKeyboardButton("ℹ️ How it Works", callback_data="help")]
     ])
 
 def get_searching_keyboard():
+    """Engine searching keyboard — includes priority options."""
+    state = UnifiedState.SEARCHING
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("❌ Cancel Search", callback_data=StateBoundPayload.encode("STOP_SEARCH", "0", UnifiedState.SEARCHING))]
+        [InlineKeyboardButton("⚡ Priority Match (5 coins)", callback_data=StateBoundPayload.encode("SEARCH_PREF", "Priority", state))],
+        [
+            InlineKeyboardButton("💎 Priority Packs", callback_data=StateBoundPayload.encode("priority_packs", "0", state)),
+            InlineKeyboardButton("🚀 Boosters", callback_data=StateBoundPayload.encode("booster_menu", "0", state))
+        ],
+        [InlineKeyboardButton("❌ Cancel Search", callback_data=StateBoundPayload.encode("STOP_SEARCH", "0", state))]
     ])
 
 def get_chat_keyboard(match_id: str):
-    """Full visibility for Telegram power users."""
+    """Engine chat keyboard — single End Chat button, full action set."""
     state = UnifiedState.CHAT_ACTIVE
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("⏭️ Next", callback_data=StateBoundPayload.encode("NEXT_MATCH", match_id, state)),
-            InlineKeyboardButton("🛑 End", callback_data=StateBoundPayload.encode("END_CHAT", match_id, state))
+            InlineKeyboardButton("🛑 End Chat", callback_data=StateBoundPayload.encode("END_CHAT", match_id, state))
         ],
         [
             InlineKeyboardButton("🧊 Icebreaker", callback_data=StateBoundPayload.encode("ICEBREAKER", match_id, state)),
             InlineKeyboardButton("🔓 Reveal", callback_data=StateBoundPayload.encode("REVEAL", match_id, state))
         ],
-        [InlineKeyboardButton("🚩 Report", callback_data=StateBoundPayload.encode("REPORT", match_id, state))]
+        [
+            InlineKeyboardButton("❤️ Reactions", callback_data=StateBoundPayload.encode("open_reactions", "0", state)),
+            InlineKeyboardButton("🚩 Report", callback_data=StateBoundPayload.encode("REPORT", match_id, state))
+        ]
     ])
 
 def get_voting_keyboard(match_id: str, step: str = "reputation"):
+    """Voting keyboard — always has a Find New Partner escape so user never gets stuck."""
     state = UnifiedState.VOTING
+    find_new = InlineKeyboardButton(
+        "🔍 Find New Partner",
+        callback_data=StateBoundPayload.encode("NEXT_MATCH", match_id, state)
+    )
+    skip_btn = InlineKeyboardButton(
+        "⏩ Skip",
+        callback_data=StateBoundPayload.encode("SKIP_VOTE", match_id, state)
+    )
     if step == "reputation":
         return InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("👍 Good", callback_data=StateBoundPayload.encode("VOTE", f"reputation:good", match_id)),
-                InlineKeyboardButton("👎 Bad", callback_data=StateBoundPayload.encode("VOTE", f"reputation:bad", match_id))
+                InlineKeyboardButton("👍 Good", callback_data=StateBoundPayload.encode("VOTE", "reputation:good", match_id)),
+                InlineKeyboardButton("👎 Bad", callback_data=StateBoundPayload.encode("VOTE", "reputation:bad", match_id))
             ],
-            [InlineKeyboardButton("⏩ Skip Feedback", callback_data=StateBoundPayload.encode("SKIP_VOTE", match_id, state))]
+            [skip_btn],
+            [find_new]
         ])
     elif step == "identity":
         return InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("👨 Male", callback_data=StateBoundPayload.encode("VOTE", f"identity:male", match_id)),
-                InlineKeyboardButton("👩 Female", callback_data=StateBoundPayload.encode("VOTE", f"identity:female", match_id)),
-                InlineKeyboardButton("❓ Unsure", callback_data=StateBoundPayload.encode("VOTE", f"identity:unsure", match_id))
+                InlineKeyboardButton("👨 Male", callback_data=StateBoundPayload.encode("VOTE", "identity:male", match_id)),
+                InlineKeyboardButton("👩 Female", callback_data=StateBoundPayload.encode("VOTE", "identity:female", match_id)),
+                InlineKeyboardButton("❓ Unsure", callback_data=StateBoundPayload.encode("VOTE", "identity:unsure", match_id))
             ],
-            [InlineKeyboardButton("⏩ Skip Feedback", callback_data=StateBoundPayload.encode("SKIP_VOTE", match_id, state))]
+            [skip_btn],
+            [find_new]
         ])
 
 def get_preferences_keyboard():
@@ -438,4 +471,11 @@ def get_preferences_keyboard():
             InlineKeyboardButton("👩 Female (15 coins)", callback_data=StateBoundPayload.encode("SEARCH_PREF", "Female", state))
         ],
         [InlineKeyboardButton("🔙 Back", callback_data=StateBoundPayload.encode("STOP_SEARCH", "0", state))]
+    ])
+
+def get_error_keyboard():
+    """Recovery keyboard attached to all error messages so users are never stuck."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏠 Return to Home", callback_data="cancel_search")],
+        [InlineKeyboardButton("🔄 Recover Session", callback_data=StateBoundPayload.encode("RECOVER", "0", ""))]
     ])

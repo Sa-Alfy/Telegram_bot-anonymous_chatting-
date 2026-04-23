@@ -30,18 +30,19 @@ def _fire(coro):
 class MatchingHandler:
     @staticmethod
     async def handle_search(client: Client, user_id: int, platform: str = "telegram") -> Dict[str, Any]:
-        """Prompts the user for their matchmaking preferences."""
+        """Prompts the user for their matchmaking preferences using the unified engine keyboard."""
         if not await rate_limiter.can_matchmake(user_id, update=False):
             remaining = await rate_limiter.get_cooldown_remaining(user_id, "matchmake") or 0
+            from adapters.telegram.keyboards import get_error_keyboard
             return {
-                "text": f"⏳ **Please slow down!**\nWait {remaining:.1f}s before opening choices again.",
-                "reply_markup": retry_search_menu(UserState.HOME)
+                "text": f"⏳ **Please slow down!**\nWait {remaining:.1f}s before searching again.",
+                "reply_markup": get_error_keyboard()
             }
-            
-        current_state = await match_state.get_user_state(user_id) or UserState.HOME
+
+        from adapters.telegram.keyboards import get_preferences_keyboard
         return {
             "text": "🔍 **Matchmaking Preferences**\n\nWho are you looking for today?",
-            "reply_markup": retry_search_menu(current_state)
+            "reply_markup": get_preferences_keyboard()
         }
 
     @staticmethod

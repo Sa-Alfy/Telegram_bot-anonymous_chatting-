@@ -25,6 +25,14 @@ async def stop_button_handler(client: Client, message: Message):
 
 @Client.on_message(filters.regex(r"^⏮ Next") & filters.private)
 async def next_button_handler(client: Client, message: Message):
+    # Guard: only fire if user is actually in a chat session.
+    # Prevents "Action failed" errors when the stale Reply Keyboard is visible at Home.
+    from state.match_state import match_state as _ms
+    from core.engine.state_machine import UnifiedState
+    from services.distributed_state import distributed_state
+    state = await distributed_state.get_user_state(str(message.from_user.id))
+    if state not in (UnifiedState.CHAT_ACTIVE, UnifiedState.VOTING):
+        return  # Silently ignore stale button press
     from handlers.actions.matching import MatchingHandler
     resp = await MatchingHandler.handle_next(client, message.from_user.id)
     if resp:
