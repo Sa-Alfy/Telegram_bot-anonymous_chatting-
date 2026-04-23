@@ -44,6 +44,66 @@ class SocialHandler:
         }
 
     @staticmethod
+    async def handle_gift_menu(client: Client, user_id: int) -> Dict[str, Any]:
+        """Shows the gift shop menu during a chat."""
+        if not await match_state.is_in_chat(user_id):
+            return {"alert": "❌ You are not in a chat!", "show_alert": True}
+            
+        from adapters.telegram.keyboards import gift_menu
+        from services.economy_service import GIFT_TYPES
+        
+        text = "🎁 **Send a Premium Gift**\n\nGifts are a great way to show appreciation and gain special perks!\n\n"
+        for key, gift in GIFT_TYPES.items():
+            text += f"{gift['name']} ({gift['cost']} coins)\n_ {gift['desc']} _\n\n"
+            
+        text += "Select a gift to send:"
+        
+        return {
+            "text": text,
+            "reply_markup": gift_menu()
+        }
+
+    @staticmethod
+    async def handle_send_gift(client: Client, user_id: int, gift_key: str) -> Dict[str, Any]:
+        """Sends a gift to the partner."""
+        if not await match_state.is_in_chat(user_id):
+            return {"alert": "❌ You are not in a chat!", "show_alert": True}
+            
+        partner_id = await match_state.get_partner(user_id)
+        if not partner_id:
+            return {"alert": "❌ Partner disconnected.", "show_alert": True}
+            
+        from services.economy_service import EconomyService, GIFT_TYPES
+        
+        # Don't let users gift Echo AI (except maybe as a joke, but let's block for economy safety)
+        if partner_id == 1:
+            return {"alert": "🤖 System AI does not accept gifts!", "show_alert": True}
+            
+        result = await EconomyService.send_gift(user_id, partner_id, gift_key)
+        
+        if not result["success"]:
+            return {"alert": f"❌ {result['message']}", "show_alert": True}
+            
+        gift = GIFT_TYPES[gift_key]
+        
+        # Build the response text for sender
+        response_text = f"✅ You sent a {gift['name']} to your partner!"
+        if result.get("reveal_data"):
+            rd = result["reveal_data"]
+            response_text += f"\n\n👑 **Partner's Secret Info** 👑\n📝 Bio: {rd['bio']}\n📍 Location: {rd['location']}"
+            
+        return {
+            "alert": "✅ Gift Sent!",
+            "show_alert": True,
+            "text": response_text + "\n\n💬 **Chatting...**\nSelect an action below:",
+            "reply_markup": chat_menu(),
+            "notify_partner": {
+                "target_id": partner_id,
+                "text": f"🎁 **You received a gift!**\nYour partner sent you a {gift['name']}!\n_ {gift['desc']} _"
+            }
+        }
+
+    @staticmethod
     async def handle_back_to_chat(client: Client, user_id: int) -> Dict[str, Any]:
         """Returns to the main chat menu, or home menu if user is not in a chat.
         Guards against Admin 'Close Console' button returning a chat menu to a non-chat user.

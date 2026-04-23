@@ -89,6 +89,7 @@ CALLBACK_MAP: Dict[str, Callable[[Client, int, Any], Coroutine[Any, Any, Dict[st
     
     # Social
     "open_reactions": lambda c, uid, _: SocialHandler.handle_open_reactions(c, uid),
+    "gift_menu": lambda c, uid, _: SocialHandler.handle_gift_menu(c, uid),
     "back_to_chat": lambda c, uid, _: SocialHandler.handle_back_to_chat(c, uid),
     "cancel_reactions": lambda c, uid, _: SocialHandler.handle_back_to_chat(c, uid),
     "report": lambda c, uid, _: SocialHandler.handle_report(c, uid),
@@ -322,6 +323,9 @@ async def on_callback(client: Client, query: CallbackQuery):
             elif action_key.startswith("confirm_reveal_"):
                 cost = int(action_key.split("_")[-1])
                 response = await EconomyHandler.handle_confirm_reveal(client, uid_int, cost)
+            elif action_key.startswith("send_gift_"):
+                gift_key = action_key.replace("send_gift_", "")
+                response = await SocialHandler.handle_send_gift(client, uid_int, gift_key)
             else:
                 logger.warning(f"Unhandled callback: {raw}")
                 return await query.answer("This button isn't available right now.", show_alert=True)

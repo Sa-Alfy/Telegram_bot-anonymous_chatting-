@@ -126,8 +126,31 @@ def get_chat_menu_buttons(state: str = UserState.HOME, partner_id: int = 0):
         {"title": "👁 Reveal",      "payload": StateBoundPayload.encode("REVEAL", target, state)},
         {"title": "⚠️ Report",      "payload": StateBoundPayload.encode("REPORT", target, state)},
         {"title": "🚫 Block",       "payload": StateBoundPayload.encode("BLOCK_PARTNER", target, state)},
-        {"title": "💌 Add Friend",  "payload": StateBoundPayload.encode("ADD_FRIEND", target, state)},
+        {"title": "🎁 Send Gift",    "payload": StateBoundPayload.encode("GIFT_MENU", target, state)},
         {"title": "🎲 Icebreaker",  "payload": StateBoundPayload.encode("ICEBREAKER", target, state)},
+    ]
+
+def get_gift_store_elements(state: str = UserState.HOME):
+    """Generates the Generic Template elements for the Social Gifting Store."""
+    return [
+        {
+            "title": "🌹 Rose (10 coins)",
+            "subtitle": "Send a rose! Gives them +1 Karma.",
+            "image_url": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800&q=80",
+            "buttons": [{"type": "postback", "title": "Send Rose", "payload": StateBoundPayload.encode("SEND_GIFT_rose", "0", state)}]
+        },
+        {
+            "title": "💎 Diamond (100 coins)",
+            "subtitle": "2x XP for 1 hour for BOTH of you!",
+            "image_url": "https://images.unsplash.com/photo-1573059224707-1e582a4ebce6?w=800&q=80",
+            "buttons": [{"type": "postback", "title": "Send Diamond", "payload": StateBoundPayload.encode("SEND_GIFT_diamond", "0", state)}]
+        },
+        {
+            "title": "👑 Treasure Chest (500 coins)",
+            "subtitle": "2x Coins for 3 hours + Reveals their Bio & Location!",
+            "image_url": "https://images.unsplash.com/photo-1616423640778-28d1b53229bd?w=800&q=80",
+            "buttons": [{"type": "postback", "title": "Send Treasure", "payload": StateBoundPayload.encode("SEND_GIFT_treasure", "0", state)}]
+        }
     ]
 
 def get_end_menu_buttons(state: str = UserState.HOME, partner_id: int = None):

@@ -200,7 +200,16 @@ def chat_menu(current_state: str = UserState.CHATTING, partner_id: int = 0):
         [
             InlineKeyboardButton("🎲 Icebreaker (5 Coins)", callback_data=StateBoundPayload.encode("icebreaker", "0", state_str)),
             InlineKeyboardButton("❤️ Reactions", callback_data=StateBoundPayload.encode("open_reactions", "0", state_str))
-        ]
+        ],
+        [InlineKeyboardButton("🎁 Send Gift", callback_data=StateBoundPayload.encode("gift_menu", "0", state_str))]
+    ])
+
+def gift_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌹 Rose (10 coins)", callback_data="send_gift_rose")],
+        [InlineKeyboardButton("💎 Diamond (100 coins)", callback_data="send_gift_diamond")],
+        [InlineKeyboardButton("👑 Treasure Chest (500 coins)", callback_data="send_gift_treasure")],
+        [InlineKeyboardButton("🔙 Back to Chat", callback_data="back_to_chat")]
     ])
 
 def persistent_chat_menu():

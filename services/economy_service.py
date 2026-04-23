@@ -18,6 +18,12 @@ SHOP_ITEMS = {
     "badge_seasonal": {"name": "🏅 Seasonal Badge",      "cost": 500,                     "type": "cosmetic"}
 }
 
+# Configuration for social gifts
+GIFT_TYPES = {
+    "rose": {"name": "🌹 Rose", "cost": 10, "effect": "karma_1", "desc": "+1 Karma for the receiver."},
+    "diamond": {"name": "💎 Diamond", "cost": 100, "effect": "xp_boost", "desc": "2x XP for 1 hour for both of you."},
+    "treasure": {"name": "👑 Treasure Chest", "cost": 500, "effect": "treasure_boost", "desc": "2x Coins for 3 hours + Reveals their Bio & Location to you!"}
+}
 
 class EconomyService:
     @staticmethod
@@ -139,6 +145,68 @@ class EconomyService:
 
         await UserRepository.update(user_id, **update_data)
         return {"success": True, "message": f"Successfully bought {item['name']}!"}
+
+    @staticmethod
+    async def send_gift(sender_id: int, receiver_id: int, gift_key: str) -> Dict[str, Any]:
+        """Handles sending a gift to another user and applying effects."""
+        from database.repositories.gift_repository import GiftRepository
+        
+        if gift_key not in GIFT_TYPES:
+            return {"success": False, "message": "Invalid gift type."}
+            
+        gift = GIFT_TYPES[gift_key]
+        sender = await UserRepository.get_by_telegram_id(sender_id)
+        
+        if not sender or sender.get("coins", 0) < gift["cost"]:
+            return {"success": False, "message": "Insufficient coins."}
+            
+        # Deduct coins from sender
+        if not await UserService.deduct_coins(sender_id, gift["cost"]):
+            return {"success": False, "message": "Transaction failed."}
+            
+        # Log the gift
+        await GiftRepository.log_gift(sender_id, receiver_id, gift_key, gift["cost"])
+        
+        # Apply effects
+        effect = gift["effect"]
+        reveal_data = None
+        
+        if effect == "karma_1":
+            # Add 1 karma to receiver
+            receiver = await UserRepository.get_by_telegram_id(receiver_id)
+            if receiver:
+                new_karma = receiver.get("karma", 0) + 1
+                await UserRepository.update(receiver_id, karma=new_karma)
+                
+        elif effect == "xp_boost":
+            # 2x XP for 1 hour (3600s) for both
+            await EconomyService.activate_booster(sender_id, "xp", 3600)
+            await EconomyService.activate_booster(receiver_id, "xp", 3600)
+            
+        elif effect == "treasure_boost":
+            # 2x Coins for 3 hours (10800s) for both
+            await EconomyService.activate_booster(sender_id, "coin", 10800)
+            await EconomyService.activate_booster(receiver_id, "coin", 10800)
+            
+            # Reveal Bio and Location to sender
+            receiver = await UserRepository.get_by_telegram_id(receiver_id)
+            if receiver:
+                reveal_data = {
+                    "bio": receiver.get("bio", "No bio provided."),
+                    "location": receiver.get("location", "Secret")
+                }
+                from database.repositories.reveal_repository import RevealRepository
+                await RevealRepository.log_reveal(sender_id, receiver_id, "gift_treasure", gift["cost"])
+                
+        # Update generosity for sender
+        new_generosity = sender.get("generosity", 0) + gift["cost"]
+        await UserRepository.update(sender_id, generosity=new_generosity)
+        
+        return {
+            "success": True, 
+            "message": f"Successfully sent {gift['name']}!",
+            "reveal_data": reveal_data
+        }
 
 # ═══════════════════════════════════════════════════════════════════════
 # END OF economy_service.py

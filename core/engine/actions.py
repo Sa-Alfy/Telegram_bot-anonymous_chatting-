@@ -479,6 +479,15 @@ class ActionRouter:
             success = response and "error" not in response
             return {"success": success, "response": response}
 
+        elif etype == "SEND_GIFT":
+            from handlers.actions.social import SocialHandler
+            c_uid = UserRepository._sanitize_id(uid)
+            gift_key = payload.get("gift_key")
+            if not gift_key: return {"success": False, "error": "Missing gift key."}
+            response = await SocialHandler.handle_send_gift(app_state.telegram_app, c_uid, gift_key)
+            success = response and "error" not in response
+            return {"success": success, "response": response}
+
         elif etype == "SEND_ICEBREAKER":
             from handlers.actions.matching import MatchingHandler
             c_uid = UserRepository._sanitize_id(uid)

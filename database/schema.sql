@@ -125,13 +125,28 @@ CREATE TABLE IF NOT EXISTS friends (
     UNIQUE(user_id, friend_id)
 );
 
+CREATE TABLE IF NOT EXISTS user_gifts (
+    id SERIAL PRIMARY KEY,
+    sender_id BIGINT NOT NULL,
+    receiver_id BIGINT NOT NULL,
+    gift_type TEXT NOT NULL,
+    cost INTEGER NOT NULL,
+    timestamp BIGINT NOT NULL,
+    FOREIGN KEY (sender_id) REFERENCES users(telegram_id),
+    FOREIGN KEY (receiver_id) REFERENCES users(telegram_id)
+);
+
 -- Indices for performance
 CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_users ON sessions(user1_id, user2_id);
 CREATE INDEX IF NOT EXISTS idx_reports_reported ON reports_bans(reported_id);
 CREATE INDEX IF NOT EXISTS idx_friends_users ON friends(user_id, friend_id);
 CREATE INDEX IF NOT EXISTS idx_blocked_users ON blocked_users(blocker_id, blocked_id);
+CREATE INDEX IF NOT EXISTS idx_user_gifts_receiver ON user_gifts(receiver_id);
 
 -- Dynamic additions (run safely on every start)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS given_likes INTEGER DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS given_dislikes INTEGER DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS karma INTEGER DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS generosity INTEGER DEFAULT 0;
+

@@ -77,6 +77,13 @@ class MessengerAdapter(BaseAdapter):
                 parts = action.split("_")
                 cost = int(parts[-1]) if parts[-1].isdigit() else 15
                 return self.create_event("CONFIRM_REVEAL", uid, payload={"cost": cost})
+            elif action == "GIFT_MENU":
+                # UI re-render, no engine action needed
+                await self.render_gift_store(psid, mid)
+                return None
+            elif action.startswith("SEND_GIFT_"):
+                gift_key = action.replace("SEND_GIFT_", "").lower()
+                return self.create_event("SEND_GIFT", uid, payload={"gift_key": gift_key})
             elif action in {"CMD_START", "BACK_HOME", "HOME_MENU"}:
                 return self.create_event("SET_STATE", uid, payload={"new_state": "HOME"})
             elif action in {"START_ONBOARDING", "REG_START"}:
@@ -275,6 +282,11 @@ class MessengerAdapter(BaseAdapter):
     async def render_tools(self, psid: str, match_id: str):
         """Messenger-only: Progressive disclosure of tools."""
         send_quick_replies(psid, "🛠 **Companion Tools**", get_messenger_tools_buttons(match_id))
+
+    async def render_gift_store(self, psid: str, match_id: str):
+        """Messenger-only: Shows the Gift Store carousel."""
+        from adapters.messenger.ui_factory import get_gift_store_elements
+        send_generic_template(psid, get_gift_store_elements(UnifiedState.CHAT_ACTIVE))
 
     async def send_error(self, user_id: str, error_msg: str):
         psid = user_id[4:] if user_id.startswith("msg_") else user_id
