@@ -160,6 +160,12 @@ async def get_queue(_=Depends(verify_token)):
         queue_data.append({"user_id": m, "prefs": prefs})
         
     return {"queue_length": len(members), "users": queue_data}
+    
+@app.delete("/admin/queue")
+async def clear_queue_api(_=Depends(verify_token)):
+    from services.distributed_state import distributed_state
+    await distributed_state.clear_queue()
+    return {"status": "Queue cleared"}
 
 @app.get("/admin/sessions")
 async def get_active_sessions(_=Depends(verify_token)):
@@ -183,20 +189,31 @@ async def get_active_sessions(_=Depends(verify_token)):
             })
     return {"active_sessions": len(sessions), "sessions": sessions}
 
+@app.get("/admin/stats/distribution")
+async def get_state_distribution(_=Depends(verify_token)):
+    if not redis_client: raise HTTPException(status_code=503, detail="Redis unavailable")
+    
+    distribution = {}
+    cursor = 0
+    while True:
+        cursor, keys = await redis_client.scan(cursor=cursor, match="sm:state:*", count=1000)
+        if keys:
+            # Fetch values in batches
+            states = await redis_client.mget(keys)
+            for s in states:
+                if s:
+                    distribution[s] = distribution.get(s, 0) + 1
+        if cursor == 0:
+            break
+            
+    return {"distribution": distribution}
+
 
 @app.post("/admin/disconnect/{user_id}")
 async def force_disconnect(user_id: str, _=Depends(verify_token)):
-    # Very crude fallback injection, ideally we'd send an event to ActionRouter
-    # For now, let's just send an END_CHAT event through Redis Streams if we had an ingress stream,
-    # or directly wipe it. Direct wiping might desync UI, so we push to a 'commands' stream or use the ActionRouter directly.
-    # Because admin runs in a separate process, it cannot directly call MatchmakingService.disconnect()
-    # unless we use Redis to signal it.
-    # We will simulate a REST call or just use the Redis Lua fallback
+
     if not redis_client: raise HTTPException(status_code=503, detail="Redis unavailable")
     
-    # We will just wipe it in Redis for a hard reset, the bot's reconciler will eventually catch it.
-    # Better yet, since we have distributed_state, we can reimplement the lua script here or wait.
-    # Actually, the user wants "POST /admin/disconnect/{user_id}".
     lua = """
     local partnerA = redis.call("GET", "sm:partner:" .. ARGV[1])
     if partnerA then

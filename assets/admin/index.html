@@ -35,10 +35,18 @@
                     <span class="value" id="stat-active-sessions">0</span>
                 </div>
             </div>
+
+            <h3>State Distribution 📊</h3>
+            <div id="state-distribution" class="dist-list">
+                <!-- Populated via JS -->
+            </div>
             
             <h3>Stuck User Detector ⚠️</h3>
             <div id="stuck-users-list" class="warning-list">
                 <!-- Populated via JS -->
+            </div>
+            <div class="panel-actions">
+                <button class="danger" onclick="clearQueue()">Clear Queue</button>
             </div>
         </section>
 

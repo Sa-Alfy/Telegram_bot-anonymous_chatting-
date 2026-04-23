@@ -51,7 +51,13 @@ async function connectWS() {
     socket.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.type === "event") {
-            appendTrace(data.payload);
+            const payload = data.payload;
+            appendTrace(payload);
+            
+            // Check for violations
+            if (payload.event === "INVARIANT_VIOLATION") {
+                appendViolation(payload);
+            }
         }
     };
 }
@@ -62,9 +68,11 @@ function appendTrace(payload) {
     
     // Determine status class
     let statusClass = payload.success ? "success" : "error";
-    if (payload.event_type === "CMD_START") statusClass = "success";
-    if (payload.event_type === "SYSTEM_ERROR") statusClass = "fatal";
-    if (payload.event_type === "SYSTEM_WARNING") statusClass = "warning";
+    const etype = payload.event || payload.event_type || "UNKNOWN";
+    
+    if (etype === "ACTION_START") statusClass = "success";
+    if (etype === "SYSTEM_ERROR" || etype === "INVARIANT_VIOLATION") statusClass = "fatal";
+    if (etype === "SYSTEM_WARNING") statusClass = "warning";
     
     entry.className = `trace-entry ${statusClass}`;
     
@@ -73,15 +81,15 @@ function appendTrace(payload) {
     
     entry.innerHTML = `
         <div class="trace-header">
-            <span>[${timeStr}] <span class="trace-function">${payload.event_type}</span></span>
+            <span>[${timeStr}] <span class="trace-function">${etype}</span></span>
             <span class="tag">${duration}</span>
         </div>
         <div class="trace-meta">
-            <span class="tag">UID: ${payload.user_id}</span>
+            <span class="tag">UID: ${payload.user_id || "system"}</span>
             <span class="tag">MID: ${payload.match_id || "global"}</span>
             <span class="tag">STATE: ${payload.state || "unknown"}</span>
         </div>
-        <div class="trace-payload">${JSON.stringify(payload.payload || {}, null, 2)}</div>
+        <div class="trace-payload">${JSON.stringify(payload.data || payload.payload || {}, null, 2)}</div>
         ${payload.error ? `<div style="color: var(--danger); font-size: 0.75rem; margin-top: 5px;">⚠️ ERROR: ${payload.error}</div>` : ""}
     `;
     
@@ -93,6 +101,26 @@ function appendTrace(payload) {
     }
 }
 
+function appendViolation(payload) {
+    const list = document.getElementById("violations-list");
+    const entry = document.createElement("div");
+    entry.className = "violation-entry";
+    
+    const timeStr = new Date().toLocaleTimeString();
+    const data = payload.data || {};
+    
+    entry.innerHTML = `
+        <div class="violation-header">
+            <span class="tag danger">🚨 ${data.violation || "INVARIANT_VIOLATION"}</span>
+            <span class="time">${timeStr}</span>
+        </div>
+        <div class="violation-msg">${data.message || "Unknown violation"}</div>
+        <div class="violation-meta">User: ${payload.user_id} | Peer: ${payload.peer_id || "None"}</div>
+    `;
+    
+    list.prepend(entry);
+}
+
 async function refreshStats() {
     try {
         const qRes = await fetch("/admin/queue", { headers: { "Authorization": `Bearer ${token}` } });
@@ -101,12 +129,56 @@ async function refreshStats() {
         const queue = await qRes.json();
         const sessions = await sRes.json();
         
+        const dRes = await fetch("/admin/stats/distribution", { headers: { "Authorization": `Bearer ${token}` } });
+        const dist = await dRes.json();
+        
         document.getElementById("stat-queue-len").innerText = queue.queue_length || 0;
         document.getElementById("stat-active-sessions").innerText = sessions.active_sessions || 0;
+        
+        updateStuckUsers(queue.users || []);
+        renderDistribution(dist.distribution || {});
     } catch (e) {
         console.error("Stats refresh failed", e);
     }
-    setTimeout(refreshStats, 30000);
+    setTimeout(refreshStats, 5000); // More frequent updates for debugging
+}
+
+function renderDistribution(dist) {
+    const container = document.getElementById("state-distribution");
+    if (!container) return;
+    
+    if (Object.keys(dist).length === 0) {
+        container.innerHTML = '<div class="empty-state">No active users</div>';
+        return;
+    }
+    
+    // Sort states by count descending
+    const sorted = Object.entries(dist).sort((a, b) => b[1] - a[1]);
+    
+    container.innerHTML = sorted.map(([state, count]) => `
+        <div class="dist-item">
+            <span class="dist-label">${state}</span>
+            <span class="dist-count">${count}</span>
+        </div>
+    `).join('');
+}
+
+function updateStuckUsers(users) {
+    const list = document.getElementById("stuck-users-list");
+    if (!users.length) {
+        list.innerHTML = '<div class="empty-state">No users in queue</div>';
+        return;
+    }
+    
+    list.innerHTML = users.map(u => `
+        <div class="warning-item" onclick="document.getElementById('inspect-user-id').value='${u.user_id}'; inspectUser();">
+            <div class="warning-header">
+                <span class="warning-uid">${u.user_id}</span>
+                <span class="tag">${u.prefs.pref || 'Any'}</span>
+            </div>
+            <div class="warning-meta">Gender: ${u.prefs.gender || 'N/A'}</div>
+        </div>
+    `).join('');
 }
 
 async function inspectUser() {
@@ -140,6 +212,21 @@ async function forceDisconnect() {
         inspectUser();
     } catch (e) {
         alert("Force disconnect failed");
+    }
+}
+
+async function clearQueue() {
+    if (!confirm("Are you sure you want to CLEAR THE ENTIRE QUEUE?")) return;
+    
+    try {
+        await fetch("/admin/queue", { 
+            method: "DELETE",
+            headers: { "Authorization": `Bearer ${token}` } 
+        });
+        alert("Queue cleared");
+        refreshStats();
+    } catch (e) {
+        alert("Clear queue failed");
     }
 }
 
