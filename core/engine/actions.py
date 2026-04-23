@@ -2,6 +2,8 @@
 
 import time
 import hashlib
+import asyncio
+import json
 from typing import Dict, Any, Optional
 from utils.logger import logger
 from core.engine.state_machine import UnifiedState
@@ -34,25 +36,10 @@ class ActionRouter:
         ts = event.get("timestamp", int(time.time()))
         payload = event.get("payload", {})
 
-        EventLogger.log_event(
-            event=TelemetryEvent.ACTION_START,
-            layer="action_router",
-            status=TelemetryEvent.INFO,
-            user_id=uid,
-            data={"action": etype, "match_id": mid, "payload": payload}
-        )
-
         idemp_key = cls.generate_idemp_key(uid, etype, mid, ts)
         redis = distributed_state.redis
 
         if not redis:
-            EventLogger.log_event(
-                event=TelemetryEvent.ACTION_END,
-                layer="action_router",
-                status=TelemetryEvent.FAIL,
-                user_id=uid,
-                data={"error": "Redis not connected"}
-            )
             return {"success": False, "error": "Redis not connected"}
 
         logger.info(f"Processing Event: {etype} for User:{uid} (Match:{mid})")
@@ -63,7 +50,7 @@ class ActionRouter:
         try:
             result = await cls._handle_event(etype, uid, mid, ts, payload, idemp_key, redis)
         except Exception as e:
-            logger.error(f"Engine Error: {e}", exc_info=True)
+            logger.error(f"Engine Error in {etype}: {e}", exc_info=True)
             result = {"success": False, "error": str(e)}
 
         duration = (time.time() - start_time) * 1000
@@ -89,7 +76,7 @@ class ActionRouter:
             # Symmetric update for partner
             if result.get("notify_partner"):
                 p_info = result["notify_partner"]
-                await cls._rehydrate_ui(p_info["user_id"], p_info["state"], p_info["match_id"])
+                await cls._rehydrate_ui(p_info["user_id"], p_info["state"], p_info["match_id"], p_info)
 
         EventLogger.log_event(
             event=TelemetryEvent.ACTION_END,
@@ -105,7 +92,6 @@ class ActionRouter:
     async def _publish_trace(cls, trace: Dict[str, Any]):
         """Pushes event trace to Redis Stream for the Admin Dashboard."""
         try:
-            from services.distributed_state import distributed_state
             if distributed_state.redis:
                 flat_trace = {}
                 for k, v in trace.items():
@@ -120,6 +106,7 @@ class ActionRouter:
 
     @classmethod
     async def _handle_event(cls, etype, uid, mid, ts, payload, idemp_key, redis) -> Dict[str, Any]:
+        """Internal router for event logic."""
         if etype == "SHOW_PREFS":
             keys = [f"sm:state:{uid}", idemp_key, f"sm:ver:u:{uid}"]
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SET_PREFS_LUA, keys, [uid, str(ts)])
@@ -147,6 +134,7 @@ class ActionRouter:
                         priority_flag = "1"
             except Exception as e:
                 logger.warning(f"Priority lookup failed for {uid}: {e}")
+
             keys = [f"sm:state:{uid}", "sm:queue", idemp_key, f"sm:ver:u:{uid}", f"sm:match:pref:{uid}"]
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.START_SEARCH_LUA, keys, [uid, str(ts), pref, priority_flag])
             return {"success": code in {1, 2}, "state": msg, "version": ver}
@@ -158,14 +146,11 @@ class ActionRouter:
 
         elif etype == "CONNECT":
             partner_id = await distributed_state.get_partner(uid)
-            if not partner_id: return {"success": False, "error": "No partner found"}
+            if not partner_id: return {"success": False, "error": "No partner assigned"}
             p_uid = str(partner_id)
-            u1, u2 = sorted([str(uid), p_uid])
-            match_id = f"m_{u1}_{u2}"
-            
+            match_id = f"m_{min(uid, p_uid)}_{max(uid, p_uid)}"
             keys = [
-                f"sm:state:{uid}", f"sm:state:{p_uid}",
-                f"sm:match:{match_id}", f"sm:ver:m:{match_id}",
+                f"sm:state:{uid}", f"sm:state:{p_uid}", f"sm:ver:m:{match_id}", idemp_key,
                 f"sm:event_log:{match_id}", f"sm:audit_log:{match_id}"
             ]
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.CONNECT_LUA, keys, [match_id, uid, p_uid, str(ts)])
@@ -198,11 +183,8 @@ class ActionRouter:
         elif etype == "SUBMIT_VOTE":
             vtype = payload.get("type")
             vval = payload.get("value")
-            keys = [
-                f"sm:state:{uid}", f"sm:vote:{mid}:{uid}", f"sm:lock:vote:{mid}",
-                f"sm:ver:m:{mid}", f"sm:audit_log:{mid}", idemp_key
-            ]
-            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SUBMIT_VOTE_LUA, keys, [uid, mid, vtype, str(vval), str(ts)])
+            keys = [f"sm:vote:{mid}:{uid}", f"sm:state:{uid}", f"sm:ver:m:{mid}", idemp_key]
+            code, msg, ver = await RedisScripts.execute(redis, RedisScripts.VOTE_LUA, keys, [uid, mid, vtype, vval, str(ts)])
             signals = await redis.hgetall(f"sm:vote:{mid}:{uid}")
             result = {"success": code == 1, "state": msg, "version": ver, "signals": signals}
             
@@ -221,12 +203,12 @@ class ActionRouter:
                     await VoteRepository.submit_vote(voter_id=c_uid, voted_id=c_pid, 
                                                    vote_type=db_vote_type, gender_vote=db_gender_vote)
                 except Exception as e:
-                    logger.error(f"Persistence Bridge failed for VOTE: {e}")
+                    logger.error(f"Failed to persist vote: {e}")
             return result
 
         elif etype == "TIMEOUT_VOTING":
             keys = [
-                f"sm:state:{uid}", f"sm:vote:{mid}:{uid}", f"sm:lock:vote:{mid}",
+                f"sm:state:{uid}", f"sm:ver:u:{uid}", idemp_key,
                 f"sm:ver:m:{mid}", f"sm:audit_log:{mid}"
             ]
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.TIMEOUT_VOTING_LUA, keys, [uid, mid, str(ts)])
@@ -239,9 +221,7 @@ class ActionRouter:
 
         elif etype == "NEXT_MATCH":
             state = await redis.get(f"sm:state:{uid}")
-            if state == UnifiedState.HOME:
-                return await cls.process_event({"event_type": "START_SEARCH", "user_id": uid, "timestamp": ts})
-            elif state == UnifiedState.CHAT_ACTIVE:
+            if state in (UnifiedState.CHAT_ACTIVE, UnifiedState.VOTING):
                 await cls.process_event({"event_type": "END_CHAT", "user_id": uid, "match_id": mid, "timestamp": ts})
                 await cls.process_event({"event_type": "SKIP_VOTE", "user_id": uid, "match_id": mid, "timestamp": ts})
                 return await cls.process_event({"event_type": "START_SEARCH", "user_id": uid, "timestamp": ts})
@@ -299,7 +279,7 @@ class ActionRouter:
         elif etype == "BLOCK_USER":
             from state.match_state import match_state
             from database.repositories.blocked_repository import BlockedRepository
-            c_uid = int(UserRepository._sanitize_id(uid))
+            c_uid = UserRepository._sanitize_id(uid)
             partner_id = await match_state.get_partner(c_uid)
             if partner_id:
                 await BlockedRepository.block_user(c_uid, partner_id)
@@ -313,7 +293,7 @@ class ActionRouter:
 
         elif etype == "DELETE_USER_DATA":
             c_uid = int(UserRepository._sanitize_id(uid))
-            await UserRepository.soft_delete_user_data(c_uid)
+            await UserRepository.delete_user(c_uid)
             keys = [f"sm:state:{uid}", idemp_key, f"sm:ver:u:{uid}"]
             await RedisScripts.execute(redis, RedisScripts.SET_STATE_LUA, keys, [uid, str(ts), UnifiedState.HOME])
             return {"success": True, "deleted": True}
@@ -394,7 +374,7 @@ class ActionRouter:
                 else:
                     update_data = {item["field"]: item["value"]}
                     if "duration" in item:
-                        current_expires = user.get("vip_expires_at", 0) or 0
+                        current_expires = user.get("vip_expires_at", 0)
                         base_time = max(time.time(), current_expires)
                         update_data["vip_expires_at"] = int(base_time) + item["duration"]
                     await UserRepository.update(c_uid, **update_data)
@@ -429,46 +409,27 @@ class ActionRouter:
             keys = [f"sm:state:{uid}", idemp_key, f"sm:ver:u:{uid}"]
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SET_STATE_LUA, keys, [uid, str(ts), new_s])
             return {"success": code in {1, 2}, "state": msg, "version": ver}
- 
+
+        return {"success": False, "error": "Unknown event"}
+
     @classmethod
     async def _rehydrate_ui(cls, user_id: str, state: str, match_id: str, extra: dict = None):
         """Authoritative Rehydration with Render Storm Prevention."""
         redis = distributed_state.redis
-        import app_state
         
         # 1. Check for Storm Prevention (Redis only)
         force = extra.get("force_render") if extra else False
         if redis:
             last_render = await redis.get(f"sm:last_render:{user_id}")
             last_ack = await redis.get(f"sm:render_ack:{user_id}")
-            
             if state == last_render and last_ack == "1" and not force:
                 logger.info(f"UI for {user_id} already consistent with {state}. Skipping render.")
                 return
 
-        # 2. Select Adapter
-        is_messenger = False
-        if isinstance(user_id, str) and user_id.startswith("msg_"):
-            is_messenger = True
-        elif str(user_id).isdigit():
-            if int(user_id) >= 10**15:
-                is_messenger = True
+        # 2. Render via Platform Adapter
+        success = await PlatformAdapter.render_state(user_id, state, extra)
         
-        adapter = app_state.msg_adapter if is_messenger else app_state.tg_adapter
-        
-        # 3. Perform Render
-        payload = {"match_id": match_id}
-        if extra: payload.update(extra)
-        
-        if redis:
-            await redis.delete(f"sm:render_ack:{user_id}")
-        
-        success = await adapter.render_state(user_id, state, payload)
-        
+        # 3. Update Sync Marker
         if success and redis:
-            # 4. Update authoritative render state & ACK
-            await redis.set(f"sm:last_render:{user_id}", state)
+            await redis.set(f"sm:last_render:{user_id}", state, ex=3600)
             await redis.set(f"sm:render_ack:{user_id}", "1", ex=3600)
-            logger.info(f"UI rehydrated for {user_id} -> {state} (ACK set)")
-        elif not success:
-            logger.error(f"UI rehydration FAILED for {user_id}. ACK missing.")
