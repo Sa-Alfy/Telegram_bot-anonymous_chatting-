@@ -23,8 +23,8 @@ class SystemAdaptation:
             behavior_score += 20.0
         if BehaviorProfile.FAST_SKIPPER in profiles:
             behavior_score -= 20.0
-        if BehaviorProfile.TOXIC_USER in profiles:
-            behavior_score -= 30.0
+        if BehaviorProfile.TOXIC_USER in profiles or base_reputation <= -50:
+            behavior_score -= 50.0 # Shadowban penalty
         if BehaviorProfile.BOT_SUSPECT in profiles:
             behavior_score -= 40.0
             

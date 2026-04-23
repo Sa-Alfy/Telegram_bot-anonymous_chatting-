@@ -320,7 +320,7 @@ async def on_callback(client: Client, query: CallbackQuery):
                 sender_id = raw.replace("decline_friend_", "")
                 response = await SocialHandler.handle_decline_friend(client, uid_int, sender_id)
             elif action_key.startswith("confirm_reveal_"):
-                cost = int(raw.split("_")[-1])
+                cost = int(action_key.split("_")[-1])
                 response = await EconomyHandler.handle_confirm_reveal(client, uid_int, cost)
             else:
                 logger.warning(f"Unhandled callback: {raw}")

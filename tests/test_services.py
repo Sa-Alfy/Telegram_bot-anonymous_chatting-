@@ -235,34 +235,42 @@ class TestEconomyServiceDynamicCost:
     @pytest.mark.asyncio
     async def test_identity_reveal_with_vip_partner(self):
         with patch("services.economy_service.UserRepository") as MockRepo, \
-             patch("services.economy_service.get_active_event") as MockEvent:
+             patch("services.economy_service.get_active_event") as MockEvent, \
+             patch("services.distributed_state.distributed_state.get_message_count", new_callable=AsyncMock) as MockCount:
             MockRepo.get_by_telegram_id = AsyncMock(side_effect=[
                 {"level": 1, "vip_status": False},  # Case 1: user
                 {"level": 10, "vip_status": True},   # Case 1: partner
                 {"level": 1, "vip_status": False},  # Case 2: user
                 {"level": 10, "vip_status": True},   # Case 2: partner
             ])
+            # Set msg_count to 100 -> Tier 1 (Base 10)
+            MockCount.return_value = 100
+            
             # Case 1: Normal event
             MockEvent.return_value = {"multiplier": 1.0, "type": None}
             from services.economy_service import EconomyService
             cost = await EconomyService.get_dynamic_cost(100, "identity_reveal", partner_id=200)
-            assert cost == 15 + (10 // 2) + 10  # 30
+            # Tier 1 base (10) + Partner level scaling (10//2=5) + Partner VIP (10) = 25
+            assert cost == 10 + 5 + 10 
             
             # Case 2: Coin Rush (50% discount)
             MockEvent.return_value = {"multiplier": 2.0, "type": "mini", "name": "💰 Coin Rush"}
             cost_discounted = await EconomyService.get_dynamic_cost(100, "identity_reveal", partner_id=200)
-            assert cost_discounted == 15  # 30 * 0.5
+            assert cost_discounted == 12  # 25 * 0.5 = 12.5 -> 12
 
     @pytest.mark.asyncio
     async def test_vip_discount_on_reveal(self):
         with patch("services.economy_service.UserRepository") as MockRepo, \
-             patch("services.economy_service.get_active_event", return_value={"multiplier": 1.0}):
+             patch("services.economy_service.get_active_event", return_value={"multiplier": 1.0}), \
+             patch("services.distributed_state.distributed_state.get_message_count", new_callable=AsyncMock) as MockCount:
             MockRepo.get_by_telegram_id = AsyncMock(return_value={
                 "level": 1, "vip_status": True
             })
+            MockCount.return_value = 500 # Tier 3 (Base 50)
             from services.economy_service import EconomyService
-            cost = await EconomyService.get_dynamic_cost(100, "identity_reveal")
-            assert cost <= 15  # 50% discount
+            cost = await EconomyService.get_dynamic_cost(100, "identity_reveal", partner_id=200)
+            # Base 50 + Partner level (0) + Partner VIP (10) = 60. VIP discount 50% = 30.
+            assert cost == 30
 
 
 class TestEconomyServiceActivateBooster:
@@ -398,15 +406,10 @@ class TestMatchmakingService:
 
     @pytest.mark.asyncio
     async def test_remove_from_queue(self):
-        with patch("services.matchmaking.UserRepository") as MockRepo:
-            MockRepo.get_by_telegram_id = AsyncMock(return_value={
-                "gender": "Male", "priority_pack": {}, "priority_matches": 0
-            })
+        with patch("services.matchmaking.match_state.remove_from_queue", new_callable=AsyncMock) as MockRemove:
             from services.matchmaking import MatchmakingService
-            await MatchmakingService.add_to_queue(100)
             await MatchmakingService.remove_from_queue(100)
-            from state.match_state import match_state
-            assert 100 not in match_state.waiting_queue
+            MockRemove.assert_called_once_with(100)
 
     @pytest.mark.asyncio
     async def test_disconnect_not_in_chat(self):

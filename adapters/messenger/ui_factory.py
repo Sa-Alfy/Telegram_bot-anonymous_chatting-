@@ -32,6 +32,8 @@ def get_welcome_card(state: str = UserState.HOME):
 
 def get_stats_card(user_data: dict, state: str = UserState.HOME):
     """Returns a visual Stats Card — shows user's profile photo if available."""
+    if not user_data:
+        user_data = {}
     coins = user_data.get("coins", 0)
     level = user_data.get("level", 1)
     xp = user_data.get("xp", 0)
@@ -50,6 +52,8 @@ def get_stats_card(user_data: dict, state: str = UserState.HOME):
 
 def get_profile_dashboard_card(user_data: dict, state: str = UserState.HOME):
     """Returns a rich Profile Dashboard card — shows user's profile photo if available."""
+    if not user_data:
+        user_data = {}
     gender = user_data.get("gender", "Not set")
     age = user_data.get("age", "Not set")
     bio = user_data.get("bio", "No bio yet")

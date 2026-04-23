@@ -400,6 +400,8 @@ class ActionRouter:
                     else: return {"success": False, "error": warning}
                 else:
                     await UserService.increment_challenge(c_uid, "messages_sent")
+                    from services.distributed_state import distributed_state
+                    await distributed_state.increment_message_count(c_uid, partner_id)
                     try:
                         await PlatformAdapter.send_cross_platform(app_state.telegram_app, partner_id, f"💬 {text}", None)
                         return {"success": True}
@@ -430,6 +432,8 @@ class ActionRouter:
                     if not user or not user.get("vip_status"): return {"success": False, "error": "VIP required for this media type."}
                 await behavior_tracker.record_message_sent(c_uid, f"[Media:{media_type}]")
                 await behavior_tracker.record_message_received(partner_id)
+                from services.distributed_state import distributed_state
+                await distributed_state.increment_message_count(c_uid, partner_id)
                 try:
                     await PlatformAdapter.send_cross_platform(app_state.telegram_app, partner_id, text=payload.get("caption", ""), media_type=media_type, media_url=url or file_id)
                     return {"success": True}
@@ -464,7 +468,16 @@ class ActionRouter:
             from handlers.actions.economy import EconomyHandler
             c_uid = UserRepository._sanitize_id(uid)
             response = await EconomyHandler.handle_reveal(app_state.telegram_app, c_uid)
-            return {"success": "error" not in response, "response": response}
+            success = response and "error" not in response
+            return {"success": success, "response": response}
+
+        elif etype == "CONFIRM_REVEAL":
+            from handlers.actions.economy import EconomyHandler
+            c_uid = UserRepository._sanitize_id(uid)
+            cost = event.get("payload", {}).get("cost", 15)
+            response = await EconomyHandler.handle_confirm_reveal(app_state.telegram_app, c_uid, cost)
+            success = response and "error" not in response
+            return {"success": success, "response": response}
 
         elif etype == "SEND_ICEBREAKER":
             from handlers.actions.matching import MatchingHandler

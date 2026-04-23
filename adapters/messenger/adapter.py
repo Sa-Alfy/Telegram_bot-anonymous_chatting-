@@ -72,6 +72,11 @@ class MessengerAdapter(BaseAdapter):
                 return self.create_event("REVEAL_IDENTITY", uid)
             elif action == "ICEBREAKER":
                 return self.create_event("SEND_ICEBREAKER", uid)
+            elif action.startswith("CONFIRM_REVEAL"):
+                # Format is CONFIRM_REVEAL_15
+                parts = action.split("_")
+                cost = int(parts[-1]) if parts[-1].isdigit() else 15
+                return self.create_event("CONFIRM_REVEAL", uid, payload={"cost": cost})
             elif action in {"CMD_START", "BACK_HOME", "HOME_MENU"}:
                 return self.create_event("SET_STATE", uid, payload={"new_state": "HOME"})
             elif action in {"START_ONBOARDING", "REG_START"}:
@@ -139,14 +144,17 @@ class MessengerAdapter(BaseAdapter):
                 psid = psid[4:]
             
             # If psid is a virtual ID (10^15 range), resolve it to real PSID from DB
+            from database.repositories.user_repository import UserRepository
             if psid.isdigit() and 10**15 <= int(psid) < 2*10**15:
-                from database.repositories.user_repository import UserRepository
                 u = await UserRepository.get_by_telegram_id(int(psid))
                 if u and u.get("username", "").startswith("msg_"):
                     psid = u["username"][4:]
             
             mid = payload.get("match_id") if payload else "global"
             vid = int(payload.get("vid")) if payload and payload.get("vid") else None
+            
+            # Fetch user context defensively
+            user = await UserRepository.get_by_telegram_id(UserRepository._sanitize_id(user_id))
 
             # ── Economy / Shop Logic ──────────────────────────────────────
             if payload and payload.get("show_shop"):
@@ -171,11 +179,15 @@ class MessengerAdapter(BaseAdapter):
             if payload and payload.get("response"):
                 # Bridge: Handle legacy response dict from Economy/Matching handlers
                 resp = payload["response"]
+                if not resp: return True
+                
                 if "text" in resp:
                     from messenger_handlers import _map_reply_markup
                     buttons = _map_reply_markup(resp.get("reply_markup"))
                     if buttons: send_quick_replies(psid, resp["text"], buttons)
                     else: send_message(psid, resp["text"])
+                elif "alert" in resp:
+                    send_message(psid, resp["alert"])
                 return True
 
             logger.info(f"[RENDER] User:{user_id} State:{state} Payload:{payload}")
@@ -188,11 +200,24 @@ class MessengerAdapter(BaseAdapter):
                 else:
                     res = send_quick_replies(psid, "🏠 **Main Menu**\nWelcome! Tap below to start meeting people.", get_messenger_home_buttons())
             elif state == UnifiedState.PROFILE:
-                user_data = payload.get("user_data") if payload else {}
-                res = send_generic_template(psid, get_profile_dashboard_card(user_data, UnifiedState.PROFILE))
+                user_data = payload.get("user_data") if payload else None
+                if not user_data:
+                    user_data = user or await UserRepository.get_by_telegram_id(UserRepository._sanitize_id(psid))
+                
+                if user_data:
+                    res = send_generic_template(psid, get_profile_dashboard_card(user_data, UnifiedState.PROFILE))
+                else:
+                    res = send_message(psid, "⚠️ Profile data not found. Please try /start.")
+
             elif state == UnifiedState.STATS:
-                user_data = payload.get("user_data") if payload else {}
-                res = send_generic_template(psid, get_stats_card(user_data, UnifiedState.STATS))
+                user_data = payload.get("user_data") if payload else None
+                if not user_data:
+                    user_data = user or await UserRepository.get_by_telegram_id(UserRepository._sanitize_id(psid))
+                
+                if user_data:
+                    res = send_generic_template(psid, get_stats_card(user_data, UnifiedState.STATS))
+                else:
+                    res = send_message(psid, "⚠️ Stats data not found. Please try /start.")
             elif state == UnifiedState.REG_GENDER:
                 from adapters.messenger.ui_factory import get_gender_buttons
                 res = send_quick_replies(psid, "🚻 **Step 1: Gender**\nHow do you identify? This helps us find better matches.", get_gender_buttons(UnifiedState.REG_GENDER))
@@ -214,12 +239,16 @@ class MessengerAdapter(BaseAdapter):
             elif state == UnifiedState.VOTING:
                 from utils.ui_formatters import format_session_summary
                 from adapters.messenger.ui_factory import get_messenger_post_chat_buttons
-                stats = payload.get("payload", {}) if payload else {}
+                
+                stats = payload.get("payload") if payload else None
                 summary_text = ""
-                if stats:
+                if stats and isinstance(stats, dict):
                     summary_text = "📊 Session Summary\n" + format_session_summary(stats, is_user1=True, coins_balance=stats.get("coins_balance", 0)) + "\n\n"
 
-                signals = payload.get("signals", {}) if payload else {}
+                signals = payload.get("signals") if payload else None
+                if not isinstance(signals, dict): signals = {}
+                
+                mid = mid or "global"
                 if not signals.get("reputation"):
                     res = send_generic_template(psid, [get_messenger_vote_card(mid, "reputation")])
                     if summary_text: 

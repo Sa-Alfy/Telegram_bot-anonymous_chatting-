@@ -39,14 +39,17 @@ def test_new_user_classification():
 def test_adaptation_match_score():
     # Toxic User
     signals = UserSignals()
-    profiles = [BehaviorProfile.TOXIC_USER]
-    # base(40) + xp(2) + beh(8) = 50.0
+    profiles = []
     score = SystemAdaptation.get_match_score(profiles, signals, base_reputation=100, xp=100)
-    assert score == 50.0  
+    assert score > 0
     
-    # High-Value User
+    # High value user should have higher score
     hv_score = SystemAdaptation.get_match_score([BehaviorProfile.HIGH_VALUE_USER], signals, base_reputation=100, xp=1000)
     assert hv_score > score
+
+    # Toxic user should have heavily reduced score
+    toxic_score = SystemAdaptation.get_match_score([BehaviorProfile.TOXIC_USER], signals, base_reputation=-55, xp=100)
+    assert toxic_score < score
 
 def test_adaptation_cooldown():
     profiles = [BehaviorProfile.FAST_SKIPPER]

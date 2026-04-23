@@ -93,15 +93,35 @@ class EconomyHandler:
         user = await UserRepository.get_by_telegram_id(user_id)
         partner = await UserRepository.get_by_telegram_id(partner_id)
         
+        from services.distributed_state import distributed_state
+        msg_count = await distributed_state.get_message_count(user_id, partner_id)
+        
+        if cost == -1:
+            return {
+                "alert": f"🔒 **Reveal Locked**\n\nYou need to exchange at least **50 messages** with this partner to begin unmasking them.\n\nCurrent: {msg_count}/50",
+                "show_alert": True
+            }
+            
         if user.get("is_guest", 1):
             return {"alert": "❌ You must create a profile to unmask others!", "show_alert": True}
             
         if user["coins"] < cost:
-            return {"alert": f"❌ You need {cost} coins to unmask this partner!", "show_alert": True}
+            return {"alert": f"❌ You need {cost} coins for this reveal!", "show_alert": True}
             
+        # Determine Tier Text
+        if msg_count < 200:
+            tier_name = "🥉 Tier 1: Basic"
+            reveal_desc = "Reveals: Gender, Age"
+        elif msg_count < 500:
+            tier_name = "🥈 Tier 2: Detailed"
+            reveal_desc = "Reveals: Age, Location, Bio, Interests"
+        else:
+            tier_name = "🥇 Tier 3: Full Profile"
+            reveal_desc = "Reveals: Full Name, Profile Photo, and all Bio details"
+
         return {
-            "text": f"🔍 **Unmask Partner**\n\nThis will reveal your partner's identity to you for **{cost} coins**.\n"
-                    f"(Cost based on partner's Level {partner.get('level', 1)}{' + VIP' if partner.get('vip_status') else ''})\n\nContinue?",
+            "text": f"🔍 **Unmask Partner: {tier_name}**\n\n{reveal_desc}\n\nCost: **{cost} coins**\n"
+                    f"(Conversation: {msg_count} msgs)\n\nContinue?",
             "reply_markup": confirm_reveal_menu(cost, partner_id, UserState.CHATTING)
         }
 
@@ -115,53 +135,55 @@ class EconomyHandler:
             
         if await UserService.deduct_coins(user_id, cost):
             partner = await UserRepository.get_by_telegram_id(partner_id)
+            from services.distributed_state import distributed_state
+            msg_count = await distributed_state.get_message_count(user_id, partner_id)
             
             if not partner:
                 if partner_id == 1:
-                    reveal_text = (
-                        f"🌟 **Identity Unmasked!** 🌟\n"
-                        f"━━━━━━━━━━━━━━━━━━\n"
-                        f"🆔 **ID:** `1`\n"
-                        f"🏷 **Name:** System AI (Echo)\n"
-                        f"📍 **Location:** Motherboard Core\n"
-                        f"**Bio:** I am a simple diagnostic reflection of your own thoughts. I don't eat, sleep, or feel cold."
-                    )
+                    reveal_text = "🌟 **Identity Unmasked!** 🌟\n🆔 **ID:** `1`\n🏷 **Name:** System AI (Echo)"
                 else:
                     return {"alert": "❌ Profile data not found.", "show_alert": True}
             else:
                 age = partner.get('age', 'Unknown')
-                goal = partner.get('looking_for', 'Unknown')
                 interests = partner.get('interests', 'None specified')
                 gender = partner.get('gender', 'Secret')
-                reveal_text = (
-                    f"🌟 **Identity Unmasked!** 🌟\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🆔 **ID:** `{partner_id}`\n"
-                    f"🏷 **Name:** {partner.get('first_name')}\n"
-                    f"👩‍🦰 **Gender:** {gender}\n"
-                    f"🎂 **Age:** {age}\n"
-                    f"🎯 **Goal:** {goal}\n"
-                    f"🎮 **Interests:** {interests}\n"
-                    f"📍 **Location:** {partner.get('location', 'Secret')}\n"
-                    f"**Bio:** {partner.get('bio', 'No bio provided.')}"
-                )
-            
-            # Log to reveal history
+                location = partner.get('location', 'Hidden')
+                bio = partner.get('bio', 'No bio')
+                name = partner.get('first_name', 'Stranger')
+                
+                if msg_count < 200:
+                    tier_label = "🥉 Basic Reveal (Tier 1)"
+                    reveal_text = f"{tier_label}\n━━━━━━━━━━━━━━━━━━\n🚻 **Gender:** {gender}\n🎂 **Age:** {age}\n\n_Chat more for more details!_"
+                    notify_text = "⚠️ Someone unmasked your **Gender & Age**!"
+                elif msg_count < 500:
+                    tier_label = "🥈 Detailed Reveal (Tier 2)"
+                    reveal_text = f"{tier_label}\n━━━━━━━━━━━━━━━━━━\n🚻 **Gender:** {gender}\n🎂 **Age:** {age}\n📍 **Loc:** {location}\n🎨 **Interests:** {interests}\n📝 **Bio:** {bio}"
+                    notify_text = "⚠️ Someone unmasked your **Bio, Location & Interests**!"
+                else:
+                    tier_label = "🥇 Full Reveal (Tier 3)"
+                    reveal_text = f"{tier_label}\n━━━━━━━━━━━━━━━━━━\n🏷 **Name:** {name}\n🚻 **Gender:** {gender}\n🎂 **Age:** {age}\n📍 **Loc:** {location}\n🎨 **Interests:** {interests}\n📝 **Bio:** {bio}"
+                    notify_text = "⚠️ Someone just performed a **Full Identity Unmask** on you!"
+
+            # Log reveal
             if partner_id != 1:
                 from database.repositories.reveal_repository import RevealRepository
-                await RevealRepository.log_reveal(user_id, partner_id, "full", cost)
-            
-            return {
-                "text": "✅ Partner identity revealed above!",
+                await RevealRepository.log_reveal(user_id, partner_id, "tiered", cost)
+
+            response = {
+                "text": "✅ Identity revealed!",
                 "reply_markup": chat_menu(UserState.CHATTING, partner_id),
-                "special_action": "send_photo",
-                "photo": partner.get("profile_photo") if partner else None,
+                "special_action": "send_photo" if (msg_count >= 500 and partner and partner.get("profile_photo")) else None,
+                "photo": partner.get("profile_photo") if (msg_count >= 500 and partner) else None,
                 "caption": reveal_text,
                 "notify_partner": {
                     "target_id": partner_id,
-                    "text": "⚠️ **Someone just unmasked your identity!**\nThey have seen your profile details (Name, Location, Bio)."
+                    "text": notify_text
                 } if partner_id != 1 else None
             }
+            if not response["photo"]:
+                response["text"] = reveal_text
+                del response["special_action"]
+            return response
         else:
             return {"alert": "❌ Not enough coins!", "show_alert": True}
     @staticmethod

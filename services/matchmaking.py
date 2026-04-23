@@ -38,7 +38,11 @@ class MatchmakingService:
         user_gender = user.get("gender", "Not specified")
         
         from core.behavior_engine import behavior_engine
-        base_reputation = 100 - (user.get("reports", 0) * 10)
+        likes = user.get("likes", 0)
+        dislikes = user.get("dislikes", 0)
+        reports = user.get("reports", 0)
+        # Karma = (likes * 5) - (dislikes * 10)
+        base_reputation = 100 + (likes * 5) - (dislikes * 10) - (reports * 10)
         user_xp = user.get("xp", 0)
         match_score = await behavior_engine.get_match_score(user_id, base_reputation, user_xp)
         

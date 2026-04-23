@@ -103,7 +103,9 @@ class TestMessengerHandlers:
     def setup_mocks(self):
         with patch('messenger_handlers.send_message') as self.mock_send_msg, \
              patch('messenger_handlers.send_quick_replies') as self.mock_send_qr, \
-             patch('messenger_handlers.send_generic_template') as self.mock_send_carousel:
+             patch('messenger_handlers.send_generic_template') as self.mock_send_carousel, \
+             patch('app_state.msg_adapter', new_callable=AsyncMock) as self.mock_adapter, \
+             patch('app_state.engine', new_callable=AsyncMock) as self.mock_engine:
             yield
 
     @pytest.mark.asyncio
@@ -146,9 +148,14 @@ class TestMessengerHandlers:
         from messenger_handlers import handle_messenger_postback
         user = {"telegram_id": 1000, "coins": 50, "consent_given_at": 123456789}
         
-        with patch('messenger_handlers._handle_stats', new_callable=AsyncMock) as mock_stats:
-            await handle_messenger_postback("PSID123", 1000, user, "STATS")
-            mock_stats.assert_called_once_with("PSID123", 1000, user)
+        self.mock_adapter.translate_event.return_value = {"event_type": "SHOW_STATS", "user_id": "msg_PSID123"}
+        self.mock_engine.process_event.return_value = {"success": True}
+        
+        await handle_messenger_postback("PSID123", 1000, user, "STATS")
+        self.mock_engine.process_event.assert_called()
+        # Verify event type
+        call_args = self.mock_engine.process_event.call_args[0][0]
+        assert call_args["event_type"] == "SHOW_STATS"
 
     @pytest.mark.asyncio
     async def test_process_messaging_event_duplicate_mid(self):

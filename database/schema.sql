@@ -131,3 +131,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_users ON sessions(user1_id, user2_id);
 CREATE INDEX IF NOT EXISTS idx_reports_reported ON reports_bans(reported_id);
 CREATE INDEX IF NOT EXISTS idx_friends_users ON friends(user_id, friend_id);
 CREATE INDEX IF NOT EXISTS idx_blocked_users ON blocked_users(blocker_id, blocked_id);
+
+-- Dynamic additions (run safely on every start)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS given_likes INTEGER DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS given_dislikes INTEGER DEFAULT 0;

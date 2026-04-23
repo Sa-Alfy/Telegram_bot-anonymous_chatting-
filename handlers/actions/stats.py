@@ -24,6 +24,14 @@ class StatsHandler:
         # Format stats message
         likes = user_full.get('likes', 0) if user_full else 0
         dislikes = user_full.get('dislikes', 0) if user_full else 0
+        karma = (likes * 5) - (dislikes * 10)
+        
+        flair = "(Neutral 🎭)"
+        if karma <= -50: flair = "(Shadow Realm 👻)"
+        elif karma < -9: flair = "(Troll 👺)"
+        elif karma > 100: flair = "(Respected 👑)"
+        elif karma > 20: flair = "(Friendly 😊)"
+        
         verified_gender = user_full.get('verified_gender') if user_full else None
         
         gender_display = user_full.get('gender', 'Not specified') if user_full else 'Not specified'
@@ -42,6 +50,7 @@ class StatsHandler:
             f"🎯 **Looking For:** {goal}\n"
             f"🎮 **Interests:** {interests}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
+            f"☯️ **Karma Score:** {karma} {flair}\n"
             f"⭐ **Reputation:** 👍 {likes} | 👎 {dislikes}\n"
             f"📈 **Level:** {user['level']} ({user['xp']} XP)\n"
             f"💰 **Coins:** {user['coins']}\n"

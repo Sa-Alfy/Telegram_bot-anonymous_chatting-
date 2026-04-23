@@ -63,6 +63,7 @@ class VoteRepository:
                 """, (voter_id, voted_id, new_vote_type, now))
             
             # 3. Recalculate aggregates
+            await VoteRepository._recalculate_voter_stats(voter_id)
             await VoteRepository._recalculate_aggregates(voted_id)
             return True
         except Exception as e:
@@ -77,12 +78,17 @@ class VoteRepository:
         try:
             stats = await db.fetchone("""
                 SELECT 
-                    COUNT(*) FILTER (WHERE vote_type = 'like') as likes_cnt,
-                    COUNT(*) FILTER (WHERE vote_type = 'dislike') as dislikes_cnt,
-                    COUNT(*) FILTER (WHERE gender_vote = 'male') as male_cnt,
-                    COUNT(*) FILTER (WHERE gender_vote = 'female') as female_cnt
-                FROM user_votes
-                WHERE voted_id = $1
+                    COUNT(*) FILTER (WHERE uv.vote_type = 'like') as likes_cnt,
+                    COUNT(*) FILTER (WHERE uv.vote_type = 'dislike') as dislikes_cnt,
+                    COUNT(*) FILTER (WHERE uv.gender_vote = 'male') as male_cnt,
+                    COUNT(*) FILTER (WHERE uv.gender_vote = 'female') as female_cnt
+                FROM user_votes uv
+                LEFT JOIN users voter ON uv.voter_id = voter.telegram_id
+                WHERE uv.voted_id = $1
+                AND (
+                    (COALESCE(voter.given_likes, 0) + COALESCE(voter.given_dislikes, 0) < 10) OR
+                    (CAST(COALESCE(voter.given_dislikes, 0) AS FLOAT) / (COALESCE(voter.given_likes, 0) + COALESCE(voter.given_dislikes, 0)) <= 0.8)
+                )
             """, (user_id,))
             
             if not stats:
@@ -121,3 +127,29 @@ class VoteRepository:
         except Exception as e:
             logger.warning(f"_recalculate_aggregates failed for {user_id}: {e}")
 
+    @staticmethod
+    async def _recalculate_voter_stats(voter_id: int):
+        """Recalculate given_likes and given_dislikes for a user."""
+        try:
+            stats = await db.fetchone("""
+                SELECT 
+                    COUNT(*) FILTER (WHERE vote_type = 'like') as given_likes_cnt,
+                    COUNT(*) FILTER (WHERE vote_type = 'dislike') as given_dislikes_cnt
+                FROM user_votes
+                WHERE voter_id = $1
+            """, (voter_id,))
+            if not stats: return
+            
+            gl_cnt = stats['given_likes_cnt'] or 0
+            gd_cnt = stats['given_dislikes_cnt'] or 0
+            
+            try:
+                await db.execute("""
+                    UPDATE users 
+                    SET given_likes = $1, given_dislikes = $2
+                    WHERE telegram_id = $3
+                """, (gl_cnt, gd_cnt, voter_id))
+            except Exception as e:
+                logger.warning(f"Voter stats update failed for {voter_id}: {e}")
+        except Exception as e:
+            logger.warning(f"_recalculate_voter_stats failed for {voter_id}: {e}")

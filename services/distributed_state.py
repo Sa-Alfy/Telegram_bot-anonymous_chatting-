@@ -511,6 +511,43 @@ class DistributedState:
             async with self._lock:
                 return self._fallback_store.pop(key, time.time())
 
+    # ─────────────────────────────────────────────────────────────────────
+    # MESSAGE COUNTER: Track engagement for progression (C7 fix)
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def increment_message_count(self, user1: Any, user2: Any):
+        """Atomic increment for message counter in a session."""
+        u1, u2 = str(user1), str(user2)
+        # Canonical key
+        key = f"sm:msg_count:{min(u1, u2)}:{max(u1, u2)}"
+        if self.redis:
+            await self.redis.incr(key)
+            await self.redis.expire(key, 86400)
+        else:
+            async with self._lock:
+                self._fallback_store[key] = self._fallback_store.get(key, 0) + 1
+
+    async def get_message_count(self, user1: Any, user2: Any) -> int:
+        """Retrieve current message count for a session."""
+        u1, u2 = str(user1), str(user2)
+        key = f"sm:msg_count:{min(u1, u2)}:{max(u1, u2)}"
+        if self.redis:
+            val = await self.redis.get(key)
+            return int(val) if val else 0
+        else:
+            async with self._lock:
+                return self._fallback_store.get(key, 0)
+
+    async def clear_message_count(self, user1: Any, user2: Any):
+        """Cleanup counter on session end."""
+        u1, u2 = str(user1), str(user2)
+        key = f"sm:msg_count:{min(u1, u2)}:{max(u1, u2)}"
+        if self.redis:
+            await self.redis.delete(key)
+        else:
+            async with self._lock:
+                self._fallback_store.pop(key, None)
+
     async def atomic_claim_match(self, user_id: int, partner_id: int) -> tuple[bool, str]:
         """Atomically claim a match and initialize states via Lua."""
         from core.telemetry import EventLogger, TelemetryEvent

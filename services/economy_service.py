@@ -30,11 +30,23 @@ class EconomyService:
         active_event = get_active_event()
         base_costs = {"identity_reveal": 15, "priority_match": 5, "peek_stats": 5}
         if feature_type == "identity_reveal" and partner_id:
+            from services.distributed_state import distributed_state
+            msg_count = await distributed_state.get_message_count(user_id, partner_id)
+            
+            # Tiered base cost based on engagement
+            if msg_count < 50:
+                return -1 # Locked
+            elif msg_count < 200:
+                base = 10 # Tier 1
+            elif msg_count < 500:
+                base = 25 # Tier 2
+            else:
+                base = 50 # Tier 3
+            
             partner = await UserRepository.get_by_telegram_id(partner_id)
-            if partner:
-                cost = 15 + (partner.get("level", 1) // 2)
-                if partner.get("vip_status"):
-                    cost += 10
+            cost = base + (partner.get("level", 1) // 2)
+            if partner.get("vip_status"):
+                cost += 10
         else:
             cost = base_costs.get(feature_type, 10)
 
