@@ -84,14 +84,19 @@ class PlatformAdapter:
                             buttons = [{"title": "\u26a1 Reply", "payload": f"msg_friend_{target_friend_id}"}]
                 
                 try:
+                    result = None
                     if text or buttons:
                         if buttons:
-                            send_quick_replies(psid, text or "💬 Message:", buttons)
+                            result = send_quick_replies(psid, text or "💬 Message:", buttons)
                         else:
-                            send_message(psid, text)
+                            result = send_message(psid, text)
+                    
+                    if result and "error" in result:
+                        logger.error(f"Messenger delivery failed for {psid}: {result['error']}")
+                        return False
                     return True
                 except Exception as e:
-                    logger.error(f"Messenger API Error for {psid}: {e}")
+                    logger.error(f"Messenger API Exception for {psid}: {e}")
                     return False
             return False
         else:
