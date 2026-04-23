@@ -75,35 +75,6 @@ async def chat_handler(client: Client, message: Message):
 
     now = time.time()
     
-    # Check if muted for spamming
-    mute_until = getattr(match_state, 'mute_until', {}).get(user_id, 0)
-    if now < mute_until:
-        return
-        
-    last_time = getattr(match_state, 'last_message_time', {}).get(user_id, 0)
-    
-    if not await rate_limiter.can_send_message(user_id):
-        pass # The advanced spam tracker logic below will handle warnings
-    
-    # Advanced Rate limiting & Spam Tracking
-    if now - last_time < 0.75:
-        spam_count = match_state.spam_count.get(user_id, 0) + 1
-        match_state.spam_count[user_id] = spam_count
-        if spam_count == 3:
-            await message.reply_text("⚠️ **Warning:** Please slow down! Sending messages too quickly will get you muted.")
-            return
-        elif spam_count >= 5:
-            match_state.mute_until[user_id] = now + 15  # 15 second mute
-            match_state.spam_count[user_id] = 0
-            await message.reply_text("🚫 **You have been muted for 15 seconds for spamming.**")
-            return
-        return
-    else:
-        if match_state.spam_count.get(user_id, 0) > 0:
-            match_state.spam_count[user_id] = 0
-
-    match_state.last_message_time[user_id] = now
-
     # Update last active
     asyncio.create_task(UserRepository.update(user_id, last_active=int(now)))
     

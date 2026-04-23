@@ -153,11 +153,6 @@ async def handle_messenger_text(psid: str, virtual_id: int, user: dict, text: st
         await app_state.engine.process_event({"event_type": "RECOVER", "user_id": str(virtual_id)})
         return
 
-    if not await rate_limiter.can_send_message(virtual_id):
-        remaining = await rate_limiter.get_cooldown_remaining(virtual_id, "message") or 0
-        send_message(psid, f"⏳ Please wait {remaining:.0f}s.")
-        return
-
     text_stripped = text.strip()
     uid = f"msg_{psid}"
     

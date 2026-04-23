@@ -305,19 +305,19 @@ async def on_callback(client: Client, query: CallbackQuery):
         uid_int = int(event["user_id"])
         try:
             if action_key.startswith("friend_action_"):
-                friend_id = int(raw.split("_")[-1])
+                friend_id = raw.replace("friend_action_", "")
                 response = await SocialHandler.handle_friend_action(client, uid_int, friend_id)
             elif action_key.startswith("msg_friend_"):
-                friend_id = int(raw.split("_")[-1])
+                friend_id = raw.replace("msg_friend_", "")
                 response = await SocialHandler.handle_msg_friend(client, uid_int, friend_id)
             elif action_key.startswith("remove_friend_"):
-                friend_id = int(raw.split("_")[-1])
+                friend_id = raw.replace("remove_friend_", "")
                 response = await SocialHandler.handle_remove_friend(client, uid_int, friend_id)
             elif action_key.startswith("accept_friend_"):
-                sender_id = int(raw.split("_")[-1])
+                sender_id = raw.replace("accept_friend_", "")
                 response = await SocialHandler.handle_accept_friend(client, uid_int, sender_id)
             elif action_key.startswith("decline_friend_"):
-                sender_id = int(raw.split("_")[-1])
+                sender_id = raw.replace("decline_friend_", "")
                 response = await SocialHandler.handle_decline_friend(client, uid_int, sender_id)
             elif action_key.startswith("confirm_reveal_"):
                 cost = int(raw.split("_")[-1])

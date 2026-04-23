@@ -209,20 +209,23 @@ class ActionRouter:
             
             if result["success"] and mid.startswith("m_"):
                 try:
-                    parts = mid.split("_")
-                    u1, u2 = parts[1], parts[2]
-                    p_uid = u2 if uid.endswith(u1) else u1
+                    # Robustly extract partner ID from match_id (m_ID1_ID2)
+                    p_uid = mid[2:].replace(str(uid), "").strip("_")
+                    
                     from database.repositories.vote_repository import VoteRepository
                     db_vote_type = vval if vtype == "reputation" else None
                     db_gender_vote = vval if vtype == "identity" else None
                     if vval == "good": db_vote_type = "like"
                     elif vval == "bad": db_vote_type = "dislike"
-                    c_uid = int(uid[4:]) if uid.startswith("msg_") else int(uid)
-                    c_pid = int(p_uid[4:]) if p_uid.startswith("msg_") else int(p_uid)
+                    
+                    # Sanitize IDs for database using repository helper
+                    c_uid = UserRepository._sanitize_id(uid)
+                    c_pid = UserRepository._sanitize_id(p_uid)
+                    
                     await VoteRepository.submit_vote(voter_id=c_uid, voted_id=c_pid, 
                                                    vote_type=db_vote_type, gender_vote=db_gender_vote)
                 except Exception as e:
-                    logger.error(f"Failed to persist vote: {e}")
+                    logger.error(f"Failed to persist vote for {uid} in {mid}: {e}")
             return result
 
         elif etype == "TIMEOUT_VOTING":
