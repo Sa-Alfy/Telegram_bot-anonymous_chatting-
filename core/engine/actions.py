@@ -124,13 +124,13 @@ class ActionRouter:
             p_uid = str(stats["partner_id"])
             result = {
                 "success": True, 
-                "state": UnifiedState.HOME,
+                "state": UnifiedState.VOTING,
                 "version": "1", 
                 "match_id": mid,
                 "payload": stats,
                 "notify_partner": {
                     "user_id": p_uid, 
-                    "state": UnifiedState.HOME, 
+                    "state": UnifiedState.VOTING, 
                     "match_id": mid,
                     "payload": stats
                 }

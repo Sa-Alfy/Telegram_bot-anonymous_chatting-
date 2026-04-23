@@ -20,13 +20,15 @@ from utils.content_filter import check_message, get_user_warning, SEVERITY_AUTO_
 async def stop_button_handler(client: Client, message: Message):
     from handlers.actions.matching import MatchingHandler
     resp = await MatchingHandler.handle_stop(client, message.from_user.id)
-    await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
+    if resp:
+        await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
 
 @Client.on_message(filters.regex(r"^⏮ Next") & filters.private)
 async def next_button_handler(client: Client, message: Message):
     from handlers.actions.matching import MatchingHandler
     resp = await MatchingHandler.handle_next(client, message.from_user.id)
-    await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
+    if resp:
+        await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
 
 @Client.on_message(filters.regex(r"^(👤|📊) My Stats") & filters.private)
 async def stats_button_handler(client: Client, message: Message):
@@ -44,7 +46,8 @@ async def help_button_handler(client: Client, message: Message):
 async def find_partner_button_handler(client: Client, message: Message):
     from handlers.actions.matching import MatchingHandler
     resp = await MatchingHandler.handle_search(client, message.from_user.id)
-    await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
+    if resp:
+        await update_user_ui(client, message.from_user.id, resp["text"], resp.get("reply_markup"))
 
 @Client.on_message(filters.regex(r"^🏆 Leaderboard") & filters.private)
 async def leaderboard_button_handler(client: Client, message: Message):
@@ -387,80 +390,25 @@ async def chat_handler(client: Client, message: Message):
                     await update_user_ui(client, user_id, "Your active session was terminated.", end_menu())
                 return
 
-        # ── Media Messages (photo, sticker, video, etc.) ─────────
-        partner_id = await match_state.get_partner(user_id)
-        if partner_id:
-            from core.telemetry import EventLogger, TelemetryEvent
-
-            # VIP Media Filter
-            if message.voice or message.video or message.video_note or message.audio:
-                if not user.get("vip_status"):
-                    await message.reply_text("❌ **Premium Feature**\nYou must be a **VIP Member** to send Voice Notes or Videos!")
-                    return
-
-            try:
-                is_messenger = isinstance(partner_id, int) and partner_id >= 10**15
-                
-                if is_messenger:
-                    # TG → Messenger: Download and re-upload
-                    from utils.platform_adapter import PlatformAdapter
-                    import os
-                    
-                    if message.photo or message.sticker or message.video or message.animation:
-                        temp_path = await message.download()
-                        try:
-                            m_type = "image"
-                            if message.video or message.animation: m_type = "video"
-                            from messenger_api import send_attachment_file
-                            u = await UserRepository.get_by_telegram_id(partner_id)
-                            if u and u.get("username", "").startswith("msg_"):
-                                psid = u["username"][4:]
-                                res = send_attachment_file(psid, temp_path, file_type=m_type)
-                                if res and "error" in res:
-                                    await message.reply_text("⚠️ **Media failed to deliver.** Sending description instead.")
-                                else:
-                                    if message.caption:
-                                        from messenger_api import send_message as msg_send
-                                        msg_send(psid, f"💬 {message.caption}")
-                                    EventLogger.log_event(
-                                        event="MEDIA_SENT", layer="message_relay", status=TelemetryEvent.SUCCESS,
-                                        user_id=user_id, peer_id=partner_id, data={"type": m_type}
-                                    )
-                                    return
-                        finally:
-                            if temp_path and os.path.exists(temp_path):
-                                os.remove(temp_path)
-                    
-                    # Text fallback for unsupported media
-                    relay_text = message.text or message.caption or ""
-                    if not relay_text:
-                        media_type = "file"
-                        if message.photo: media_type = "photo 📸"
-                        elif message.video or message.video_note: media_type = "video 🎥"
-                        elif message.voice or message.audio: media_type = "voice note 🎤"
-                        elif message.sticker: media_type = "sticker"
-                        relay_text = f"📎 [Partner sent a {media_type}]"
-
-                    await PlatformAdapter.send_cross_platform(client, partner_id, f"💬 {relay_text}", None)
-                    EventLogger.log_event(
-                        event="MEDIA_SENT", layer="message_relay", status=TelemetryEvent.SUCCESS,
-                        user_id=user_id, peer_id=partner_id, data={"type": "fallback_text"}
-                    )
-                else:
-                    # TG → TG: Native copy (preserves formatting, stickers, etc.)
-                    await message.copy(chat_id=partner_id)
-                    EventLogger.log_event(
-                        event="MEDIA_SENT", layer="message_relay", status=TelemetryEvent.SUCCESS,
-                        user_id=user_id, peer_id=partner_id, data={"type": "native_copy"}
-                    )
-            except Exception as e:
-                logger.warning(f"Media relay failed from {user_id} to {partner_id}: {e}")
-                EventLogger.log_event(
-                    event="MEDIA_FAILED", layer="message_relay", status=TelemetryEvent.FAIL,
-                    user_id=user_id, peer_id=partner_id, data={"error": str(e)}
-                )
-                await message.reply_text("⚠️ **Delivery Error:** Your message couldn't be sent. Please try again.")
-        return
+    if await match_state.is_in_chat(user_id):
+        # ── Media Messages ───────────────────────────────────────
+        if not message.text:
+            m_type = "image" if message.photo else "sticker" if message.sticker else "video" if message.video else "animation" if message.animation else "voice" if message.voice else "file"
+            file_id = getattr(message, m_type).file_id if hasattr(message, m_type) and hasattr(getattr(message, m_type), "file_id") else None
+            
+            result = await app_state.engine.process_event({
+                "event_type": "SEND_MEDIA",
+                "user_id": str(user_id),
+                "payload": {
+                    "media_type": m_type,
+                    "file_id": file_id,
+                    "caption": message.caption
+                }
+            })
+            if not result.get("success"):
+                error = result.get("error", "Media delivery failed.")
+                await message.reply_text(f"⚠️ {error}")
+            return
 
     # ── Not in chat: ignore non-text silently ────────────────────
     # (User sent a random message but isn't in a chat session)

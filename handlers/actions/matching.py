@@ -46,190 +46,65 @@ class MatchingHandler:
 
     @staticmethod
     async def handle_search_with_pref(client: Client, user_id: int, pref: str, platform: str = "telegram") -> Dict[str, Any]:
-        """Starts searching for a partner with explicit filters."""
-        # 1. Check for rapid cycling (Flood protection)
-        if await rate_limiter.check_flood(user_id):
-            return {
-                "alert": "🚫 **Flood Protection:** You are switching partners too quickly. Please wait a minute.",
-                "show_alert": True
-            }
-
-        # 2. Check standard matchmaking cooldown
-        if not await rate_limiter.can_matchmake(user_id):
-            remaining = await rate_limiter.get_cooldown_remaining(user_id, "matchmake") or 0
-            return {
-                "text": f"⏳ **Cooldown Active**\n\nPlease wait {remaining:.1f}s between searches.",
-                "reply_markup": retry_search_menu(UserState.HOME)
-            }
-            
-        # Check if they need to pay for filters
-        from services.user_service import UserService
-        from database.repositories.user_repository import UserRepository
+        """Starts searching for a partner via the Unified Engine."""
+        import app_state
         
-        user = await UserRepository.get_by_telegram_id(user_id)
-        if pref in ["Male", "Female"]:
-            is_vip = user.get("vip_status", 0)
-            if not is_vip:
-                if user.get("coins", 0) < 15:
-                    return {"alert": "❌ Gender filters cost 15 coins for non-VIPs!", "show_alert": True}
-                await UserService.deduct_coins(user_id, 15)
-                
-        # Priority check handles passing 'Priority' intent
-        is_priority = (pref == "Priority")
-        if is_priority:
-            pref = "Any" # Reset actual core filter to Any for priority
-            if user.get("coins", 0) < 5:
-                # If they have priority packs it's handled in the service, but if they click the 5 coin button directly:
-                if not user.get("priority_pack", {}).get("active") and user.get("priority_matches", 0) <= 0:
-                    if not await UserService.deduct_coins(user_id, 5):
-                        return {"alert": "❌ Not enough coins!", "show_alert": True}
+        # Dispatch to Engine
+        result = await app_state.engine.process_event({
+            "event_type": "START_SEARCH",
+            "user_id": str(user_id),
+            "payload": {"pref": pref}
+        })
 
-        from utils.logger import logger
-        logger.info(f"Adding user {user_id} to queue with pref {pref}")
-        try:
-            success = await MatchmakingService.add_to_queue(user_id, gender_pref=pref)
-            logger.info(f"add_to_queue result for {user_id}: {success}")
-        except Exception as e:
-            logger.error(f"EXCEPTION in add_to_queue for {user_id}: {e}", exc_info=True)
-            success = False
-
-        if not success:
-            return {"alert": "You are already in a chat!", "show_alert": True}
+        if not result.get("success"):
+            return {"alert": result.get("error", "Search failed."), "show_alert": True}
         
-        partner_id = await MatchmakingService.find_partner(client, user_id)
-        if partner_id:
-            # consolidated setup & notification
-            await MatchmakingService.initialize_match(client, user_id, partner_id)
-
-            # Return a response that hides the search menu on the initiator's side
-            # The actual "Match Found" UI was already sent as a new message by initialize_match
-            return {
-                "text": "✅ **Pairing successful!** Check below for your partner.",
-                "reply_markup": None,
-                "delete_prev": True
-            }
-
-            
-        # Race condition guard for late-finishing search tasks
-        if await match_state.is_in_chat(user_id):
-             return None # Silent abort: User was matched by someone else's task.
-             
-        response = {
-            "text": "⏳ **Searching...**\nFinding someone for you. Please wait.",
-            "reply_markup": search_menu()
-        }
-        response["start_animation"] = True
-        response["delete_prev"] = True
-        return response
+        # Engine's rehydrate_ui handles the "Searching..." or "Match Found" message.
+        return None
 
     @staticmethod
     async def handle_cancel(client: Client, user_id: int, platform: str = "telegram") -> Dict[str, Any]:
-        """Cancels the search."""
-        await MatchmakingService.remove_from_queue(user_id)
-        from database.repositories.user_repository import UserRepository
-        user = await UserRepository.get_by_telegram_id(user_id)
-        coins = user.get("coins", 0)
-        is_guest = user.get("is_guest", 1)
+        """Cancels the search via the Unified Engine."""
+        import app_state
+        result = await app_state.engine.process_event({
+            "event_type": "STOP_SEARCH",
+            "user_id": str(user_id)
+        })
         
-        from handlers.start import get_start_text
-        return {
-            "text": get_start_text(coins, is_guest=is_guest),
-            "reply_markup": start_menu(is_guest=is_guest)
-        }
+        if not result.get("success"):
+            return {"alert": result.get("error", "Failed to cancel search."), "show_alert": True}
+        
+        return None
 
     @staticmethod
     async def handle_stop(client: Client, user_id: int, platform: str = "telegram") -> Dict[str, Any]:
-        """Disconnects from current chat with session-bound safety."""
-        current_state = await match_state.get_user_state(user_id)
-        if current_state != UserState.CHATTING:
-            return {"alert": "❌ You are not in a chat!", "show_alert": True}
+        """Disconnects from current chat via the Unified Engine."""
+        import app_state
+        result = await app_state.engine.process_event({
+            "event_type": "END_CHAT",
+            "user_id": str(user_id)
+        })
 
-        stats = await MatchmakingService.disconnect(user_id)
-        if not stats:
-            return {"text": "❌ Chat ended.", "reply_markup": end_menu()}
+        if not result.get("success"):
+            return {"alert": result.get("error", "You are not in a chat!"), "show_alert": True}
             
-        partner_id = stats["partner_id"]
-        
-        # Build proper session summary for the user who clicked Stop
-        from database.repositories.user_repository import UserRepository
-        user = await UserRepository.get_by_telegram_id(user_id)
-        user_coins = user.get("coins", 0) if user else 0
-        
-        # Inject total_xp for progress bar
-        stats["total_xp"] = user.get("xp", 0) if user else 0
-        user_summary = format_session_summary(stats, is_user1=True, coins_balance=user_coins)
-        
-        # Build partner summary
-        partner = await UserRepository.get_by_telegram_id(partner_id)
-        partner_coins = partner.get("coins", 0) if partner else 0
-        stats["total_xp"] = partner.get("xp", 0) if partner else 0
-        partner_summary = "❌ **Chat ended by stranger**\n\n" + format_session_summary(stats, is_user1=False, coins_balance=partner_coins)
-        
-        return {
-            "text": user_summary,
-            "reply_markup": end_menu(can_rematch=True, partner_id=partner_id),
-            "special_action": "remove_keyboard",
-            "partner_msg": {
-                "text": partner_summary,
-                "reply_markup": end_menu(can_rematch=True, partner_id=user_id),
-                "target_id": partner_id
-            }
-        }
+        # UI is handled by Engine (State: VOTING)
+        return None
 
     @staticmethod
     async def handle_next(client: Client, user_id: int, platform: str = "telegram") -> Dict[str, Any]:
-        """Skips to the next partner (disconnect + auto-search)."""
-        # Record action for behavior scoring
-        from utils.behavior_tracker import behavior_tracker
-        await behavior_tracker.record_next(user_id)
-        
-        # Check behavioral cooldown (progressive)
-        cooldown = await behavior_tracker.get_next_cooldown(user_id)
-        if cooldown > 3.0:
-            # Use the behavior engine's value directly — it is the authoritative source
-            return {"alert": f"⏳ Please slow down! Wait {cooldown:.0f}s before skipping again.", "show_alert": True}
+        """Skips to the next partner via the Unified Engine."""
+        import app_state
+        result = await app_state.engine.process_event({
+            "event_type": "NEXT_MATCH",
+            "user_id": str(user_id)
+        })
 
-        # Check if in chat before disconnecting
-        if not await match_state.is_in_chat(user_id):
-            return {"alert": "❌ You are not in a chat!", "show_alert": True}
+        if not result.get("success"):
+            return {"alert": result.get("error", "Action failed."), "show_alert": True}
 
-        prev_pref = await match_state.get_user_preference(user_id)
-
-        stats = await MatchmakingService.disconnect(user_id)
-        
-        if stats:
-            partner_id = stats["partner_id"]
-            # Notify the partner they were skipped
-            from database.repositories.user_repository import UserRepository
-            partner = await UserRepository.get_by_telegram_id(partner_id)
-            partner_coins = partner.get("coins", 0) if partner else 0
-            partner_summary = "⏭ **Partner skipped to the next chat.**\n\n" + format_session_summary(stats, is_user1=False, coins_balance=partner_coins)
-            
-            await update_user_ui(client, partner_id, partner_summary, end_menu(can_rematch=True, partner_id=user_id))
-        
-        # Auto-search for a new partner with original preference restored
-        success = await MatchmakingService.add_to_queue(user_id, gender_pref=prev_pref)
-        if not success:
-            return {"text": "❌ Could not rejoin queue.", "reply_markup": end_menu()}
-            
-        new_partner = await MatchmakingService.find_partner(client, user_id)
-        if new_partner:
-            await MatchmakingService.initialize_match(client, user_id, new_partner)
-            return {
-                "text": "✅ **Found a new partner!**",
-                "reply_markup": None
-            }
-
-        
-        # Get intelligent hint
-        hint = await behavior_tracker.get_contextual_hint(user_id, "disconnected")
-        hint_text = f"\n\n💡 {hint}" if hint else ""
-
-        return {
-            "text": f"⏳ Searching for a new partner...{hint_text}",
-            "reply_markup": search_menu(),
-            "start_animation": True
-        }
+        # UI is handled by Engine
+        return None
 
     @staticmethod
     async def handle_rematch(client: Client, user_id: int) -> Dict[str, Any]:
