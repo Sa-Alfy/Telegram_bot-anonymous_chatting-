@@ -1,284 +1,133 @@
-let ws = null;
-let authToken = "";
-let currentInspectUser = null;
 
-// Track active traces for pipeline grouping
-const activeTraces = new Map();
+let socket = null;
+let token = localStorage.getItem("debug_token") || "";
 
 function authenticate() {
-    authToken = document.getElementById("auth-token").value.trim();
-    if (!authToken) return;
+    token = document.getElementById("auth-token").value;
+    if (!token) return;
     
-    localStorage.setItem("debug_admin_token", authToken);
-    document.getElementById("auth-overlay").style.display = "none";
-    initDashboard();
+    localStorage.setItem("debug_token", token);
+    connectWS();
 }
 
-function initDashboard() {
-    connectWebSocket();
-    fetchStats();
-    if (window.statsInterval) clearInterval(window.statsInterval);
-    window.statsInterval = setInterval(fetchStats, 5000);
-}
-
-// Auto-load token on startup
-window.onload = () => {
-    const savedToken = localStorage.getItem("debug_admin_token");
-    if (savedToken) {
-        authToken = savedToken;
-        document.getElementById("auth-overlay").style.display = "none";
-        initDashboard();
-    }
-};
-
-function connectWebSocket() {
+async function connectWS() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/admin/ws?token=${encodeURIComponent(authToken)}`;
+    const url = `${protocol}//${window.location.host}/admin/ws?token=${token}`;
     
-    ws = new WebSocket(wsUrl);
+    socket = new WebSocket(url);
     
-    ws.onopen = () => {
-        document.getElementById("ws-status").textContent = "🟢 Connected";
-        document.getElementById("ws-status").style.color = "var(--success)";
+    socket.onopen = () => {
+        document.getElementById("ws-status").innerText = "🟢 Online";
+        document.getElementById("ws-status").className = "connection-status online";
+        document.getElementById("auth-overlay").style.display = "none";
+        refreshStats();
     };
     
-    ws.onmessage = (event) => {
+    socket.onclose = () => {
+        document.getElementById("ws-status").innerText = "🔴 Disconnected";
+        document.getElementById("ws-status").className = "connection-status";
+        document.getElementById("auth-overlay").style.display = "flex";
+        setTimeout(connectWS, 5000);
+    };
+    
+    socket.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.type === "event") {
-            processEvent(data.payload);
+            appendTrace(data.payload);
         }
     };
-    
-    ws.onclose = () => {
-        document.getElementById("ws-status").textContent = "🔴 Disconnected";
-        document.getElementById("ws-status").style.color = "var(--danger)";
-        setTimeout(connectWebSocket, 3000); // Reconnect
-    };
 }
 
-function processEvent(payload) {
-    // 1. Live Timeline / Pipeline View
-    renderTimelineEvent(payload);
-    
-    // 2. Failure Highlight Engine
-    if (payload.event === "INVARIANT_VIOLATION" || payload.status === "fail") {
-        renderViolation(payload);
-    }
-    
-    // 3. Auto-refresh Inspector if watching this user
-    if (currentInspectUser && (payload.user_id == currentInspectUser || payload.peer_id == currentInspectUser)) {
-        inspectUser(currentInspectUser);
-    }
-}
-
-function getTagClass(event) {
-    if (event === "ACTION_START") return "tag-start";
-    if (event === "ACTION_END") return "tag-end";
-    if (event === "REDIS_CALL" || event === "REDIS_RESULT") return "tag-redis";
-    if (event === "STATE_CHANGE") return "tag-state";
-    if (event === "INVARIANT_VIOLATION") return "tag-violation";
-    if (event.startsWith("MESSAGE_")) return "tag-msg";
-    return "";
-}
-
-function renderTimelineEvent(payload) {
-    const filterTrace = document.getElementById("filter-trace").value.trim();
-    const filterUser = document.getElementById("filter-user").value.trim();
-    
-    if (filterTrace && payload.trace_id !== filterTrace) return;
-    if (filterUser && String(payload.user_id) !== filterUser && String(payload.peer_id) !== filterUser) return;
-
+function appendTrace(payload) {
     const timeline = document.getElementById("timeline");
-    const div = document.createElement("div");
-    div.className = "log-entry";
+    const entry = document.createElement("div");
     
-    let statusClass = "status-success";
-    if (payload.status === "fail") statusClass = "status-fail";
-    if (payload.status === "warning") statusClass = "status-warning";
-
-    let diffHtml = "";
-    if (payload.expected || payload.actual) {
-        const isFail = payload.expected && payload.actual && payload.expected !== payload.actual;
-        diffHtml = `
-            <div class="diff-box ${isFail ? 'fail' : ''}">
-                <div><strong>Expected:</strong> ${payload.expected || 'N/A'}</div>
-                <div><strong>Actual:</strong> ${payload.actual || 'N/A'}</div>
-            </div>
-        `;
-    }
-
-    if (payload.event === "STATE_CHANGE" && payload.data) {
-        diffHtml = `
-            <div class="diff-box">
-                <div><strong>BEFORE:</strong> state=${payload.data.old_state}</div>
-                <div><strong>AFTER:</strong> state=${payload.data.new_state}</div>
-            </div>
-        `;
-    }
-
-    div.innerHTML = `
-        <div class="log-meta">
-            <span>[${new Date(payload.timestamp * 1000).toLocaleTimeString()}]</span>
-            <span class="log-tag ${getTagClass(payload.event)}">${payload.event}</span>
-            <span>[${payload.layer}]</span>
-            <span class="log-tag" style="background:#444; cursor:pointer;" onclick="setTraceFilter('${payload.trace_id}')">${payload.trace_id.substring(0,8)}</span>
-            <button class="copy-btn copy-mini" style="margin-left:auto;">JSON</button>
+    // Determine status class
+    let statusClass = payload.success ? "success" : "error";
+    if (payload.event_type === "CMD_START") statusClass = "success";
+    
+    entry.className = `trace-entry ${statusClass}`;
+    
+    const timeStr = new Date().toLocaleTimeString();
+    const duration = payload.duration_ms ? `${payload.duration_ms.toFixed(1)}ms` : "??ms";
+    
+    entry.innerHTML = `
+        <div class="trace-header">
+            <span>[${timeStr}] <span class="trace-function">${payload.event_type}</span></span>
+            <span class="tag">${duration}</span>
         </div>
-        <div>
-            User: <strong>${payload.user_id || 'N/A'}</strong> 
-            ${payload.peer_id ? `↔ Peer: <strong>${payload.peer_id}</strong>` : ''} 
-            | Status: <span class="${statusClass}">${payload.status.toUpperCase()}</span>
+        <div class="trace-meta">
+            <span class="tag">UID: ${payload.user_id}</span>
+            <span class="tag">MID: ${payload.match_id || "global"}</span>
+            <span class="tag">STATE: ${payload.state || "unknown"}</span>
         </div>
-        ${diffHtml}
-        <div style="color:var(--text-muted); font-size: 0.9em; margin-top:4px;">
-            ${JSON.stringify(payload.data || {})}
-        </div>
+        <div class="trace-payload">${JSON.stringify(payload.payload || {}, null, 2)}</div>
+        ${payload.error ? `<div style="color: var(--danger); font-size: 0.75rem; margin-top: 5px;">⚠️ ERROR: ${payload.error}</div>` : ""}
     `;
-
-    const copyBtn = div.querySelector('.copy-btn');
-    if (copyBtn) {
-        copyBtn.onclick = () => {
-            navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(() => {
-                const oldText = copyBtn.textContent;
-                copyBtn.textContent = "Copied!";
-                copyBtn.style.background = "var(--success)";
-                setTimeout(() => {
-                    copyBtn.textContent = oldText;
-                    copyBtn.style.background = "#30363d";
-                }, 2000);
-            });
-        };
-    }
-
-    // Pipeline grouping (simple visual indent for same trace_id if consecutive, else just append)
-    timeline.prepend(div);
+    
+    timeline.prepend(entry);
+    
+    // Limit log size
     if (timeline.children.length > 200) {
-        timeline.lastChild.remove();
+        timeline.removeChild(timeline.lastChild);
     }
 }
 
-function setTraceFilter(traceId) {
-    document.getElementById("filter-trace").value = traceId;
-}
-
-function clearTimeline() {
-    document.getElementById("timeline").innerHTML = "";
-    document.getElementById("filter-trace").value = "";
-    document.getElementById("filter-user").value = "";
-}
-
-function renderViolation(payload) {
-    const list = document.getElementById("violations-list");
-    const div = document.createElement("div");
-    div.className = "violation-card";
-    
-    div.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div>
-                <strong>⚠ ${payload.event === 'INVARIANT_VIOLATION' ? 'INCONSISTENCY DETECTED' : 'PIPELINE FAILURE'}</strong><br>
-                User: ${payload.user_id || 'N/A'} ${payload.peer_id ? `| Peer: ${payload.peer_id}` : ''}<br>
-                Layer: ${payload.layer} <br>
-                Details: ${JSON.stringify(payload.data)}
-                ${payload.expected ? `<br>Expected: ${payload.expected} | Actual: ${payload.actual}` : ''}
-            </div>
-            <button class="copy-btn">Copy JSON</button>
-        </div>
-    `;
-    
-    const copyBtn = div.querySelector('.copy-btn');
-    if (copyBtn) {
-        copyBtn.onclick = () => {
-            navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(() => {
-                const oldText = copyBtn.textContent;
-                copyBtn.textContent = "Copied!";
-                copyBtn.style.background = "var(--success)";
-                setTimeout(() => {
-                    copyBtn.textContent = oldText;
-                    copyBtn.style.background = "#30363d";
-                }, 2000);
-            });
-        };
-    }
-    
-    list.prepend(div);
-    if (list.children.length > 20) list.lastChild.remove();
-}
-
-async function apiCall(endpoint, method = "GET") {
-    const response = await fetch(endpoint, {
-        method: method,
-        headers: {
-            "Authorization": `Bearer ${authToken}`
-        }
-    });
-    if (!response.ok) {
-        if (response.status === 401) {
-            localStorage.removeItem("debug_admin_token");
-            document.getElementById("auth-error").textContent = "Invalid Token!";
-            document.getElementById("auth-overlay").style.display = "flex";
-        }
-        throw new Error("API Error: " + response.statusText);
-    }
-    return await response.json();
-}
-
-async function fetchStats() {
+async function refreshStats() {
     try {
-        const qData = await apiCall("/admin/queue");
-        document.getElementById("stat-queue-len").textContent = qData.queue_length;
+        const qRes = await fetch("/admin/queue", { headers: { "Authorization": `Bearer ${token}` } });
+        const sRes = await fetch("/admin/sessions", { headers: { "Authorization": `Bearer ${token}` } });
         
-        const sData = await apiCall("/admin/sessions");
-        document.getElementById("stat-active-sessions").textContent = sData.active_sessions;
+        const queue = await qRes.json();
+        const sessions = await sRes.json();
         
-        // Stuck User Detector
-        detectStuckUsers(qData.users);
+        document.getElementById("stat-queue-len").innerText = queue.queue_length || 0;
+        document.getElementById("stat-active-sessions").innerText = sessions.active_sessions || 0;
     } catch (e) {
-        console.error(e);
+        console.error("Stats refresh failed", e);
     }
+    setTimeout(refreshStats, 30000);
 }
 
-function detectStuckUsers(queueUsers) {
-    const stuckList = document.getElementById("stuck-users-list");
-    stuckList.innerHTML = "";
+async function inspectUser() {
+    const uid = document.getElementById("inspect-user-id").value;
+    if (!uid) return;
     
-    // Very rudimentary check: if we had enqueue timestamps we could check > 45s.
-    // For now, if queue is very large, list the first few.
-    // Assuming backend added timestamps to pref data in real system.
-    if (queueUsers.length > 0) {
-        queueUsers.slice(0, 5).forEach(u => {
-            const div = document.createElement("div");
-            div.textContent = `User ${u.user_id} in queue. Pref: ${u.prefs.pref || 'Any'}`;
-            stuckList.appendChild(div);
-        });
-    } else {
-        stuckList.innerHTML = "<div style='color:var(--success)'>No stuck users detected.</div>";
-    }
-}
-
-async function inspectUser(forceId = null) {
-    const id = forceId || document.getElementById("inspect-user-id").value.trim();
-    if (!id) return;
-    
-    currentInspectUser = id;
     try {
-        const data = await apiCall(`/admin/user/${id}`);
-        document.getElementById("ui-state").textContent = data.state;
-        document.getElementById("ui-partner").textContent = data.partner_id || "None";
-        document.getElementById("ui-chat-start").textContent = data.chat_start_ts ? new Date(data.chat_start_ts * 1000).toLocaleString() : "N/A";
+        const res = await fetch(`/admin/user/${uid}`, { headers: { "Authorization": `Bearer ${token}` } });
+        const data = await res.json();
+        
+        document.getElementById("ui-state").innerText = data.state;
+        document.getElementById("ui-partner").innerText = data.partner_id || "None";
+        document.getElementById("ui-chat-start").innerText = data.chat_start_ts ? new Date(data.chat_start_ts * 1000).toLocaleString() : "N/A";
     } catch (e) {
-        document.getElementById("ui-state").textContent = "Error fetching user";
+        alert("Failed to inspect user");
     }
 }
 
 async function forceDisconnect() {
-    if (!currentInspectUser) return;
-    if (confirm(`Force disconnect user ${currentInspectUser}?`)) {
-        try {
-            await apiCall(`/admin/disconnect/${currentInspectUser}`, "POST");
-            alert("Force disconnect command sent via Redis.");
-            inspectUser();
-        } catch (e) {
-            alert(e.message);
-        }
+    const uid = document.getElementById("inspect-user-id").value;
+    if (!uid) return;
+    
+    if (!confirm(`Are you sure you want to force disconnect ${uid}?`)) return;
+    
+    try {
+        await fetch(`/admin/disconnect/${uid}`, { 
+            method: "POST",
+            headers: { "Authorization": `Bearer ${token}` } 
+        });
+        alert("Force disconnect sent");
+        inspectUser();
+    } catch (e) {
+        alert("Force disconnect failed");
     }
+}
+
+function clearTimeline() {
+    document.getElementById("timeline").innerHTML = "";
+}
+
+// Initial connection
+if (token) {
+    connectWS();
 }

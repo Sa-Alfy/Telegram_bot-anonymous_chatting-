@@ -51,12 +51,14 @@ def reset_singletons():
     distributed_state._instance = distributed_state # Ensure singleton property remains
     
     # 2. Clear MatchState (In-place)
-    match_state.waiting_queue.clear()
-    match_state.active_chats.clear()
-    match_state.user_preferences.clear()
     match_state.rematch_requests.clear()
-    match_state.chat_start_times.clear()
     match_state.user_ui_messages.clear() # Fix for UI tests
+    if hasattr(match_state, "ui_history"):
+        match_state.ui_history.clear()
+    match_state.last_button_time.clear()
+    match_state.last_message_time.clear()
+    match_state.spam_count.clear()
+    match_state.mute_until.clear()
     
     # 3. Clear RateLimiter (In-place)
     rate_limiter._last_message.clear()

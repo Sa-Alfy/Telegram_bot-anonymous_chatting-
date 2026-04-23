@@ -87,14 +87,18 @@ def mock_env():
     # ── Reset singletons in-place ─────────────────────────────────────────
     distributed_state._fallback_store.clear()
     distributed_state.redis = None
-    match_state.waiting_queue.clear()
-    match_state.active_chats.clear()
-    match_state.user_preferences.clear()
     match_state.rematch_requests.clear()
-    match_state.chat_start_times.clear()
     match_state.user_ui_messages.clear()
-    match_state.user_states.clear()
     match_state.last_button_time.clear()
+    if hasattr(match_state, "ui_history"):
+        match_state.ui_history.clear()
+    if hasattr(match_state, "last_message_time"):
+        match_state.last_message_time.clear()
+    if hasattr(match_state, "spam_count"):
+        match_state.spam_count.clear()
+    if hasattr(match_state, "mute_until"):
+        match_state.mute_until.clear()
+
     # Refresh the asyncio.Locks so they're bound to the current event loop (avoids cross-loop deadlock)
     match_state._lock = asyncio.Lock()
     distributed_state._lock = asyncio.Lock()
@@ -562,15 +566,17 @@ class TestTelegramToMessenger:
             new_callable=AsyncMock,
             side_effect=lambda vid: self.env["users"].get(vid),
         ):
-            response = await MatchingHandler.handle_stop(
+            await MatchingHandler.handle_stop(
                 self.env["tg_client"], TG_USER_A
             )
-
-        assert response is not None
-        assert "text" in response, "Caller (TG-A) must receive a summary text"
-        assert "partner_msg" in response, \
-            "partner_msg must be present for cross-platform relay"
-        assert response["partner_msg"]["target_id"] == MSG_USER_C_VID
+    
+        # Verify Engine rehydrated the partner (MSG_USER_C) via Adapter
+        found = False
+        for msg in self.env["sent_messages"]:
+            if msg["user_id"] == MSG_USER_C_VID:
+                if "Session Summary" in msg["text"] or "ended by stranger" in msg["text"]:
+                    found = True
+        assert found, "Partner (Messenger) did not receive session summary"
 
     @pytest.mark.asyncio
     async def test_stop_from_messenger_produces_partner_msg_for_tg(self):
@@ -591,13 +597,17 @@ class TestTelegramToMessenger:
             new_callable=AsyncMock,
             side_effect=lambda vid: self.env["users"].get(vid),
         ):
-            response = await MatchingHandler.handle_stop(
+            await MatchingHandler.handle_stop(
                 self.env["tg_client"], MSG_USER_C_VID
             )
-
-        assert response is not None
-        assert "partner_msg" in response
-        assert response["partner_msg"]["target_id"] == TG_USER_A
+    
+        # Verify Engine rehydrated the partner (TG_USER_A) via Adapter
+        found = False
+        for msg in self.env["sent_messages"]:
+            if msg["user_id"] == TG_USER_A:
+                if "Session Summary" in msg["text"] or "ended by stranger" in msg["text"]:
+                    found = True
+        assert found, "Partner (Telegram) did not receive session summary"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -888,8 +898,11 @@ class TestEngineStatesMigration:
         mock_env["users"][vid] = user
         
         # Set active chat
-        match_state.active_chats[vid] = partner_id
-        match_state.active_chats[partner_id] = vid
+        # Set active chat authoritatively
+        await match_state.set_partner(vid, partner_id)
+        await match_state.set_partner(partner_id, vid)
+        await match_state.set_user_state(vid, UnifiedState.CHAT_ACTIVE)
+        await match_state.set_user_state(partner_id, UnifiedState.CHAT_ACTIVE)
         
         payload = StateBoundPayload.encode("CMD_REPORT", "0", UnifiedState.CHAT_ACTIVE)
         await handle_messenger_quick_reply(psid, vid, user, payload)
@@ -916,8 +929,11 @@ class TestEngineStatesMigration:
         mock_env["users"][vid] = user
         
         # Set active chat
-        match_state.active_chats[vid] = partner_id
-        match_state.active_chats[partner_id] = vid
+        # Set active chat authoritatively
+        await match_state.set_partner(vid, partner_id)
+        await match_state.set_partner(partner_id, vid)
+        await match_state.set_user_state(vid, UnifiedState.CHAT_ACTIVE)
+        await match_state.set_user_state(partner_id, UnifiedState.CHAT_ACTIVE)
         
         payload = StateBoundPayload.encode("CMD_BLOCK", "0", UnifiedState.CHAT_ACTIVE)
         await handle_messenger_quick_reply(psid, vid, user, payload)

@@ -15,7 +15,7 @@ load_dotenv()
 app = FastAPI(title="Matchmaking Debug Dashboard")
 
 # Security
-DEBUG_SECRET = os.getenv("DEBUG_SECRET", "supersecret123")  # In production, require this in env
+DEBUG_SECRET = os.getenv("DEBUG_SECRET", "1532456870")  # Updated per user request
 security = HTTPBearer()
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
