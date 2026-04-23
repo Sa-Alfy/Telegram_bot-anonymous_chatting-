@@ -9,6 +9,7 @@ from core.engine.redis_scripts import RedisScripts
 from services.distributed_state import distributed_state
 from core.telemetry import EventLogger, TelemetryEvent, with_trace_id
 from utils.platform_adapter import PlatformAdapter
+from database.repositories.user_repository import UserRepository
 
 class ActionRouter:
     """Idempotent Event Router for the Unified Matchmaking system.
@@ -76,7 +77,6 @@ class ActionRouter:
             # Determine priority status from DB
             priority_flag = "0"
             try:
-                from database.repositories.user_repository import UserRepository
                 c_uid = UserRepository._sanitize_id(uid)
                 user = await UserRepository.get_by_telegram_id(c_uid)
                 if user:
@@ -117,7 +117,6 @@ class ActionRouter:
 
         elif etype == "END_CHAT":
             from services.matchmaking import MatchmakingService
-            from database.repositories.user_repository import UserRepository
             c_uid = UserRepository._sanitize_id(uid)
             stats = await MatchmakingService.disconnect(c_uid)
             if not stats: return {"success": False, "error": "No active session"}
@@ -186,10 +185,6 @@ class ActionRouter:
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SKIP_VOTE_LUA, keys, [uid, mid, str(ts)])
             result = {"success": code in {1, 2}, "state": msg, "version": ver}
 
-        elif etype == "RECOVER":
-            state = await redis.get(f"sm:state:{uid}") or UnifiedState.HOME
-            result = {"success": True, "state": state, "version": "0", "force_render": True}
-
         elif etype == "NEXT_MATCH":
             state = await redis.get(f"sm:state:{uid}")
             if state == UnifiedState.HOME:
@@ -201,7 +196,6 @@ class ActionRouter:
             result = {"success": False, "error": "VOTING_INCOMPLETE", "current_state": state}
 
         elif etype == "SHOW_PROFILE":
-            from database.repositories.user_repository import UserRepository
             c_uid = UserRepository._sanitize_id(uid)
             user_data = await UserRepository.get_by_telegram_id(c_uid)
             
@@ -210,7 +204,6 @@ class ActionRouter:
             result = {"success": code in {1, 2}, "state": UnifiedState.PROFILE, "version": ver, "user_data": user_data}
 
         elif etype == "SHOW_STATS":
-            from database.repositories.user_repository import UserRepository
             c_uid = UserRepository._sanitize_id(uid)
             user_data = await UserRepository.get_by_telegram_id(c_uid)
             
@@ -224,7 +217,6 @@ class ActionRouter:
             result = {"success": code in {1, 2}, "state": UnifiedState.REG_GENDER, "version": ver}
 
         elif etype == "SUBMIT_ONBOARDING":
-            from database.repositories.user_repository import UserRepository
             from services.user_service import UserService
             c_uid = UserRepository._sanitize_id(uid)
             field = payload.get("field")
@@ -356,6 +348,7 @@ class ActionRouter:
         elif etype == "SEND_MEDIA":
             from state.match_state import match_state
             from services.user_service import UserService
+            from utils.behavior_tracker import behavior_tracker
             import app_state
             
             c_uid = int(UserRepository._sanitize_id(uid))
@@ -376,6 +369,9 @@ class ActionRouter:
                     if not user or not user.get("vip_status"):
                         result = {"success": False, "error": "VIP required for this media type."}
                         return result
+
+                await behavior_tracker.record_message_sent(c_uid, f"[Media:{media_type}]")
+                await behavior_tracker.record_message_received(partner_id)
 
                 try:
                     await PlatformAdapter.send_cross_platform(
@@ -439,45 +435,6 @@ class ActionRouter:
             c_uid = int(UserRepository._sanitize_id(uid))
             response = await MatchingHandler.handle_icebreaker(app_state.telegram_app, c_uid)
             result = {"success": "error" not in response, "response": response}
-
-        elif etype == "SEND_MEDIA":
-            from state.match_state import match_state
-            from utils.behavior_tracker import behavior_tracker
-            import app_state
-            
-            c_uid = int(UserRepository._sanitize_id(uid))
-            partner_id = await match_state.get_partner(c_uid)
-            m_type = payload.get("media_type", "image")
-            url = payload.get("url")
-            caption = payload.get("caption", "")
-            
-            if not partner_id:
-                result = {"success": False, "error": "No active chat."}
-            else:
-                await behavior_tracker.record_message_sent(c_uid, f"[Media:{m_type}]")
-                await behavior_tracker.record_message_received(partner_id)
-                
-                try:
-                    # Relay
-                    await PlatformAdapter.send_cross_platform(
-                        app_state.telegram_app,
-                        partner_id,
-                        caption,
-                        None,
-                        media_type=m_type,
-                        media_url=url
-                    )
-                    EventLogger.log_event(
-                        event="MESSAGE_SENT", layer="message_relay", status=TelemetryEvent.SUCCESS,
-                        user_id=c_uid, peer_id=partner_id, data={"media_type": m_type}
-                    )
-                    result = {"success": True}
-                except Exception as e:
-                    EventLogger.log_event(
-                        event="MESSAGE_FAILED", layer="message_relay", status=TelemetryEvent.FAIL,
-                        user_id=c_uid, peer_id=partner_id, data={"error": str(e)}
-                    )
-                    result = {"success": False, "error": "Delivery failed"}
 
         elif etype == "RECOVER":
             from state.match_state import match_state
