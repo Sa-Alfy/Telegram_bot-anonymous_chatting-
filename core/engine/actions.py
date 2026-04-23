@@ -209,8 +209,9 @@ class ActionRouter:
             
             if result["success"] and mid.startswith("m_"):
                 try:
-                    # Robustly extract partner ID from match_id (m_ID1_ID2)
-                    p_uid = mid[2:].replace(str(uid), "").strip("_")
+                    # SAFE EXTRACTION: Split by '_' and pick the ID that isn't 'uid'
+                    parts = mid[2:].split("_")
+                    p_uid = parts[1] if parts[0] == str(uid) else parts[0]
                     
                     from database.repositories.vote_repository import VoteRepository
                     db_vote_type = vval if vtype == "reputation" else None
@@ -222,8 +223,13 @@ class ActionRouter:
                     c_uid = UserRepository._sanitize_id(uid)
                     c_pid = UserRepository._sanitize_id(p_uid)
                     
-                    await VoteRepository.submit_vote(voter_id=c_uid, voted_id=c_pid, 
-                                                   vote_type=db_vote_type, gender_vote=db_gender_vote)
+                    # Safety check: Ensure voted user exists to prevent ForeignKeyViolation
+                    voted_user = await UserRepository.get_by_telegram_id(c_pid)
+                    if voted_user:
+                        await VoteRepository.submit_vote(voter_id=c_uid, voted_id=c_pid, 
+                                                       vote_type=db_vote_type, gender_vote=db_gender_vote)
+                    else:
+                        logger.warning(f"Skipping DB vote: Target user {c_pid} not found in database.")
                 except Exception as e:
                     logger.error(f"Failed to persist vote for {uid} in {mid}: {e}")
             return result
@@ -314,7 +320,7 @@ class ActionRouter:
             return {"success": True, "show_help": True}
 
         elif etype == "DELETE_USER_DATA":
-            c_uid = int(UserRepository._sanitize_id(uid))
+            c_uid = UserRepository._sanitize_id(uid)
             await UserRepository.delete_user(c_uid)
             keys = [f"sm:state:{uid}", idemp_key, f"sm:ver:u:{uid}"]
             await RedisScripts.execute(redis, RedisScripts.SET_STATE_LUA, keys, [uid, str(ts), UnifiedState.HOME])
@@ -325,7 +331,7 @@ class ActionRouter:
             from utils.content_filter import check_message, apply_enforcement, get_user_warning
             from services.user_service import UserService
             from services.matchmaking import MatchmakingService
-            c_uid = int(UserRepository._sanitize_id(uid))
+            c_uid = UserRepository._sanitize_id(uid)
             partner_id = await match_state.get_partner(c_uid)
             text = payload.get("text", "")
             from utils.rate_limiter import rate_limiter
@@ -366,7 +372,7 @@ class ActionRouter:
         elif etype == "SEND_MEDIA":
             from state.match_state import match_state
             from utils.behavior_tracker import behavior_tracker
-            c_uid = int(UserRepository._sanitize_id(uid))
+            c_uid = UserRepository._sanitize_id(uid)
             partner_id = await match_state.get_partner(c_uid)
             media_type = payload.get("media_type")
             url = payload.get("url")
@@ -396,7 +402,7 @@ class ActionRouter:
 
         elif etype == "PURCHASE_ITEM":
             from services.user_service import UserService
-            c_uid = int(UserRepository._sanitize_id(uid))
+            c_uid = UserRepository._sanitize_id(uid)
             item_id = payload.get("item_id")
             SHOP_ITEMS = {
                 "BUY_VIP":   {"cost": 500,  "field": "vip_status",  "value": True, "duration": 30 * 86400},
@@ -419,24 +425,27 @@ class ActionRouter:
 
         elif etype == "REVEAL_IDENTITY":
             from handlers.actions.economy import EconomyHandler
-            c_uid = int(UserRepository._sanitize_id(uid))
+            c_uid = UserRepository._sanitize_id(uid)
             response = await EconomyHandler.handle_reveal(app_state.telegram_app, c_uid)
             return {"success": "error" not in response, "response": response}
 
         elif etype == "SEND_ICEBREAKER":
             from handlers.actions.matching import MatchingHandler
-            c_uid = int(UserRepository._sanitize_id(uid))
+            c_uid = UserRepository._sanitize_id(uid)
             response = await MatchingHandler.handle_icebreaker(app_state.telegram_app, c_uid)
             return {"success": "error" not in response, "response": response}
 
         elif etype == "RECOVER":
             from state.match_state import match_state
-            c_uid = int(UserRepository._sanitize_id(uid))
+            c_uid = UserRepository._sanitize_id(uid)
             current_state = await match_state.get_user_state(c_uid) or UnifiedState.HOME
             mid = None
             if current_state in {UnifiedState.CHAT_ACTIVE, UnifiedState.MATCHED, UnifiedState.CONNECTING}:
                 p_id = await match_state.get_partner(c_uid)
-                if p_id: mid = f"m_{min(c_uid, p_id)}_{max(c_uid, p_id)}"
+                if p_id: 
+                    # Correct multi-platform ID sorting for match_id
+                    u1, u2 = (str(c_uid), str(p_id))
+                    mid = f"m_{min(u1, u2)}_{max(u1, u2)}"
                 elif current_state == UnifiedState.CHAT_ACTIVE: current_state = UnifiedState.HOME
             await cls._rehydrate_ui(uid, current_state, mid, {"force_render": True})
             return {"success": True, "state": current_state}

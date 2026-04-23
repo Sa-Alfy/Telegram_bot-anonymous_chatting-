@@ -365,7 +365,12 @@ async def chat_handler(client: Client, message: Message):
         # ── Media Messages ───────────────────────────────────────
         if not message.text:
             m_type = "image" if message.photo else "sticker" if message.sticker else "video" if message.video else "animation" if message.animation else "voice" if message.voice else "file"
-            file_id = getattr(message, m_type).file_id if hasattr(message, m_type) and hasattr(getattr(message, m_type), "file_id") else None
+            
+            # Fix: Pyrogram photo is a list, so we must take the last element for file_id
+            if message.photo:
+                file_id = message.photo[-1].file_id
+            else:
+                file_id = getattr(message, m_type).file_id if hasattr(message, m_type) and hasattr(getattr(message, m_type), "file_id") else None
             
             result = await app_state.engine.process_event({
                 "event_type": "SEND_MEDIA",
