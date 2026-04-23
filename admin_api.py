@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import requests
 from typing import Dict, Any, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Request
 from fastapi.responses import HTMLResponse
@@ -207,6 +208,24 @@ async def get_state_distribution(_=Depends(verify_token)):
             break
             
     return {"distribution": distribution}
+
+
+@app.get("/admin/server_status")
+async def get_server_status(_=Depends(verify_token)):
+    """Proxies the health status from the main webhook server."""
+    port = os.getenv("PORT", 10000)
+    try:
+        # Use asyncio.to_thread to avoid blocking the event loop
+        response = await asyncio.to_thread(
+            requests.get, 
+            f"http://127.0.0.1:{port}/health", 
+            timeout=2
+        )
+        if response.status_code == 200:
+            return response.json()
+        return {"status": "error", "message": f"HTTP {response.status_code}"}
+    except Exception as e:
+        return {"status": "error", "message": "Main Server Unreachable"}
 
 
 @app.post("/admin/disconnect/{user_id}")

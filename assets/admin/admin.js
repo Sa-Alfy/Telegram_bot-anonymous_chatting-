@@ -123,13 +123,16 @@ function appendViolation(payload) {
 
 async function refreshStats() {
     try {
-        const qRes = await fetch("/admin/queue", { headers: { "Authorization": `Bearer ${token}` } });
-        const sRes = await fetch("/admin/sessions", { headers: { "Authorization": `Bearer ${token}` } });
+        const headers = { "Authorization": `Bearer ${token}` };
+        const [qRes, sRes, dRes, srvRes] = await Promise.all([
+            fetch("/admin/queue", { headers }),
+            fetch("/admin/sessions", { headers }),
+            fetch("/admin/stats/distribution", { headers }),
+            fetch("/admin/server_status", { headers }).catch(() => null)
+        ]);
         
         const queue = await qRes.json();
         const sessions = await sRes.json();
-        
-        const dRes = await fetch("/admin/stats/distribution", { headers: { "Authorization": `Bearer ${token}` } });
         const dist = await dRes.json();
         
         document.getElementById("stat-queue-len").innerText = queue.queue_length || 0;
@@ -137,11 +140,50 @@ async function refreshStats() {
         
         updateStuckUsers(queue.users || []);
         renderDistribution(dist.distribution || {});
+        
+        if (srvRes && srvRes.ok) {
+            const srvData = await srvRes.json();
+            renderServerStatus(srvData);
+        } else {
+            renderServerStatus({status: "error"});
+        }
     } catch (e) {
         console.error("Stats refresh failed", e);
     }
     setTimeout(refreshStats, 5000); // More frequent updates for debugging
 }
+
+function renderServerStatus(data) {
+    const setStatus = (id, stateStr) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerText = stateStr ? stateStr.toUpperCase() : "UNKNOWN";
+        el.className = "tag"; // reset
+        if (stateStr === "online" || stateStr === "connected" || stateStr === "running" || stateStr === "ENABLED") {
+            el.classList.add("success");
+        } else if (stateStr === "error" || stateStr === "disconnected" || stateStr === "stopped") {
+            el.classList.add("danger");
+        } else {
+            el.classList.add("warning");
+        }
+    };
+    
+    if (data.status === "error") {
+        setStatus("status-bot", "error");
+        setStatus("status-telegram", "error");
+        setStatus("status-messenger", "error");
+        setStatus("status-db", "error");
+        setStatus("status-redis", "error");
+        return;
+    }
+
+    setStatus("status-bot", data.bot_loop);
+    setStatus("status-telegram", data.telegram);
+    setStatus("status-messenger", data.messenger);
+    setStatus("status-db", data.database);
+    setStatus("status-redis", data.redis);
+}
+
 
 function renderDistribution(dist) {
     const container = document.getElementById("state-distribution");

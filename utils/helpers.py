@@ -15,7 +15,7 @@ def is_admin(func):
         else:
             user_id = message.from_user.id if hasattr(message, "from_user") else None
             
-        if user_id != int(ADMIN_ID):
+        if str(user_id) != str(ADMIN_ID):
             if isinstance(message, CallbackQuery):
                 await message.answer("🔒 Admin only feature.", show_alert=True)
             return
