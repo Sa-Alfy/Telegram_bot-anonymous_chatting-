@@ -35,11 +35,20 @@ class PlatformAdapter:
             from database.repositories.user_repository import UserRepository
             user = await UserRepository.get_by_telegram_id(target_id)
             if user:
+                # Priority 1: Use the username column (contains msg_<PSID>)
                 username = user.get("username", "")
-                if username.startswith("msg_"):
+                if username and username.startswith("msg_"):
                     psid = username[4:]
                 else:
-                    psid = str(target_id)[4:] if str(target_id).startswith("msg_") else str(target_id)
+                    # Priority 2: Fallback to the target_id if it's already a PSID
+                    target_str = str(target_id)
+                    psid = target_str[4:] if target_str.startswith("msg_") else target_str
+                
+                # Validation: If the psid looks like a hashed ID (>= 10^15), 
+                # it means we failed to find the real PSID.
+                if psid.isdigit() and int(psid) >= 10**15 and (not username or not username.startswith("msg_")):
+                    logger.error(f"Failed to resolve real PSID for {target_id}. Cannot send message.")
+                    return False
                 
                 from messenger_api import send_quick_replies, send_message, send_image
                 from adapters.messenger.ui_factory import (
