@@ -92,17 +92,35 @@ class ActionRouter:
     async def _publish_trace(cls, trace: Dict[str, Any]):
         """Pushes event trace to Redis Stream for the Admin Dashboard."""
         try:
-            if distributed_state.redis:
-                flat_trace = {}
-                for k, v in trace.items():
-                    if isinstance(v, (dict, list)):
-                        flat_trace[k] = json.dumps(v)
+            if not distributed_state.redis:
+                return
+            
+            flat_trace = {}
+            for k, v in trace.items():
+                try:
+                    if v is None:
+                        flat_trace[k] = ""
+                    elif isinstance(v, bool):
+                        flat_trace[k] = str(v).lower()
+                    elif isinstance(v, (int, float)):
+                        flat_trace[k] = str(v)
+                    elif isinstance(v, str):
+                        flat_trace[k] = v
+                    elif isinstance(v, (dict, list)):
+                        flat_trace[k] = json.dumps(v, default=str)
                     else:
-                        flat_trace[k] = str(v) if v is not None else ""
+                        # Covers Pyrogram objects, dataclasses, etc.
+                        flat_trace[k] = str(v)
+                except Exception:
+                    flat_trace[k] = f"[unserializable:{type(v).__name__}]"
+            
+            # Ensure event_type is always present for dashboard filtering
+            if "event_type" not in flat_trace:
+                flat_trace["event_type"] = "UNKNOWN"
                 
-                await distributed_state.redis.xadd("admin:events", flat_trace, maxlen=1000)
+            await distributed_state.redis.xadd("admin:events", flat_trace, maxlen=1000)
         except Exception as e:
-            logger.warning(f"Failed to publish trace: {e}")
+            logger.warning(f"Failed to publish trace for {trace.get('event_type', '?')}: {e}")
 
     @classmethod
     async def _handle_event(cls, etype, uid, mid, ts, payload, idemp_key, redis) -> Dict[str, Any]:
