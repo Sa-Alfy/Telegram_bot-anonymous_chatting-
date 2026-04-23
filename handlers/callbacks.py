@@ -130,6 +130,50 @@ CALLBACK_MAP: Dict[str, Callable[[Client, int, Any], Coroutine[Any, Any, Dict[st
     
     # Misc
     "help": lambda c, uid, _: handle_help(c, uid),
+    
+    # Matching
+    "icebreaker": lambda c, uid, _: MatchingHandler.handle_icebreaker(c, uid),
+    "cancel_search": lambda c, uid, _: MatchingHandler.handle_cancel(c, uid),
+    
+    # Onboarding — gender
+    "set_gender_male":   lambda c, uid, _: OnboardingHandler.handle_set_gender(c, uid, "Male"),
+    "set_gender_female": lambda c, uid, _: OnboardingHandler.handle_set_gender(c, uid, "Female"),
+    "set_gender_other":  lambda c, uid, _: OnboardingHandler.handle_set_gender(c, uid, "Other"),
+    
+    # Onboarding — age
+    "set_age_18-21": lambda c, uid, _: OnboardingHandler.handle_set_age(c, uid, "18-21"),
+    "set_age_22-25": lambda c, uid, _: OnboardingHandler.handle_set_age(c, uid, "22-25"),
+    "set_age_26-29": lambda c, uid, _: OnboardingHandler.handle_set_age(c, uid, "26-29"),
+    "set_age_30+":   lambda c, uid, _: OnboardingHandler.handle_set_age(c, uid, "30+"),
+    
+    # Onboarding — goal
+    "set_goal_chat":    lambda c, uid, _: OnboardingHandler.handle_set_goal(c, uid, "chat"),
+    "set_goal_dating":  lambda c, uid, _: OnboardingHandler.handle_set_goal(c, uid, "dating"),
+    "set_goal_friends": lambda c, uid, _: OnboardingHandler.handle_set_goal(c, uid, "friends"),
+    
+    # Economy — shop
+    "buy_shop_vip":   lambda c, uid, _: EconomyHandler.handle_buy_shop_badge(c, uid, "vip"),
+    "buy_shop_og":    lambda c, uid, _: EconomyHandler.handle_buy_shop_badge(c, uid, "og"),
+    "buy_shop_whale": lambda c, uid, _: EconomyHandler.handle_buy_shop_badge(c, uid, "whale"),
+    
+    # Economy — packs & boosters
+    "buy_pack_5":             lambda c, uid, _: EconomyHandler.handle_buy_pack(c, uid, 5),
+    "buy_pack_15":            lambda c, uid, _: EconomyHandler.handle_buy_pack(c, uid, 15),
+    "buy_timed_priority_1":   lambda c, uid, _: EconomyHandler.handle_buy_timed_priority(c, uid, 1),
+    "buy_timed_priority_3":   lambda c, uid, _: EconomyHandler.handle_buy_timed_priority(c, uid, 3),
+    "buy_timed_priority_24":  lambda c, uid, _: EconomyHandler.handle_buy_timed_priority(c, uid, 24),
+    "buy_booster_1":          lambda c, uid, _: EconomyHandler.handle_buy_booster(c, uid, 1),
+    
+    # Leaderboard filters
+    "lb_event": lambda c, uid, _: StatsHandler.handle_leaderboard_category(c, uid, "event"),
+    "lb_all":   lambda c, uid, _: StatsHandler.handle_leaderboard_category(c, uid, "all"),
+    
+    # Reactions
+    "react_heart": lambda c, uid, _: SocialHandler.handle_reaction(c, uid, "heart"),
+    "react_joy":   lambda c, uid, _: SocialHandler.handle_reaction(c, uid, "joy"),
+    "react_wow":   lambda c, uid, _: SocialHandler.handle_reaction(c, uid, "wow"),
+    "react_sad":   lambda c, uid, _: SocialHandler.handle_reaction(c, uid, "sad"),
+    "react_up":    lambda c, uid, _: SocialHandler.handle_reaction(c, uid, "up"),
 }
 
 async def matching_animation(client: Client, user_id: int):
@@ -256,7 +300,37 @@ async def on_callback(client: Client, query: CallbackQuery):
             if response:
                 await process_response(client, query, response)
             return await query.answer()
-        return await query.answer(f"Action {action_key} not recognized.")
+
+        # Dynamic prefix callbacks — handle before giving up
+        uid_int = int(event["user_id"])
+        try:
+            if action_key.startswith("friend_action_"):
+                friend_id = int(raw.split("_")[-1])
+                response = await SocialHandler.handle_friend_action(client, uid_int, friend_id)
+            elif action_key.startswith("msg_friend_"):
+                friend_id = int(raw.split("_")[-1])
+                response = await SocialHandler.handle_msg_friend(client, uid_int, friend_id)
+            elif action_key.startswith("remove_friend_"):
+                friend_id = int(raw.split("_")[-1])
+                response = await SocialHandler.handle_remove_friend(client, uid_int, friend_id)
+            elif action_key.startswith("accept_friend_"):
+                sender_id = int(raw.split("_")[-1])
+                response = await SocialHandler.handle_accept_friend(client, uid_int, sender_id)
+            elif action_key.startswith("decline_friend_"):
+                sender_id = int(raw.split("_")[-1])
+                response = await SocialHandler.handle_decline_friend(client, uid_int, sender_id)
+            elif action_key.startswith("confirm_reveal_"):
+                cost = int(raw.split("_")[-1])
+                response = await EconomyHandler.handle_confirm_reveal(client, uid_int, cost)
+            else:
+                logger.warning(f"Unhandled callback: {raw}")
+                return await query.answer("This button isn't available right now.", show_alert=True)
+            if response:
+                await process_response(client, query, response)
+            return await query.answer()
+        except (ValueError, IndexError) as e:
+            logger.error(f"Dynamic callback parse failed for '{raw}': {e}")
+            return await query.answer("Something went wrong.", show_alert=True)
 
     # 3. Concurrency check & Process via Engine
     result = await app_state.engine.process_event(event)

@@ -92,6 +92,17 @@ class DistributedState:
         return partner_id
 
     async def is_in_chat(self, user_id: Any) -> bool:
+        u_str = str(user_id)
+        # Guard: only truly "in chat" if state is CHAT_ACTIVE, not just any stale partner key
+        if self.redis:
+            state = await self.redis.get(f"sm:state:{u_str}")
+        else:
+            async with self._lock:
+                state = self._fallback_store.get(f"sm:state:{u_str}")
+        
+        if state != "CHAT_ACTIVE":
+            return False
+            
         partner = await self.get_partner(user_id)
         return partner is not None
 
@@ -101,6 +112,7 @@ class DistributedState:
 
     async def add_to_queue(self, user_id: int, priority: bool = False, data: dict = None) -> bool:
         """Add a user to the global matchmaking queue."""
+        u_str = str(user_id)
         if self.redis:
             # 1. Store preferences/metadata in a hash
             if data:
@@ -109,33 +121,51 @@ class DistributedState:
             
             # 2. Add to waiting list (LPUSH for priority, RPUSH for normal)
             # Remove first to prevent duplicates
-            await self.redis.lrem("sm:queue", 0, str(user_id))
+            await self.redis.lrem("sm:queue", 0, u_str)
             if priority:
-                await self.redis.lpush("sm:queue", str(user_id))
+                await self.redis.lpush("sm:queue", u_str)
             else:
-                await self.redis.rpush("sm:queue", str(user_id))
+                await self.redis.rpush("sm:queue", u_str)
             return True
         else:
             async with self._lock:
+                queue = self._fallback_store.get("sm:queue", [])
+                if u_str in queue:
+                    queue.remove(u_str)
+                if priority:
+                    queue.insert(0, u_str)
+                else:
+                    queue.append(u_str)
+                self._fallback_store["sm:queue"] = queue
+                if data:
+                    self._fallback_store[f"sm:match:pref:{u_str}"] = data
                 return True
 
     async def remove_from_queue(self, user_id: int):
         """Remove a user from the global matchmaking queue."""
+        u_str = str(user_id)
         if self.redis:
-            await self.redis.lrem("sm:queue", 0, str(user_id))
+            await self.redis.lrem("sm:queue", 0, u_str)
             await self.redis.delete(f"sm:match:pref:{user_id}")
         else:
-            pass
+            async with self._lock:
+                queue = self._fallback_store.get("sm:queue", [])
+                if u_str in queue:
+                    queue.remove(u_str)
+                self._fallback_store.pop(f"sm:match:pref:{u_str}", None)
 
     async def get_queue_candidates(self) -> list[str]:
         """Fetch all user IDs currently in the queue as strings."""
         if self.redis:
             members = await self.redis.lrange("sm:queue", 0, -1)
             return [m.decode() if isinstance(m, bytes) else str(m) for m in members]
-        return []
+        else:
+            async with self._lock:
+                return list(self._fallback_store.get("sm:queue", []))
 
     async def get_user_queue_data(self, user_id: Any) -> dict:
         """Fetch preference/metadata for a user in the queue."""
+        u_str = str(user_id)
         if self.redis:
             data = await self.redis.hgetall(f"sm:match:pref:{user_id}")
             if data:
@@ -147,6 +177,9 @@ class DistributedState:
                         else: processed[k] = int(v)
                     except: processed[k] = v
                 return processed
+        else:
+            async with self._lock:
+                return self._fallback_store.get(f"sm:match:pref:{u_str}", {})
         return {}
 
     async def clear_queue(self):
@@ -589,8 +622,17 @@ class DistributedState:
     async def validate_session(self, user_id: int, repair: bool = True) -> bool:
         """Strict invariant check: enforces bidirectional match integrity."""
         if not self.redis: return True
-        
+
         state = await self.get_user_state(user_id)
+
+        # Heal users permanently stuck in transient handshake states.
+        # These states have no self-recovery path if the bot crashes mid-transition.
+        if state in ("MATCHED", "CONNECTING", "CHAT_END"):
+            if repair:
+                logger.warning(f"validate_session: healing stuck state '{state}' for user {user_id}")
+                await self.force_disconnect_single(user_id)
+            return True  # Don't block the user — they've been healed, let them proceed
+
         if state != "CHAT_ACTIVE": return True
         
         partner_id = await self.get_partner(user_id)

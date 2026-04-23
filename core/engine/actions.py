@@ -62,6 +62,16 @@ class ActionRouter:
             result = {"success": code in {1, 2}, "state": msg, "version": ver}
 
         elif etype == "START_SEARCH":
+            # Pre-flight heal: if the user is stuck in a transient state that blocks
+            # searching (MATCHED/CONNECTING/CHAT_END), reset them to HOME automatically.
+            # This is the permanent fix for the INVALID_STATE loop.
+            current_raw = await redis.get(f"sm:state:{uid}")
+            if current_raw in ("MATCHED", "CONNECTING", "CHAT_END"):
+                logger.warning(f"START_SEARCH pre-flight: resetting stuck state '{current_raw}' for {uid}")
+                await redis.set(f"sm:state:{uid}", "HOME")
+                await redis.delete(f"sm:partner:{uid}")
+                await redis.lrem("sm:queue", 0, uid)
+
             pref = payload.get("pref", "")
             # Determine priority status from DB
             priority_flag = "0"
