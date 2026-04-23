@@ -16,33 +16,57 @@ class RateLimiter:
         self._last_matchmaking = {}
         self._last_report = {}
         self._daily_counts = {}     # user_id -> {"date": "YYYY-MM-DD", "count": int}
+        self._spam_counts = {}      # user_id -> int
+        self._mute_until = {}       # user_id -> float
         self._connect_times = {}    # user_id -> [timestamps] for flood detection
         self._lock = asyncio.Lock()
 
         # Limits
         self.MESSAGE_COOLDOWN = 1.0       # seconds between messages
+        self.SPAM_WINDOW = 2.0            # window for rapid message tracking
+        self.SPAM_THRESHOLD = 5           # messages before mute
+        self.MUTE_DURATION = 15           # seconds
+        
         self.MATCHMAKE_COOLDOWN = 3.0     # seconds between searches
         self.REPORT_COOLDOWN = 5.0        # seconds between reports
         self.DAILY_MESSAGE_CAP = 5000     # max messages per day
         self.FLOOD_WINDOW = 60            # seconds
         self.FLOOD_MAX_CONNECTS = 10      # max connect/disconnect cycles per window
 
-    async def can_send_message(self, user_id: int) -> bool:
-        """Check message cooldown and daily cap atomically (Async)."""
+    async def can_send_message(self, user_id: int) -> tuple[bool, str]:
+        """Check message cooldown, daily cap, and spam status.
+        Returns (success, reason).
+        """
         now = time.time()
         
         if distributed_state.redis:
+            # 0. Mute check
+            mute_key = f"rl:mute:{user_id}"
+            mute_ttl = await distributed_state.redis.ttl(mute_key)
+            if mute_ttl > 0:
+                return False, f"MUTED:{mute_ttl}"
+
             # 1. Cooldown check
             key = f"rl:msg:{user_id}"
             if await distributed_state.redis.exists(key):
-                return False
+                # Potential spam detection
+                spam_key = f"rl:spam:{user_id}"
+                count = await distributed_state.redis.incr(spam_key)
+                await distributed_state.redis.expire(spam_key, int(self.SPAM_WINDOW))
+                
+                if count >= self.SPAM_THRESHOLD:
+                    await distributed_state.redis.set(mute_key, "1", ex=self.MUTE_DURATION)
+                    await distributed_state.redis.delete(spam_key)
+                    return False, f"MUTED:{self.MUTE_DURATION}"
+                
+                return False, "COOLDOWN"
             
             # 2. Daily cap check
             today = time.strftime("%Y-%m-%d")
             daily_key = f"rl:daily:{user_id}:{today}"
             count = await distributed_state.redis.get(daily_key)
             if count and int(count) >= self.DAILY_MESSAGE_CAP:
-                return False
+                return False, "DAILY_CAP"
             
             # Update
             await distributed_state.redis.set(key, "1", ex=int(self.MESSAGE_COOLDOWN))
@@ -50,24 +74,36 @@ class RateLimiter:
             new_count = await distributed_state.redis.incr(daily_key)
             if new_count == 1:
                 await distributed_state.redis.expire(daily_key, 86400) # 24h
-            return True
+            return True, "OK"
         else:
             async with self._lock:
+                # Mute check
+                mute_until = self._mute_until.get(user_id, 0)
+                if now < mute_until:
+                    return False, f"MUTED:{int(mute_until - now)}"
+
                 last = self._last_message.get(user_id, 0)
                 if now - last < self.MESSAGE_COOLDOWN:
-                    return False
+                    count = self._spam_counts.get(user_id, 0) + 1
+                    self._spam_counts[user_id] = count
+                    if count >= self.SPAM_THRESHOLD:
+                        self._mute_until[user_id] = now + self.MUTE_DURATION
+                        self._spam_counts[user_id] = 0
+                        return False, f"MUTED:{self.MUTE_DURATION}"
+                    return False, "COOLDOWN"
                 
                 today = time.strftime("%Y-%m-%d")
                 daily = self._daily_counts.get(user_id)
                 if daily and daily["date"] == today:
                     if daily["count"] >= self.DAILY_MESSAGE_CAP:
-                        return False
+                        return False, "DAILY_CAP"
                     daily["count"] += 1
                 else:
                     self._daily_counts[user_id] = {"date": today, "count": 1}
 
                 self._last_message[user_id] = now
-                return True
+                self._spam_counts[user_id] = 0
+                return True, "OK"
 
     async def can_matchmake(self, user_id: int, update: bool = True) -> bool:
         """Check matchmaking search cooldown (Async)."""

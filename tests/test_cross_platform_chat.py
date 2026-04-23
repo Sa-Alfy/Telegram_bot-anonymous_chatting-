@@ -779,7 +779,7 @@ class TestMessengerLegacyActionRouting:
 class TestEngineStatesMigration:
     @pytest.fixture(autouse=True)
     def setup_mocks(self):
-        with patch("utils.rate_limiter.rate_limiter.can_send_message", AsyncMock(return_value=True)):
+        with patch("utils.rate_limiter.rate_limiter.can_send_message", AsyncMock(return_value=(True, "OK"))):
             yield
 
     @pytest.mark.asyncio

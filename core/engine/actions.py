@@ -329,9 +329,17 @@ class ActionRouter:
             partner_id = await match_state.get_partner(c_uid)
             text = payload.get("text", "")
             from utils.rate_limiter import rate_limiter
-            if not await rate_limiter.can_send_message(c_uid):
-                return {"success": False, "error": "Rate limit exceeded. Please wait."}
-            elif not partner_id:
+            
+            can_send, reason = await rate_limiter.can_send_message(c_uid)
+            if not can_send:
+                if reason.startswith("MUTED:"):
+                    ttl = reason.split(":")[-1]
+                    return {"success": False, "error": f"🚫 You have been muted for {ttl} seconds for spamming."}
+                elif reason == "DAILY_CAP":
+                    return {"success": False, "error": "📈 You have reached your daily message limit."}
+                return {"success": False, "error": "⚠️ Please slow down! (1s cooldown)"}
+            
+            if not partner_id:
                 return {"success": False, "error": "You're not chatting with anyone yet."}
             else:
                 is_safe, violation = check_message(text)
@@ -364,8 +372,15 @@ class ActionRouter:
             url = payload.get("url")
             file_id = payload.get("file_id")
             from utils.rate_limiter import rate_limiter
-            if not await rate_limiter.can_send_message(c_uid): return {"success": False, "error": "Rate limit exceeded."}
-            elif not partner_id: return {"success": False, "error": "No partner."}
+            
+            can_send, reason = await rate_limiter.can_send_message(c_uid)
+            if not can_send:
+                if reason.startswith("MUTED:"):
+                    ttl = reason.split(":")[-1]
+                    return {"success": False, "error": f"🚫 Muted for {ttl}s."}
+                return {"success": False, "error": "⚠️ Rate limit exceeded."}
+            
+            if not partner_id: return {"success": False, "error": "No partner."}
             else:
                 if media_type in ("voice", "video", "video_note"):
                     user = await UserRepository.get_by_telegram_id(c_uid)

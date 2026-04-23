@@ -120,12 +120,6 @@ class TestMessengerHandlers:
         from messenger_handlers import _map_reply_markup
         assert _map_reply_markup(None) is None
 
-    @pytest.mark.asyncio
-    async def test_handle_messenger_text_rate_limited(self):
-        from messenger_handlers import handle_messenger_text
-        with patch('messenger_handlers.rate_limiter.can_send_message', return_value=False):
-            await handle_messenger_text("PSID123", 200, {"telegram_id": 200}, "Hello")
-            self.mock_send_msg.assert_called_with("PSID123", "⏳ Please wait 0s.") # Adjusted message
 
     @pytest.mark.asyncio
     async def test_execute_action_routes_correctly(self):

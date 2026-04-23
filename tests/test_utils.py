@@ -17,20 +17,26 @@ class TestRateLimiter:
 
     @pytest.mark.asyncio
     async def test_can_send_message_first_time(self):
-        assert await self.rl.can_send_message(1001) is True
+        can_send, reason = await self.rl.can_send_message(1001)
+        assert can_send is True
+        assert reason == "OK"
 
     @pytest.mark.asyncio
     async def test_can_send_message_rapid_blocked(self):
         await self.rl.can_send_message(1001)
-        # Immediately again should be blocked (< 0.5s)
-        assert await self.rl.can_send_message(1001) is False
+        # Immediately again should be blocked (< 1.0s)
+        can_send, reason = await self.rl.can_send_message(1001)
+        assert can_send is False
+        assert reason in ("COOLDOWN", "MUTED")
 
     @pytest.mark.asyncio
     async def test_can_send_message_after_cooldown(self):
         await self.rl.can_send_message(1001)
         # Manually force the fallback store to think time passed
         self.rl._last_message[1001] = time.time() - 2.0
-        assert await self.rl.can_send_message(1001) is True
+        can_send, reason = await self.rl.can_send_message(1001)
+        assert can_send is True
+        assert reason == "OK"
 
     @pytest.mark.asyncio
     async def test_can_matchmake_first_time(self):
@@ -65,7 +71,8 @@ class TestRateLimiter:
     @pytest.mark.asyncio
     async def test_different_users_independent(self):
         await self.rl.can_send_message(1001)
-        assert await self.rl.can_send_message(1002) is True
+        can_send, _ = await self.rl.can_send_message(1002)
+        assert can_send is True
 
 
 # ═══════════════════════════════════════════════════════
