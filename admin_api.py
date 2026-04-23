@@ -130,6 +130,10 @@ async def consume_events():
 
 # --- REST API Endpoints ---
 
+@app.get("/admin/verify")
+async def verify_admin_token(_=Depends(verify_token)):
+    return {"status": "ok"}
+
 @app.get("/admin/user/{user_id}")
 async def get_user_state(user_id: str, _=Depends(verify_token)):
     if not redis_client: raise HTTPException(status_code=503, detail="Redis unavailable")

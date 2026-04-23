@@ -428,10 +428,7 @@ class ActionRouter:
             new_s = payload.get("new_state", "HOME")
             keys = [f"sm:state:{uid}", idemp_key, f"sm:ver:u:{uid}"]
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SET_STATE_LUA, keys, [uid, str(ts), new_s])
-            data={"action": etype, "result_state": result.get("state")}
-        )
-
-        return result
+            return {"success": code in {1, 2}, "state": msg, "version": ver}
  
     @classmethod
     async def _rehydrate_ui(cls, user_id: str, state: str, match_id: str, extra: dict = None):

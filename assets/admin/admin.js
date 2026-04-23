@@ -2,12 +2,30 @@
 let socket = null;
 let token = localStorage.getItem("debug_token") || "";
 
-function authenticate() {
-    token = document.getElementById("auth-token").value;
+async function authenticate() {
+    const input = document.getElementById("auth-token");
+    const errorDiv = document.getElementById("auth-error");
+    token = input.value;
+    
     if (!token) return;
     
-    localStorage.setItem("debug_token", token);
-    connectWS();
+    errorDiv.innerText = "Verifying...";
+    
+    try {
+        const res = await fetch("/admin/verify", {
+            headers: { "Authorization": `Bearer ${token}` }
+        });
+        
+        if (res.ok) {
+            localStorage.setItem("debug_token", token);
+            errorDiv.innerText = "";
+            connectWS();
+        } else {
+            errorDiv.innerText = "❌ Invalid Secret Code";
+        }
+    } catch (e) {
+        errorDiv.innerText = "❌ Server Unavailable";
+    }
 }
 
 async function connectWS() {
