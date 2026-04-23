@@ -16,7 +16,12 @@ class UserRepository:
             return (psid_hash % (10**15)) + 10**15
         elif isinstance(telegram_id, str) and telegram_id.isdigit():
             return int(telegram_id)
-        return int(telegram_id) if telegram_id is not None else 0
+        
+        try:
+            return int(telegram_id) if telegram_id is not None else 0
+        except (ValueError, TypeError):
+            # Handle cases like "msg" or "reputation:good" gracefully
+            return 0
 
     @staticmethod
     async def get_by_telegram_id(telegram_id: Any) -> Optional[Dict[str, Any]]:

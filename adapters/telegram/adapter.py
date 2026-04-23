@@ -29,9 +29,12 @@ class TelegramAdapter(BaseAdapter):
             action = action.upper()
             
             # Match ID resolution (Contextual)
-            # If state_gate looks like a partner ID (numeric) or a match ID (m_...)
-            ctx_id = state_gate if (state_gate.startswith("m_") or state_gate.isdigit()) else target_str
-            mid = ctx_id if ctx_id.startswith("m_") else f"m_{uid}_{ctx_id}" if (ctx_id and ctx_id != "0") else "global"
+            # Only use state_gate if it's a valid match_id or a numeric partner_id
+            mid = "global"
+            if state_gate and (state_gate.startswith("m_") or state_gate.isdigit()):
+                mid = state_gate if state_gate.startswith("m_") else f"m_{uid}_{state_gate}"
+            elif target_str and target_str.startswith("m_"):
+                mid = target_str
 
             if action in {"SEARCH", "START_SEARCH"}:
                 return self.create_event("SHOW_PREFS", uid)
@@ -124,7 +127,8 @@ class TelegramAdapter(BaseAdapter):
                     reply_markup=get_home_keyboard()
                 )
                 # Silently swap Reply Keyboard back to home layout
-                await self.client.send_message(uid, "\u200b", reply_markup=persistent_home_menu())
+                # Use a subtle '.' to avoid 'MESSAGE_EMPTY' error from Telegram
+                await self.client.send_message(uid, ".", reply_markup=persistent_home_menu(), disable_notification=True)
 
             elif state == UnifiedState.PREFERENCES:
                 await self.client.send_message(
@@ -147,7 +151,7 @@ class TelegramAdapter(BaseAdapter):
                     reply_markup=get_chat_keyboard(mid)
                 )
                 # Silently swap Reply Keyboard to chat layout
-                await self.client.send_message(uid, "\u200b", reply_markup=persistent_chat_menu())
+                await self.client.send_message(uid, ".", reply_markup=persistent_chat_menu(), disable_notification=True)
 
             elif state == UnifiedState.VOTING:
                 # 1. Extract Stats for Summary

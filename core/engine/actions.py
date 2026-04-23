@@ -227,9 +227,18 @@ class ActionRouter:
             
             if result["success"] and mid.startswith("m_"):
                 try:
-                    # SAFE EXTRACTION: Split by '_' and pick the ID that isn't 'uid'
-                    parts = mid[2:].split("_")
-                    p_uid = parts[1] if parts[0] == str(uid) else parts[0]
+                    # ROBUST EXTRACTION: Messenger IDs contain underscores, so simple split fails.
+                    # mid is "m_<id1>_<id2>". We know our own ID (uid).
+                    m_body = mid[2:] # Strip "m_"
+                    u_str = str(uid)
+                    if m_body.startswith(u_str + "_"):
+                        p_uid = m_body[len(u_str)+1:]
+                    elif m_body.endswith("_" + u_str):
+                        p_uid = m_body[:-len(u_str)-1]
+                    else:
+                        # Fallback for legacy simple IDs
+                        parts = m_body.split("_")
+                        p_uid = parts[1] if parts[0] == u_str else parts[0]
                     
                     from database.repositories.vote_repository import VoteRepository
                     db_vote_type = vval if vtype == "reputation" else None

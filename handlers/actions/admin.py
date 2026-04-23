@@ -13,7 +13,7 @@ class AdminHandler:
     @staticmethod
     async def handle_stats(client: Client, user_id: int) -> Dict[str, Any]:
         """Fetches and displays live administrative statistics."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized access!", "show_alert": True}
             
         from services.distributed_state import distributed_state
@@ -56,7 +56,7 @@ class AdminHandler:
     @staticmethod
     async def handle_list_banned(client: Client, user_id: int) -> Dict[str, Any]:
         """Lists all banned users for administration."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized access!", "show_alert": True}
             
         banned = await AdminRepository.get_banned_users()
@@ -76,7 +76,7 @@ class AdminHandler:
     @staticmethod
     async def handle_manage_ban(client: Client, user_id: int, target_uid: int) -> Dict[str, Any]:
         """Displays management options for a specific banned user."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized access!", "show_alert": True}
             
         user = await UserRepository.get_by_telegram_id(target_uid)
@@ -108,7 +108,7 @@ class AdminHandler:
     @staticmethod
     async def handle_list_banned_simple(client: Client, user_id: int) -> Dict[str, Any]:
         """Displays the list of currently banned users."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         banned = await AdminRepository.get_banned_users()
         if not banned:
@@ -123,7 +123,7 @@ class AdminHandler:
     @staticmethod
     async def handle_admin_events(client: Client, user_id: int) -> Dict[str, Any]:
         """Displays the tournament and event management dashboard."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         from services.event_manager import get_active_event
         import time
@@ -143,7 +143,7 @@ class AdminHandler:
     @staticmethod
     async def handle_admin_health(client: Client, user_id: int) -> Dict[str, Any]:
         """Checks system health and uptime."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         from state.match_state import match_state
         uptime_seconds = int(time.time() - match_state.bot_start_time)
@@ -166,7 +166,7 @@ class AdminHandler:
     @staticmethod
     async def handle_reset_confirm(client: Client, user_id: int) -> Dict[str, Any]:
         """Confirmation prompt before system reset."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         return {
             "text": "⚠️ **CRITICAL ACTION** ⚠️\n\nAre you sure you want to clear **ALL** active chats and queues? This cannot be undone.",
@@ -179,7 +179,7 @@ class AdminHandler:
     @staticmethod
     async def handle_reset(client: Client, user_id: int) -> Dict[str, Any]:
         """Performs a full system reset of active chats and queues."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized access!", "show_alert": True}
         
         from state.match_state import match_state
@@ -195,7 +195,7 @@ class AdminHandler:
     @staticmethod
     async def handle_debug(client: Client, user_id: int) -> Dict[str, Any]:
         """Activates debug mode (Matching with Echo)."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         from state.match_state import match_state
         from adapters.telegram.keyboards import chat_menu
@@ -209,7 +209,7 @@ class AdminHandler:
     @staticmethod
     async def handle_broadcast_prompt(client: Client, user_id: int) -> Dict[str, Any]:
         """Prompts for broadcast message."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         from state.match_state import match_state
         await match_state.set_user_state(user_id, "awaiting_admin_broadcast")
@@ -221,7 +221,7 @@ class AdminHandler:
     @staticmethod
     async def handle_gift_prompt(client: Client, user_id: int) -> Dict[str, Any]:
         """Prompts for user ID to gift coins."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         from state.match_state import match_state
         await match_state.set_user_state(user_id, "awaiting_gift_target")
@@ -233,7 +233,7 @@ class AdminHandler:
     @staticmethod
     async def handle_vip_prompt(client: Client, user_id: int) -> Dict[str, Any]:
         """Prompts for user ID to set VIP."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         from state.match_state import match_state
         await match_state.set_user_state(user_id, "awaiting_vip_target")
@@ -245,7 +245,7 @@ class AdminHandler:
     @staticmethod
     async def handle_user_manage_prompt(client: Client, user_id: int) -> Dict[str, Any]:
         """Prompts for user ID to manage (Ban/Unban)."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         from state.match_state import match_state
         await match_state.set_user_state(user_id, "awaiting_manage_target")
@@ -257,7 +257,7 @@ class AdminHandler:
     @staticmethod
     async def handle_set_vip_button(client: Client, user_id: int, target_id: int, status_str: str) -> Dict[str, Any]:
         """Processes the VIP toggle button."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         status = True if status_str.lower() == "true" else False
         await UserRepository.update(target_id, vip_status=status)
@@ -270,7 +270,7 @@ class AdminHandler:
     @staticmethod
     async def handle_quick_gift(client: Client, user_id: int, target_id: int, amount: int) -> Dict[str, Any]:
         """Processes quick coin gifts."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         await UserRepository.increment_coins(target_id, amount)
         try: await client.send_message(target_id, f"🎁 **Admin gifted you {amount} coins!**")
@@ -281,7 +281,7 @@ class AdminHandler:
     @staticmethod
     async def handle_deduct_prompt(client: Client, user_id: int) -> Dict[str, Any]:
         """Prompts for user ID to deduct coins."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         from state.match_state import match_state
         await match_state.set_user_state(user_id, "awaiting_deduct_target")
@@ -293,7 +293,7 @@ class AdminHandler:
     @staticmethod
     async def handle_quick_deduct(client: Client, user_id: int, target_id: int, amount: int) -> Dict[str, Any]:
         """Processes quick coin deductions."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
         # Use negative amount with increment_coins to deduct
         await UserRepository.increment_coins(target_id, -amount)
@@ -305,7 +305,7 @@ class AdminHandler:
     @staticmethod
     async def handle_peek_queue(client: Client, user_id: int) -> Dict[str, Any]:
         """Shows the IDs of users currently waiting in the queue."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
             
         from services.distributed_state import distributed_state
@@ -330,7 +330,7 @@ class AdminHandler:
     @staticmethod
     async def handle_view_logs(client: Client, user_id: int) -> Dict[str, Any]:
         """Fetches and displays recent telemetry events from Redis."""
-        if user_id != ADMIN_ID:
+        if str(user_id) != str(ADMIN_ID):
             return {"alert": "🚫 Unauthorized!", "show_alert": True}
             
         from services.distributed_state import distributed_state
