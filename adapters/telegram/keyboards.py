@@ -293,6 +293,10 @@ def admin_menu():
             InlineKeyboardButton("👤 Manage User", callback_data="admin_user_manage_prompt")
         ],
         [InlineKeyboardButton("🛠 Debug Mode", callback_data="admin_debug")],
+        [
+            InlineKeyboardButton("🕵️ Peek Queue", callback_data="admin_peek_queue"),
+            InlineKeyboardButton("📜 Event Logs", callback_data="admin_view_logs")
+        ],
         [InlineKeyboardButton("🔄 FULL SYSTEM RESET", callback_data="admin_reset_confirm")],
         [InlineKeyboardButton("🔙 Close Admin Console", callback_data="back_to_chat")]
     ])

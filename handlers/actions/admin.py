@@ -12,17 +12,44 @@ from utils.logger import logger
 class AdminHandler:
     @staticmethod
     async def handle_stats(client: Client, user_id: int) -> Dict[str, Any]:
-        """Fetches and displays administrative statistics."""
+        """Fetches and displays live administrative statistics."""
         if user_id != ADMIN_ID:
             return {"alert": "🚫 Unauthorized access!", "show_alert": True}
             
-        stats = await AdminRepository.get_system_stats()
+        from services.distributed_state import distributed_state
+        
+        # 1. Fetch DB Stats (24h history)
+        db_stats = await AdminRepository.get_system_stats()
+        
+        # 2. Fetch Live Engine Stats (Real-time)
+        live_stats = await match_state.get_stats()
+        queue_members = await distributed_state.get_queue_candidates()
+        
+        # 3. Calculate Platform Breakdown
+        tg_waiting = 0
+        msg_waiting = 0
+        for uid in queue_members:
+            if str(uid).startswith("msg_") or (uid.isdigit() and int(uid) >= 10**15):
+                msg_waiting += 1
+            else:
+                tg_waiting += 1
+
         text = (
-            "📊 **Admin Dashboard**\n"
-            f"👤 Total Users: {stats['total_users']}\n"
-            f"💬 Sessions (24h): {stats['sessions_24h']}\n"
-            f"🚩 Pending Reports: {stats['pending_reports']}\n"
-            f"\n🕒 *Last Update: {time.strftime('%H:%M:%S')}*"
+            "📊 **Admin Live Dashboard**\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "📈 **Growth (24h)**\n"
+            f"👤 Total Users: `{db_stats['total_users']}`\n"
+            f"💬 New Sessions: `{db_stats['sessions_24h']}`\n"
+            f"🚩 Reports: `{db_stats['pending_reports']}`\n\n"
+            "⚡ **Live Engine Pulse**\n"
+            f"🔥 Active Chats: `{live_stats['active_chats']}`\n"
+            f"⏳ In Queue: `{live_stats['queue_length']}`\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "📱 **Waiting Split**\n"
+            f"🔹 Telegram: `{tg_waiting}`\n"
+            f"🔹 Messenger: `{msg_waiting}`\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"🕒 *Real-time Update: {time.strftime('%H:%M:%S')}*"
         )
         return {"text": text, "reply_markup": admin_menu()}
 
@@ -274,3 +301,67 @@ class AdminHandler:
         except Exception as e:
             logger.debug(f"Deduct notify failed for {target_id}: {e}")
         return {"alert": f"💸 Deducted {amount} coins from {target_id}", "show_alert": True, "text": "✅ Coins Deducted.", "reply_markup": admin_menu()}
+
+    @staticmethod
+    async def handle_peek_queue(client: Client, user_id: int) -> Dict[str, Any]:
+        """Shows the IDs of users currently waiting in the queue."""
+        if user_id != ADMIN_ID:
+            return {"alert": "🚫 Unauthorized!", "show_alert": True}
+            
+        from services.distributed_state import distributed_state
+        queue_members = await distributed_state.get_queue_candidates()
+        
+        if not queue_members:
+            return {"text": "📭 **The queue is currently empty.**", "reply_markup": admin_menu()}
+            
+        text = f"🕵️ **Queue Peek (Top 10 of {len(queue_members)})**\n"
+        text += "━━━━━━━━━━━━━━━━━━\n\n"
+        
+        for i, uid in enumerate(queue_members[:10]):
+            is_msg = str(uid).startswith("msg_") or (str(uid).isdigit() and int(uid) >= 10**15)
+            icon = "🔹" if not is_msg else "🌀"
+            text += f"{i+1}. {icon} `{uid}`\n"
+            
+        text += "\n━━━━━━━━━━━━━━━━━━\n"
+        text += "🔹 Telegram | 🌀 Messenger"
+        
+        return {"text": text, "reply_markup": admin_menu()}
+
+    @staticmethod
+    async def handle_view_logs(client: Client, user_id: int) -> Dict[str, Any]:
+        """Fetches and displays recent telemetry events from Redis."""
+        if user_id != ADMIN_ID:
+            return {"alert": "🚫 Unauthorized!", "show_alert": True}
+            
+        from services.distributed_state import distributed_state
+        if not distributed_state.redis:
+            return {"text": "❌ **Redis not connected.** Logs unavailable.", "reply_markup": admin_menu()}
+            
+        # Fetch last 15 events
+        # Note: xrevrange returns list of [id, {payload}]
+        events = await distributed_state.redis.xrevrange("admin:events", count=15)
+        
+        if not events:
+            return {"text": "📜 **No events found in the stream.**", "reply_markup": admin_menu()}
+            
+        text = "📜 **Engine Event Log (Last 15)**\n"
+        text += "━━━━━━━━━━━━━━━━━━\n\n"
+        
+        for entry in events:
+            p = entry[1]
+            status = p.get('status', 'info')
+            layer = p.get('layer', 'core')
+            event = p.get('event', 'EVENT')
+            
+            icon = "✅" if status == "success" else "❌" if status == "fail" else "⚠️" if status == "warning" else "ℹ️"
+            event_short = event.replace("ACTION_", "").replace("REDIS_", "")
+            
+            ts = float(p.get('timestamp', time.time()))
+            time_str = time.strftime('%H:%M:%S', time.localtime(ts))
+            
+            text += f"`{time_str}` {icon} **{event_short}** [{layer}]\n"
+            
+        text += "\n━━━━━━━━━━━━━━━━━━\n"
+        text += "✅ Success | ❌ Fail | ⚠️ Warn"
+        
+        return {"text": text, "reply_markup": admin_menu()}

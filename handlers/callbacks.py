@@ -125,6 +125,8 @@ CALLBACK_MAP: Dict[str, Callable[[Client, int, Any], Coroutine[Any, Any, Dict[st
     "admin_vip_prompt": lambda c, uid, _: AdminHandler.handle_vip_prompt(c, uid),
     "admin_user_manage_prompt": lambda c, uid, _: AdminHandler.handle_user_manage_prompt(c, uid),
     "admin_debug": lambda c, uid, _: AdminHandler.handle_debug(c, uid),
+    "admin_peek_queue": lambda c, uid, _: AdminHandler.handle_peek_queue(c, uid),
+    "admin_view_logs": lambda c, uid, _: AdminHandler.handle_view_logs(c, uid),
     "admin_reset_confirm": lambda c, uid, _: AdminHandler.handle_reset_confirm(c, uid),
     "admin_reset_execute": lambda c, uid, _: AdminHandler.handle_reset(c, uid),
     
