@@ -36,6 +36,43 @@ class PIIScrubFilter(logging.Filter):
         return True
 
 
+import asyncio
+import json
+
+class AdminDashboardHandler(logging.Handler):
+    """Pushes critical logs directly to the Admin Dashboard."""
+    def emit(self, record):
+        if record.levelno < logging.WARNING:
+            return
+        try:
+            # Lazy import to avoid circular dependencies
+            from services.distributed_state import distributed_state
+            if not distributed_state.redis:
+                return
+
+            msg = self.format(record)
+            
+            trace = {
+                "event_type": "SYSTEM_ERROR" if record.levelno >= logging.ERROR else "SYSTEM_WARNING",
+                "user_id": "system",
+                "match_id": "global",
+                "payload": {"log": msg, "module": record.module, "func": record.funcName},
+                "success": False,
+                "error": msg,
+                "duration_ms": 0
+            }
+            
+            flat_trace = {k: json.dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in trace.items()}
+            
+            # Run in background if event loop exists
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(distributed_state.redis.xadd("admin:events", flat_trace, maxlen=1000))
+            except RuntimeError:
+                pass # No running loop
+        except Exception:
+            pass
+
 def setup_logger(name: str = "bot") -> logging.Logger:
     """Create and configure the application logger."""
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -43,7 +80,17 @@ def setup_logger(name: str = "bot") -> logging.Logger:
     _logger = logging.getLogger(name)
     _logger.setLevel(getattr(logging, log_level, logging.INFO))
     
-    # Add PII scrubbing in production (when not DEBUG)
+    # Standard console handler
+    console_handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_handler.setFormatter(formatter)
+    
+    # Avoid duplicate handlers
+    if not _logger.handlers:
+        _logger.addHandler(console_handler)
+        _logger.addHandler(AdminDashboardHandler())
+    
+    # Add PII scrubbing in production
     if log_level != "DEBUG":
         _logger.addFilter(PIIScrubFilter(enabled=True))
     

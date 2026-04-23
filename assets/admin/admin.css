@@ -210,6 +210,8 @@ button.danger {
 
 .trace-entry.error { border-left-color: var(--danger); }
 .trace-entry.success { border-left-color: var(--success); }
+.trace-entry.warning { border-left-color: var(--warning); background: rgba(255, 204, 0, 0.05); }
+.trace-entry.fatal { border-left-color: #ff00ff; background: rgba(255, 0, 255, 0.05); }
 
 .trace-header {
     display: flex;

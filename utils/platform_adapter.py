@@ -1,8 +1,27 @@
 from pyrogram import Client
 from utils.logger import logger
-from typing import Any
+from typing import Any, Dict, Optional
 
 class PlatformAdapter:
+    @staticmethod
+    async def render_state(user_id: str, state: str, payload: Optional[Dict[str, Any]] = None) -> bool:
+        """Routes the render command to the correct platform adapter."""
+        is_messenger = False
+        if isinstance(user_id, str):
+            is_messenger = user_id.startswith("msg_") or (user_id.isdigit() and int(user_id) >= 10**15)
+        elif isinstance(user_id, int):
+            is_messenger = user_id >= 10**15
+
+        if is_messenger:
+            from adapters.messenger.adapter import MessengerAdapter
+            adapter = MessengerAdapter()
+            return await adapter.render_state(str(user_id), state, payload)
+        else:
+            import app_state
+            from adapters.telegram.adapter import TelegramAdapter
+            adapter = TelegramAdapter(app_state.telegram_app)
+            return await adapter.render_state(str(user_id), state, payload)
+
     @staticmethod
     async def send_cross_platform(client: Client, target_id: Any, text: str, reply_markup=None, media_type: str = None, media_url: str = None):
         # Determine platform robustly

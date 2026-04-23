@@ -5,7 +5,7 @@ let token = localStorage.getItem("debug_token") || "";
 async function authenticate() {
     const input = document.getElementById("auth-token");
     const errorDiv = document.getElementById("auth-error");
-    token = input.value;
+    token = input.value.trim();
     
     if (!token) return;
     
@@ -63,6 +63,8 @@ function appendTrace(payload) {
     // Determine status class
     let statusClass = payload.success ? "success" : "error";
     if (payload.event_type === "CMD_START") statusClass = "success";
+    if (payload.event_type === "SYSTEM_ERROR") statusClass = "fatal";
+    if (payload.event_type === "SYSTEM_WARNING") statusClass = "warning";
     
     entry.className = `trace-entry ${statusClass}`;
     

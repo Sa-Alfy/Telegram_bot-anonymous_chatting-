@@ -16,6 +16,7 @@ app = FastAPI(title="Matchmaking Debug Dashboard")
 
 # Security
 DEBUG_SECRET = os.getenv("DEBUG_SECRET", "1532456870")  # Updated per user request
+print(f"ADMIN SECURITY: Secret loaded (Length: {len(DEBUG_SECRET)}, Starts with: {DEBUG_SECRET[:2]}...)")
 security = HTTPBearer()
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
