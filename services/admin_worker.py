@@ -56,7 +56,7 @@ async def start_admin_worker(app: Client):
                         
                         elif action == "GIFT_COINS":
                             uid = payload.get("user_id")
-                            amount = payload.get("amount", 0)
+                            amount = int(payload.get("amount", 0))
                             if uid and amount:
                                 from database.repositories.user_repository import UserRepository
                                 await UserRepository.increment_coins(uid, amount)
@@ -64,7 +64,7 @@ async def start_admin_worker(app: Client):
                         
                         elif action == "BAN_USER":
                             uid = payload.get("user_id")
-                            banned = payload.get("banned", True)
+                            banned = bool(payload.get("banned", False))
                             if uid:
                                 from database.repositories.user_repository import UserRepository
                                 await UserRepository.set_blocked(uid, banned)

@@ -221,7 +221,6 @@ class MessengerAdapter(BaseAdapter):
             if state == UnifiedState.HOME:
                 match_id = payload.get("match_id") if payload else None
                 if match_id:
-                    from adapters.messenger.ui_factory import get_messenger_post_chat_buttons
                     res = send_quick_replies(psid, "🏁 **Chat Ended**\nHow was your experience? You can also start a new search immediately.", get_messenger_post_chat_buttons(match_id))
                 else:
                     res = send_quick_replies(psid, "🏠 **Main Menu**\nWelcome! Tap below to start meeting people.", get_messenger_home_buttons())
@@ -264,24 +263,34 @@ class MessengerAdapter(BaseAdapter):
                 stats = payload.get("payload") if payload else None
                 summary_text = ""
                 if stats and isinstance(stats, dict):
-                    summary_text = "📊 Session Summary\n" + format_session_summary(stats, is_user1=True, coins_balance=stats.get("coins_balance", 0)) + "\n\n"
-
-                signals = payload.get("signals") if payload else None
-                if not isinstance(signals, dict): signals = {}
+                    summary_text = "📊 **Session Summary**\n" + format_session_summary(stats, is_user1=True, coins_balance=stats.get("coins_balance", 0)) + "\n\n"
                 
+                signals = payload.get("signals") if payload else {}
                 mid = mid or "global"
+
+                # UX: Single Consolidated Message
+                vote_text = summary_text or "🏁 **Chat Ended**\nHow was your experience?"
+                
+                buttons = []
                 if not signals.get("reputation"):
-                    res = send_generic_template(psid, [get_messenger_vote_card(mid, "reputation")])
-                    if summary_text: 
-                        send_message(psid, summary_text)
-                    else:
-                        send_message(psid, "🏁 **Chat ended by stranger.**")
-                    send_quick_replies(psid, "Or jump straight back in:", get_messenger_post_chat_buttons(mid))
-                elif not signals.get("identity"):
-                    res = send_generic_template(psid, [get_messenger_vote_card(mid, "identity")])
-                    send_quick_replies(psid, "Or jump straight back in:", get_messenger_post_chat_buttons(mid))
-                else:
-                    res = send_quick_replies(psid, "🏠 **Back to Main Menu**\nReady for another chat?", get_messenger_home_buttons())
+                    buttons.extend([
+                        {"title": "👍 Good", "payload": StateBoundPayload.encode("VOTE", "reputation:good", mid)},
+                        {"title": "👎 Bad",  "payload": StateBoundPayload.encode("VOTE", "reputation:bad", mid)}
+                    ])
+                
+                if not signals.get("identity"):
+                    buttons.extend([
+                        {"title": "👨 Male",   "payload": StateBoundPayload.encode("VOTE", "identity:male", mid)},
+                        {"title": "👩 Female", "payload": StateBoundPayload.encode("VOTE", "identity:female", mid)}
+                    ])
+                
+                # Add "Next" and "Menu" as standard escape hatches
+                buttons.append({"title": "⏭️ Next Chat", "payload": StateBoundPayload.encode("NEXT_MATCH", mid, UnifiedState.VOTING)})
+                buttons.append({"title": "🏠 Menu",      "payload": StateBoundPayload.encode("CMD_START", "0", UnifiedState.HOME)})
+                
+                res = send_quick_replies(psid, vote_text, buttons)
+            else:
+                res = send_quick_replies(psid, "🏠 **Back to Main Menu**\nReady for another chat?", get_messenger_home_buttons())
             
             # Check if API call returned an error
             if res and "error" in res:

@@ -409,7 +409,6 @@ class ActionRouter:
                     else: return {"success": False, "error": warning}
                 else:
                     await UserService.increment_challenge(c_uid, "messages_sent")
-                    from services.distributed_state import distributed_state
                     await distributed_state.increment_message_count(c_uid, partner_id)
                     try:
                         await PlatformAdapter.send_cross_platform(app_state.telegram_app, partner_id, f"💬 {text}", None)
@@ -441,7 +440,6 @@ class ActionRouter:
                     if not user or not user.get("vip_status"): return {"success": False, "error": "VIP required for this media type."}
                 await behavior_tracker.record_message_sent(c_uid, f"[Media:{media_type}]")
                 await behavior_tracker.record_message_received(partner_id)
-                from services.distributed_state import distributed_state
                 await distributed_state.increment_message_count(c_uid, partner_id)
                 try:
                     await PlatformAdapter.send_cross_platform(app_state.telegram_app, partner_id, text=payload.get("caption", ""), media_type=media_type, media_url=url or file_id)
