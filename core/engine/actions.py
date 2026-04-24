@@ -80,12 +80,14 @@ class ActionRouter:
         # --- 2. RENDER GATE & ACK FLOW ---
         if result.get("success"):
             new_state = result.get("state")
-            await cls._rehydrate_ui(uid, new_state, mid, result)
+            if new_state or result.get("force_render"):
+                await cls._rehydrate_ui(uid, new_state, mid, result)
             
             # Symmetric update for partner
             if result.get("notify_partner"):
                 p_info = result["notify_partner"]
-                await cls._rehydrate_ui(p_info["user_id"], p_info["state"], p_info["match_id"], p_info)
+                if p_info.get("state") or p_info.get("force_render"):
+                    await cls._rehydrate_ui(p_info["user_id"], p_info["state"], p_info["match_id"], p_info)
 
         EventLogger.log_event(
             event=TelemetryEvent.ACTION_END,

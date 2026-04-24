@@ -124,8 +124,8 @@ class MessengerAdapter(BaseAdapter):
         elif msg.get("text"):
             from services.distributed_state import distributed_state
             from database.repositories.user_repository import UserRepository
-            virtual_id = UserRepository._sanitize_id(uid)
-            state = await distributed_state.get_user_state(virtual_id)
+            # Use raw uid for Redis state lookup (ActionRouter uses raw uid as key)
+            state = await distributed_state.get_user_state(uid)
             text = msg.get("text").strip()
             
             if state in {UnifiedState.REG_INTERESTS, UnifiedState.REG_LOCATION, UnifiedState.REG_BIO}:
@@ -157,6 +157,8 @@ class MessengerAdapter(BaseAdapter):
 
     async def render_state(self, user_id: str, state: str, payload: Optional[Dict[str, Any]] = None) -> bool:
         """Standardized Messenger rendering. Returns True for Render-ACK."""
+        if not state:
+            return True # No state to render (e.g. after SEND_MESSAGE)
         try:
             # Robust PSID resolution: Handle msg_ prefix, and resolve virtual IDs via DB
             psid = str(user_id)
