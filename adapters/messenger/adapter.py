@@ -4,9 +4,17 @@ from utils.logger import logger
 
 from typing import Dict, Any, Optional
 from adapters.base import BaseAdapter
-from adapters.messenger.ui_factory import *
-from core.engine.state_machine import UnifiedState
 from messenger_api import send_message, send_quick_replies, send_generic_template
+from core.engine.state_machine import UnifiedState
+from utils.renderer import StateBoundPayload
+from adapters.messenger.ui_factory import (
+    get_messenger_home_buttons, get_messenger_chat_buttons,
+    get_messenger_post_chat_buttons, get_messenger_preferences_buttons,
+    get_shop_carousel, get_start_menu_buttons, get_profile_dashboard_card,
+    get_stats_card, get_gender_buttons, get_interests_skip_buttons,
+    get_location_skip_buttons, get_bio_skip_buttons, get_messenger_vote_card,
+    get_messenger_tools_buttons, get_gift_store_elements
+)
 
 class MessengerAdapter(BaseAdapter):
     """Messenger UI Platform Adapter."""
@@ -168,13 +176,11 @@ class MessengerAdapter(BaseAdapter):
             # ── Economy / Shop Logic ──────────────────────────────────────
             if payload and payload.get("show_shop"):
                 send_message(psid, "🛍 **Seasonal Shop**\nUse your coins to buy exclusive badges!")
-                from adapters.messenger.ui_factory import get_shop_carousel
                 send_generic_template(psid, get_shop_carousel())
                 return True
                 
             if payload and payload.get("item_name"):
                 from database.repositories.user_repository import UserRepository
-                from adapters.messenger.ui_factory import get_start_menu_buttons
                 # The engine already updated the DB, we just confirm
                 user = await UserRepository.get_by_telegram_id(int(user_id.replace("msg_", ""))) if user_id.replace("msg_", "").isdigit() else None
                 coins = user.get("coins", 0) if user else 0
@@ -189,12 +195,6 @@ class MessengerAdapter(BaseAdapter):
                 # Bridge: Handle legacy response dict from Economy/Matching handlers
                 resp = payload["response"]
                 if not resp: return True
-                
-                from adapters.messenger.ui_factory import (
-                    get_messenger_home_buttons, get_messenger_chat_buttons,
-                    get_messenger_post_chat_buttons, get_messenger_preferences_buttons
-                )
-                from utils.renderer import StateBoundPayload
                 
                 # Resolve fallback buttons for current state
                 fallback_buttons = get_messenger_home_buttons()
@@ -245,16 +245,12 @@ class MessengerAdapter(BaseAdapter):
                 else:
                     res = send_message(psid, "⚠️ Stats data not found. Please try /start.")
             elif state == UnifiedState.REG_GENDER:
-                from adapters.messenger.ui_factory import get_gender_buttons
                 res = send_quick_replies(psid, "🚻 **Step 1: Gender**\nHow do you identify? This helps us find better matches.", get_gender_buttons(UnifiedState.REG_GENDER))
             elif state == UnifiedState.REG_INTERESTS:
-                from adapters.messenger.ui_factory import get_interests_skip_buttons
                 res = send_quick_replies(psid, "🎨 **Step 2: Interests**\nWhat do you like? (e.g. Anime, Gaming, Travel)\nType them below or skip.", get_interests_skip_buttons(UnifiedState.REG_INTERESTS))
             elif state == UnifiedState.REG_LOCATION:
-                from adapters.messenger.ui_factory import get_location_skip_buttons
                 res = send_quick_replies(psid, "📍 **Step 3: Location**\nWhere are you from? (City/Country)\nType it below or skip.", get_location_skip_buttons(UnifiedState.REG_LOCATION))
             elif state == UnifiedState.REG_BIO:
-                from adapters.messenger.ui_factory import get_bio_skip_buttons
                 res = send_quick_replies(psid, "📝 **Step 4: Bio**\nTell us a bit about yourself!\nType a short bio below or skip.", get_bio_skip_buttons(UnifiedState.REG_BIO))
             elif state == UnifiedState.PREFERENCES:
                 res = send_quick_replies(psid, "🔍 Who are you looking for today?", get_messenger_preferences_buttons())
@@ -264,7 +260,6 @@ class MessengerAdapter(BaseAdapter):
                 res = send_quick_replies(psid, "🎉 **Connected!**\nChat anonymously. Tap 'Tools' for icebreakers.", get_messenger_chat_buttons(mid))
             elif state == UnifiedState.VOTING:
                 from utils.ui_formatters import format_session_summary
-                from adapters.messenger.ui_factory import get_messenger_post_chat_buttons
                 
                 stats = payload.get("payload") if payload else None
                 summary_text = ""
@@ -304,7 +299,6 @@ class MessengerAdapter(BaseAdapter):
 
     async def render_gift_store(self, psid: str, match_id: str):
         """Messenger-only: Shows the Gift Store carousel."""
-        from adapters.messenger.ui_factory import get_gift_store_elements
         send_generic_template(psid, get_gift_store_elements(UnifiedState.CHAT_ACTIVE))
 
     async def send_error(self, user_id: str, error_msg: str):
