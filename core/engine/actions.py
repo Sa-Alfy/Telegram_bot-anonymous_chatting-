@@ -232,7 +232,19 @@ class ActionRouter:
             keys = [f"sm:state:{uid}", f"sm:vote:{mid}:{uid}", f"sm:vote_lock:{mid}", f"sm:ver:m:{mid}", f"sm:audit_log:{mid}", idemp_key]
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SUBMIT_VOTE_LUA, keys, [uid, mid, vtype, vval, str(ts)])
             signals = await redis.hgetall(f"sm:vote:{mid}:{uid}")
-            result = {"success": code == 1, "state": msg, "version": ver, "signals": signals}
+            
+            # UX: Redirect to HOME if voting is done (according to Lua)
+            effective_state = msg
+            if msg == "VOTING_COMPLETE":
+                effective_state = UnifiedState.HOME
+            
+            result = {
+                "success": code == 1, 
+                "state": effective_state, 
+                "version": ver, 
+                "signals": signals,
+                "force_render": True # Ensure HOME menu pops up immediately
+            }
             
             if result["success"] and mid.startswith("m_"):
                 try:

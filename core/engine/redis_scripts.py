@@ -176,7 +176,7 @@ class RedisScripts:
         local rep = redis.call("HGET", KEYS[2], "reputation")
         local iden = redis.call("HGET", KEYS[2], "identity")
 
-        if rep and iden then
+        if rep then
             redis.call("SET", KEYS[1], "HOME")
             res = {1, "VOTING_COMPLETE", tostring(ver)}
         end
