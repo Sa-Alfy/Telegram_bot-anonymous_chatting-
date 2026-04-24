@@ -18,13 +18,15 @@ async function authenticate() {
         
         if (res.ok) {
             localStorage.setItem("debug_token", token);
-            errorDiv.innerText = "";
+            errorDiv.style.display = "none";
             connectWS();
         } else {
             errorDiv.innerText = "❌ Invalid Secret Code";
+            errorDiv.style.display = "block";
         }
     } catch (e) {
         errorDiv.innerText = "❌ Server Unavailable";
+        errorDiv.style.display = "block";
     }
 }
 
@@ -74,23 +76,16 @@ function appendTrace(payload) {
     if (etype === "SYSTEM_ERROR" || etype === "INVARIANT_VIOLATION") statusClass = "fatal";
     if (etype === "SYSTEM_WARNING") statusClass = "warning";
     
-    entry.className = `trace-entry ${statusClass}`;
+    entry.className = `trace-line ${statusClass}`;
     
     const timeStr = new Date().toLocaleTimeString();
-    const duration = payload.duration_ms ? `${payload.duration_ms.toFixed(1)}ms` : "??ms";
     
     entry.innerHTML = `
         <div class="trace-header">
-            <span>[${timeStr}] <span class="trace-function">${etype}</span></span>
-            <span class="tag">${duration}</span>
+            [${timeStr}] [${etype}] user=${payload.user_id || 'sys'} state=${payload.state || 'unknown'}
         </div>
-        <div class="trace-meta">
-            <span class="tag">UID: ${payload.user_id || "system"}</span>
-            <span class="tag">MID: ${payload.match_id || "global"}</span>
-            <span class="tag">STATE: ${payload.state || (payload.data && payload.data.result_state) || "unknown"}</span>
-        </div>
-        <div class="trace-payload">${JSON.stringify(payload.data || payload.payload || {}, null, 2)}</div>
-        ${payload.error ? `<div style="color: var(--danger); font-size: 0.75rem; margin-top: 5px;">⚠️ ERROR: ${payload.error}</div>` : ""}
+        <div class="trace-payload">${JSON.stringify(payload.data || payload.payload || {}, null, 1)}</div>
+        ${payload.error ? `<div style="color: var(--danger); font-size: 0.75rem; margin-top: 2px;">⚠️ ${payload.error}</div>` : ""}
     `;
     
     timeline.prepend(entry);
@@ -217,9 +212,9 @@ function renderDistribution(dist) {
     const sorted = Object.entries(dist).sort((a, b) => b[1] - a[1]);
     
     container.innerHTML = sorted.map(([state, count]) => `
-        <div class="dist-item">
-            <span class="dist-label">${state}</span>
-            <span class="dist-count">${count}</span>
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding: 4px 0;">
+            <span style="color: var(--text-dim);">${state}</span>
+            <span style="font-weight: bold;">${count}</span>
         </div>
     `).join('');
 }
@@ -232,12 +227,9 @@ function updateStuckUsers(users) {
     }
     
     list.innerHTML = users.map(u => `
-        <div class="warning-item" onclick="document.getElementById('inspect-user-id').value='${u.user_id}'; inspectUser();">
-            <div class="warning-header">
-                <span class="warning-uid">${u.user_id}</span>
-                <span class="tag">${u.prefs.pref || 'Any'}</span>
-            </div>
-            <div class="warning-meta">Gender: ${u.prefs.gender || 'N/A'}</div>
+        <div class="list-item" style="padding: 8px; font-size: 0.75rem; border-bottom: 1px solid var(--border);" onclick="document.getElementById('inspect-user-id').value='${u.user_id}'; inspectUser();">
+            <span>${u.user_id}</span>
+            <span class="tag warning">${u.prefs.pref || 'Any'}</span>
         </div>
     `).join('');
 }

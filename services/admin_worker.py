@@ -81,6 +81,12 @@ async def start_admin_worker(app: Client):
                                 await UserRepository.update(uid, vip_status=is_vip)
                                 status_str = "ENABLED" if is_vip else "DISABLED"
                                 await send_cross_platform(app, uid, f"💎 **VIP Status Update**\nYour VIP status has been **{status_str}** by an administrator.")
+                        
+                        elif action == "NOTIFY_USER":
+                            uid = payload.get("user_id")
+                            text = payload.get("text")
+                            if uid and text:
+                                await send_cross_platform(app, uid, text)
 
                         # Acknowledge
                         await distributed_state.redis.xack("admin:commands", "bot_worker", message_id)

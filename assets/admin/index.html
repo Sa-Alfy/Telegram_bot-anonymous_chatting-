@@ -3,137 +3,152 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Matchmaking Debugger | Admin</title>
+    <title>Youniq | Admin Console</title>
     <link rel="stylesheet" href="/static/admin.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
 </head>
 <body>
     <div id="auth-overlay">
         <div class="auth-box">
-            <h2>Enter Debug Secret</h2>
-            <input type="password" id="auth-token" placeholder="Bearer Token">
-            <button onclick="authenticate()">Connect</button>
-            <div id="auth-error" class="error-text"></div>
+            <h2 style="margin-bottom: 8px;">Restricted Access</h2>
+            <p style="color: var(--text-dim); font-size: 0.875rem;">Please enter your administrative secret key</p>
+            <input type="password" id="auth-token" placeholder="Security Token">
+            <button onclick="authenticate()" style="width: 100%;">Unlock Console</button>
+            <div id="auth-error" class="tag danger" style="margin-top: 16px; display: none;"></div>
         </div>
     </div>
 
-    <header>
-        <h1>Matchmaking Debugger</h1>
-        <div class="connection-status" id="ws-status">Disconnected</div>
-    </header>
+    <aside>
+        <div class="logo-container">
+            <div style="width: 32px; height: 32px; background: var(--primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold;">Y</div>
+            <h2>Youniq</h2>
+        </div>
 
-    <div class="dashboard-grid">
-        <!-- Panel 1: Pulse -->
-        <section class="panel col-3">
-            <h2>System Pulse ⚡</h2>
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <span class="label">Queue</span>
-                    <span class="value" id="stat-queue-len">0</span>
-                </div>
-                <div class="stat-card">
-                    <span class="label">Sessions</span>
-                    <span class="value" id="stat-active-sessions">0</span>
-                </div>
-            </div>
+        <nav class="nav-section">
+            <a class="nav-item active">
+                <span>📊</span> Overview
+            </a>
+            <a class="nav-item" onclick="document.getElementById('inspect-user-id').focus()">
+                <span>🔍</span> Inspector
+            </a>
+            <a class="nav-item" onclick="document.getElementById('broadcast-text').focus()">
+                <span>📢</span> Broadcast
+            </a>
+        </nav>
 
-            <div class="stat-card full-width" style="margin-top: 15px;">
-                <span class="label">🏆 Active Event</span>
-                <span class="value" id="stat-event-name" style="font-size: 1.1rem; color: #f1c40f;">Loading...</span>
-                <div id="stat-event-details" style="font-size: 0.8rem; color: var(--text-dim); margin-top: 5px;">--</div>
+        <div class="status-badge">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <span style="color: var(--text-dim);">API Status</span>
+                <span id="ws-status" class="tag">Offline</span>
             </div>
-        </section>
+            <div id="server-error-msg" style="font-size: 0.7rem; color: var(--danger); font-family: 'JetBrains Mono';"></div>
+        </div>
+    </aside>
 
-        <!-- Panel 2: Server Status -->
-        <section class="panel col-4">
-            <h2>Server Health 🖥️</h2>
-            <div id="server-status-list" class="dist-list">
-                <div class="dist-item"><span class="dist-label">🤖 Bot</span> <span id="status-bot" class="tag">...</span></div>
-                <div class="dist-item"><span class="dist-label">✉️ TG</span> <span id="status-telegram" class="tag">...</span></div>
-                <div class="dist-item"><span class="dist-label">💬 MSG</span> <span id="status-messenger" class="tag">...</span></div>
-                <div class="dist-item"><span class="dist-label">🗄️ PostgreSQL</span> <span id="status-db" class="tag">Loading...</span></div>
-                <div class="dist-item"><span class="dist-label">⚡ Redis</span> <span id="status-redis" class="tag">Loading...</span></div>
+    <main>
+        <header class="header-bar">
+            <h1>System Overview</h1>
+            <div style="display: flex; gap: 12px;">
+                <button class="secondary" onclick="refreshStats()">Manual Sync</button>
+                <button class="danger" onclick="resetSystem()">System Reset</button>
             </div>
-            <div id="server-error-msg" style="color: var(--danger); font-size: 0.75rem; margin-top: 10px; font-family: monospace;"></div>
-        </section>
+        </header>
 
-        <!-- Panel 3: Broadcast -->
-        <section class="panel col-5">
-            <h2>Global Broadcast 📢</h2>
-            <div style="display: flex; flex-direction: column; height: 100%; gap: 12px;">
-                <textarea id="broadcast-text" placeholder="Type message to all users..." style="flex: 1; min-height: 80px;"></textarea>
-                <button class="success" onclick="sendBroadcast()">🚀 Dispatch Announcement</button>
+        <div class="dashboard-grid">
+            <!-- Stats -->
+            <div class="card col-4">
+                <h3>Queue Length 🚦</h3>
+                <div class="stat-value" id="stat-queue-len">0</div>
+                <div class="stat-desc">Users waiting for match</div>
             </div>
-        </section>
-
-        <!-- Panel 4: User Inspector -->
-        <section class="panel col-4">
-            <h2>User Inspector 🔍</h2>
-            <div class="search-box">
-                <input type="text" id="inspect-user-id" placeholder="User ID / Platform ID">
-                <button onclick="inspectUser()">Inspect</button>
+            <div class="card col-4">
+                <h3>Active Sessions 💬</h3>
+                <div class="stat-value" id="stat-active-sessions">0</div>
+                <div class="stat-desc">Ongoing bidirectional chats</div>
             </div>
-            
-            <div id="user-inspector-content" class="inspector-content">
-                <div class="inspector-row"><span class="label">State</span> <span id="ui-state">--</span></div>
-                <div class="inspector-row"><span class="label">Partner</span> <span id="ui-partner">--</span></div>
-                <div class="inspector-row"><span class="label">Uptime</span> <span id="ui-chat-start">--</span></div>
-                
-                <div class="inspector-row" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
-                    <span class="label">Coins</span>
-                    <div style="display: flex; gap: 8px;">
-                        <input type="number" id="gift-amount" placeholder="Amt" style="width: 70px; padding: 6px;">
-                        <button class="success btn-sm" onclick="giftCoins()">Gift</button>
+            <div class="card col-4">
+                <h3>System Pulse ⚡</h3>
+                <div id="server-status-list" class="list-container" style="gap: 8px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+                        <span>Engine</span> <span id="status-bot" class="tag">...</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+                        <span>Redis</span> <span id="status-redis" class="tag">...</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+                        <span>Postgres</span> <span id="status-db" class="tag">...</span>
                     </div>
                 </div>
+            </div>
+
+            <!-- Main Control Panels -->
+            <div class="card col-8">
+                <h3>Global Pipeline 🚀</h3>
+                <div id="timeline" class="terminal"></div>
+                <div style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 0.8rem; color: var(--text-dim);">Real-time event stream via Redis adapter</span>
+                    <button class="secondary btn-sm" onclick="clearTimeline()">Clear Logs</button>
+                </div>
+            </div>
+
+            <div class="card col-4">
+                <h3>User Inspector 🔍</h3>
+                <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+                    <input type="text" id="inspect-user-id" placeholder="UID/PSID">
+                    <button onclick="inspectUser()">Find</button>
+                </div>
                 
-                <div class="inspector-actions" style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                    <button class="danger" id="btn-ban" onclick="toggleBan()">Ban</button>
-                    <button class="warning" id="btn-vip" onclick="toggleVIP()">VIP</button>
-                    <button class="danger full-width" style="grid-column: span 2;" onclick="forceDisconnect()">Force Disconnect</button>
+                <div id="inspector-data" style="font-size: 0.875rem;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 12px;">
+                        <span style="color: var(--text-dim);">State</span>
+                        <span id="ui-state" class="tag success">HOME</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                        <span style="color: var(--text-dim);">Partner</span>
+                        <span id="ui-partner">None</span>
+                    </div>
+                    
+                    <div style="margin-top: 24px;">
+                        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                            <input type="number" id="gift-amount" placeholder="Coins" style="flex: 1;">
+                            <button onclick="giftCoins()">Gift</button>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <button class="danger" onclick="toggleBan()">Ban</button>
+                            <button class="warning" onclick="toggleVIP()">VIP</button>
+                            <button class="secondary" style="grid-column: span 2;" onclick="forceDisconnect()">Force Disconnect</button>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </section>
 
-        <!-- Panel 5: Queue & Stuck -->
-        <section class="panel col-8">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h2>Queue Management 🚦</h2>
-                <div style="display: flex; gap: 10px;">
-                    <button class="danger btn-sm" onclick="clearQueue()">Flush Queue</button>
-                    <button class="danger btn-sm" onclick="resetSystem()">System Reset</button>
+            <!-- Footer Panels -->
+            <div class="card col-6">
+                <h3>Broadcast Announcement 📢</h3>
+                <textarea id="broadcast-text" placeholder="Type message to all users..." style="height: 100px; margin-bottom: 12px; resize: none;"></textarea>
+                <button onclick="sendBroadcast()" style="width: 100%;">Dispatch Global Broadcast</button>
+            </div>
+
+            <div class="card col-6">
+                <h3>Stuck Users & Distribution 📊</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <div style="font-size: 0.75rem; color: var(--text-dim); margin-bottom: 8px;">STATE DISTRIB</div>
+                        <div id="state-distribution" style="font-size: 0.8rem; display: flex; flex-direction: column; gap: 4px;"></div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: var(--text-dim); margin-bottom: 8px;">LONG WAITERS</div>
+                        <div id="stuck-users-list" style="font-size: 0.8rem; display: flex; flex-direction: column; gap: 4px;"></div>
+                    </div>
                 </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                <div>
-                    <h3>Distribution 📊</h3>
-                    <div id="state-distribution" class="dist-list"></div>
-                </div>
-                <div>
-                    <h3>Stuck Detector ⚠️</h3>
-                    <div id="stuck-users-list" class="warning-list"></div>
-                </div>
+            <div class="card col-12">
+                <h3>Failure Tracking 🚨</h3>
+                <div id="violations-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px;"></div>
             </div>
-        </section>
-
-        <!-- Diagnostics -->
-        <section class="panel full-width">
-            <h2>Failure Highlight Engine 🚨</h2>
-            <div id="violations-list" class="violations-container"></div>
-        </section>
-
-        <section class="panel full-width timeline-panel">
-            <div class="timeline-header">
-                <h2>Event Timeline & Pipeline View</h2>
-                <div class="filters" style="display: flex; gap: 10px;">
-                    <input type="text" id="filter-trace" placeholder="Trace ID" style="width: 150px;">
-                    <input type="text" id="filter-user" placeholder="User ID" style="width: 150px;">
-                    <button class="warning btn-sm" onclick="clearTimeline()">Clear</button>
-                </div>
-            </div>
-            <div id="timeline" class="terminal-view"></div>
-        </section>
-    </div>
+        </div>
+    </main>
 
     <script src="/static/admin.js"></script>
 </body>
