@@ -46,28 +46,38 @@ async def startup_event():
     global redis_client
     redis_url = os.getenv("REDIS_URL")
     if not redis_url:
-        print("WARNING: REDIS_URL not set in env.")
+        print("❌ CRITICAL: REDIS_URL not set in env.")
         return
 
+    print(f"Connecting to Redis at {redis_url[:15]}...")
     redis_client = redis_async.from_url(redis_url, decode_responses=True)
     try:
         await redis_client.ping()
-        print("Admin API connected to Redis.")
-        # Setup Database connection
-        await db.connect()
-        print("Admin API connected to Database.")
-        # Setup Consumer Group
-        try:
-            await redis_client.xgroup_create("admin:events", "dashboard", id="0", mkstream=True)
-        except redis_exceptions.ResponseError as e:
-            if "BUSYGROUP" not in str(e):
-                print(f"Error creating consumer group: {e}")
-        
-        # Start event consumer task
-        asyncio.create_task(consume_events())
+        print("✅ Admin API connected to Redis.")
     except Exception as e:
-        print(f"Failed to connect Admin API to Redis: {e}")
+        print(f"❌ Failed to connect Admin API to Redis: {e}")
         redis_client = None
+        return
+
+    try:
+        # Setup Database connection
+        print("Connecting to Database...")
+        await db.connect()
+        print("✅ Admin API connected to Database.")
+    except Exception as e:
+        print(f"❌ Failed to connect Admin API to Database: {e}")
+        # We don't set redis_client to None here, let it continue if Redis is ok
+    
+    # Setup Consumer Group
+    try:
+        await redis_client.xgroup_create("admin:events", "dashboard", id="0", mkstream=True)
+        print("✅ Consumer group 'dashboard' ready.")
+    except redis_exceptions.ResponseError as e:
+        if "BUSYGROUP" not in str(e):
+            print(f"ℹ️ Consumer group info: {e}")
+    
+    # Start event consumer task
+    asyncio.create_task(consume_events())
 
 
 class ConnectionManager:
@@ -221,36 +231,49 @@ async def get_event_status(_=Depends(verify_token)):
     return {"event": get_active_event()}
 
 
+@app.get("/health")
+async def self_health():
+    """Self-health check for the Admin API itself (prevents 404s on Render/load balancers)."""
+    return {"status": "ok", "service": "admin_api"}
+
 @app.get("/admin/server_status")
 async def get_server_status(_=Depends(verify_token)):
     """Proxies the health status from the main webhook server."""
     from config import PORT
     
-    # List of possible addresses to try (Internal loopback)
-    # We try 127.0.0.1, localhost, and also try the default 10000 if PORT was overridden
+    # Check if an explicit bot URL is provided (useful for multi-service deployments)
+    bot_url = os.getenv("BOT_SERVER_URL")
+    if bot_url:
+        try:
+            response = await asyncio.to_thread(requests.get, f"{bot_url.rstrip('/')}/health", timeout=5)
+            if response.status_code == 200: return response.json()
+        except: pass
+
+    # Fallback to local discovery
     ports_to_try = [PORT]
-    if PORT != 10000:
-        ports_to_try.append(10000)
+    if PORT == 10000: # If we are on Render's default, the bot might be elsewhere or we might be hitting ourselves
+        ports_to_try.extend([8000, 5000])
     
     hosts = ["127.0.0.1", "localhost"]
-    
-    last_error = "No attempts made"
+    last_error = "Bot unreachable"
     
     for p in ports_to_try:
         for host in hosts:
             url = f"http://{host}:{p}/health"
             try:
-                response = await asyncio.to_thread(
-                    requests.get, url, timeout=3
-                )
+                response = await asyncio.to_thread(requests.get, url, timeout=2)
+                # If we hit ourselves (the admin_api), it will return {"service": "admin_api"}
+                # We skip that and keep looking for the bot
+                data = response.json()
+                if data.get("service") == "admin_api":
+                    continue
+                    
                 if response.status_code == 200:
-                    return response.json()
-                last_error = f"HTTP {response.status_code} at {url}"
+                    return data
             except Exception as e:
-                last_error = f"Connection failed at {url}: {str(e)}"
+                last_error = str(e)
     
-    print(f"Server Status Final Error: {last_error}")
-    return {"status": "error", "message": last_error}
+    return {"status": "error", "message": f"Main Server Unreachable (Tried ports {ports_to_try}). {last_error}"}
 
 @app.post("/admin/broadcast")
 async def broadcast_message(request: Request, _=Depends(verify_token)):

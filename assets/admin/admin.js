@@ -87,7 +87,7 @@ function appendTrace(payload) {
         <div class="trace-meta">
             <span class="tag">UID: ${payload.user_id || "system"}</span>
             <span class="tag">MID: ${payload.match_id || "global"}</span>
-            <span class="tag">STATE: ${payload.state || "unknown"}</span>
+            <span class="tag">STATE: ${payload.state || (payload.data && payload.data.result_state) || "unknown"}</span>
         </div>
         <div class="trace-payload">${JSON.stringify(payload.data || payload.payload || {}, null, 2)}</div>
         ${payload.error ? `<div style="color: var(--danger); font-size: 0.75rem; margin-top: 5px;">⚠️ ERROR: ${payload.error}</div>` : ""}
@@ -184,7 +184,13 @@ function renderServerStatus(data) {
         setStatus("status-db", "error");
         setStatus("status-redis", "error");
         const errEl = document.getElementById("server-error-msg");
-        if (errEl) errEl.innerText = `Error: ${data.message || "Unknown error"}`;
+        if (errEl) {
+            let msg = data.message || "Unknown error";
+            if (msg.includes("timeout") || msg.includes("404")) {
+                msg += " | 💡 Hint: The bot might be sleeping or deploying. Try refreshing in 30s.";
+            }
+            errEl.innerText = msg;
+        }
         return;
     }
     const errEl = document.getElementById("server-error-msg");

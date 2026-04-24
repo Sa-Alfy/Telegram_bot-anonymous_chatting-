@@ -44,6 +44,15 @@ class ActionRouter:
 
         logger.info(f"Processing Event: {etype} for User:{uid} (Match:{mid})")
 
+        # Log Start Trace
+        EventLogger.log_event(
+            event=TelemetryEvent.ACTION_START,
+            layer="action_router",
+            status=TelemetryEvent.INFO,
+            user_id=uid,
+            data={"action": etype}
+        )
+
         result = {"success": False}
         
         # --- 1. TRANSITIONS ---
@@ -63,7 +72,7 @@ class ActionRouter:
             "payload": payload,
             "success": result.get("success", False),
             "error": result.get("error"),
-            "state": result.get("state"),
+            "state": result.get("state") or event.get("current_state", "unknown"),
             "duration_ms": duration
         }
         asyncio.create_task(cls._publish_trace(trace))
