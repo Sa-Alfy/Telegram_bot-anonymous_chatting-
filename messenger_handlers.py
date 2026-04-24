@@ -164,10 +164,11 @@ async def handle_messenger_text(psid: str, virtual_id: int, user: dict, text: st
     # 1. Engine Translation Hook
     event = await app_state.msg_adapter.translate_event({"sender": {"id": psid}, "message": {"text": text_stripped}})
     if event:
-        # DO NOT overwrite user_id with virtual_id. 
-        # The Engine expects the platform-native ID (msg_psid) provided by the adapter.
         result = await app_state.engine.process_event(event)
-        if result.get("success"): return
+        if result.get("success"):
+            state = await match_state.get_user_state(virtual_id)
+            await app_state.msg_adapter.render_state(uid, state, result)
+            return
         logger.warning(f"Engine failed to process {event['event_type']} for {uid}: {result.get('error', 'Unknown Error')}")
     
     # 2. Legacy Command Fallback
@@ -186,7 +187,10 @@ async def handle_messenger_quick_reply(psid: str, virtual_id: int, user: dict, p
 
     # Use the ID from adapter (msg_psid)
     result = await app_state.engine.process_event(event)
-    if not result.get("success"):
+    if result.get("success"):
+        state = await match_state.get_user_state(virtual_id)
+        await app_state.msg_adapter.render_state(uid, state, result)
+    else:
         if "error" in result:
             await app_state.msg_adapter.send_error(event["user_id"], result["error"])
         await app_state.engine.process_event({"event_type": "RECOVER", "user_id": event["user_id"]})

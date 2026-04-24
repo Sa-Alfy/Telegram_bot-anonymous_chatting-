@@ -344,7 +344,12 @@ async def on_callback(client: Client, query: CallbackQuery):
     # 3. Concurrency check & Process via Engine
     result = await app_state.engine.process_event(event)
 
-    if not result.get("success") and "error" in result:
+    if result.get("success"):
+        # RENDER SUCCESSFUL RESULT
+        from state.match_state import match_state
+        state = await match_state.get_user_state(user_id)
+        await app_state.tg_adapter.render_state(user_id, state, result)
+    elif "error" in result:
         # Handle failures (e.g. Hard Gate)
         error = result["error"]
         await app_state.tg_adapter.send_error(user_id, error)
