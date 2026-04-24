@@ -209,23 +209,103 @@ async def get_state_distribution(_=Depends(verify_token)):
             
     return {"distribution": distribution}
 
+@app.get("/admin/event_status")
+async def get_event_status(_=Depends(verify_token)):
+    """Fetches the current active global event status."""
+    from services.event_manager import get_active_event
+    return {"event": get_active_event()}
+
 
 @app.get("/admin/server_status")
 async def get_server_status(_=Depends(verify_token)):
     """Proxies the health status from the main webhook server."""
-    port = os.getenv("PORT", 10000)
+    from config import PORT
     try:
-        # Use asyncio.to_thread to avoid blocking the event loop
+        # Increase timeout to 10s to allow for bot loop response
         response = await asyncio.to_thread(
             requests.get, 
-            f"http://127.0.0.1:{port}/health", 
-            timeout=2
+            f"http://127.0.0.1:{PORT}/health", 
+            timeout=10
         )
         if response.status_code == 200:
             return response.json()
         return {"status": "error", "message": f"HTTP {response.status_code}"}
     except Exception as e:
+        print(f"Server Status Fetch Error: {e}")
         return {"status": "error", "message": "Main Server Unreachable"}
+
+@app.post("/admin/broadcast")
+async def broadcast_message(request: Request, _=Depends(verify_token)):
+    """Broadcasts a message to all users via the Engine."""
+    data = await request.json()
+    text = data.get("text")
+    if not text:
+        raise HTTPException(status_code=400, detail="Message text required")
+    
+    # We use the db to get all users and send_cross_platform
+    # Note: This is a heavy operation, ideally should be a background task
+    users = await db.fetchall("SELECT telegram_id FROM users")
+    
+    # We need a pyrogram client. Since admin_api is a separate process,
+    # we can't easily use the bot's client. 
+    # However, for a web admin, we can trigger an event in Redis that the bot process picks up.
+    if redis_client:
+        await redis_client.xadd("admin:commands", {
+            "action": "BROADCAST",
+            "text": text,
+            "timestamp": time.time()
+        })
+        return {"status": "ok", "message": f"Broadcast of '{text[:20]}...' queued for {len(users)} users"}
+    
+    return {"status": "error", "message": "Redis unavailable for command dispatch"}
+
+@app.post("/admin/user/{user_id}/gift")
+async def gift_coins(user_id: str, request: Request, _=Depends(verify_token)):
+    data = await request.json()
+    amount = data.get("amount", 0)
+    from database.repositories.user_repository import UserRepository
+    # Sanitize user_id for the repository
+    target_id = UserRepository._sanitize_id(user_id)
+    await UserRepository.increment_coins(target_id, amount)
+    
+    # Notify user via Redis command
+    if redis_client:
+        await redis_client.xadd("admin:commands", {
+            "action": "NOTIFY_USER",
+            "user_id": str(target_id),
+            "text": f"🎁 **Admin gifted you {amount} coins!**",
+            "timestamp": time.time()
+        })
+    return {"status": "ok", "balance_change": amount}
+
+@app.post("/admin/user/{user_id}/ban")
+async def ban_user(user_id: str, request: Request, _=Depends(verify_token)):
+    data = await request.json()
+    banned = data.get("banned", True)
+    from database.repositories.user_repository import UserRepository
+    target_id = UserRepository._sanitize_id(user_id)
+    await UserRepository.update(target_id, is_blocked=banned)
+    return {"status": "ok", "is_blocked": banned}
+
+@app.post("/admin/user/{user_id}/vip")
+async def set_vip(user_id: str, request: Request, _=Depends(verify_token)):
+    data = await request.json()
+    vip = data.get("vip", True)
+    from database.repositories.user_repository import UserRepository
+    target_id = UserRepository._sanitize_id(user_id)
+    await UserRepository.update(target_id, vip_status=vip)
+    return {"status": "ok", "vip_status": vip}
+
+@app.post("/admin/system/reset")
+async def system_reset(_=Depends(verify_token)):
+    """Triggers a full system reset via Redis command."""
+    if redis_client:
+        await redis_client.xadd("admin:commands", {
+            "action": "RESET_SYSTEM",
+            "timestamp": time.time()
+        })
+        return {"status": "ok", "message": "System reset command dispatched"}
+    return {"status": "error", "message": "Redis unavailable"}
 
 
 @app.post("/admin/disconnect/{user_id}")

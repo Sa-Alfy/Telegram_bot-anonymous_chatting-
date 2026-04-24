@@ -73,22 +73,72 @@ class PlatformAdapter:
 
                 # 2. Handle Text + Buttons
                 buttons = []
+                
+                # Need the user's current unified state
+                from database.repositories.user_repository import UserRepository
+                from services.distributed_state import distributed_state
+                from core.engine.state_machine import UnifiedState
+                from state.match_state import match_state
+                
+                virtual_id = UserRepository._sanitize_id(target_id)
+                current_state = await distributed_state.get_user_state(str(virtual_id))
+                
+                # Fetch match_id if in chat or voting
+                match_id = "global"
+                if current_state in {UnifiedState.CHAT_ACTIVE, UnifiedState.VOTING}:
+                    # Match state uses integer ID for user
+                    partner_id = await match_state.get_partner(int(virtual_id))
+                    if partner_id:
+                        match_id = f"m_{virtual_id}_{partner_id}"
+
                 if reply_markup is not None:
                     str_markup = str(reply_markup)
                     if "Next" in str_markup and "Stop" in str_markup:
-                        buttons = get_chat_menu_buttons(UserState.CHATTING)
+                        from adapters.messenger.ui_factory import get_messenger_chat_buttons
+                        buttons = get_messenger_chat_buttons(match_id)
                     elif "My Stats" in str_markup and "Find Partner" in str_markup:
-                        buttons = get_start_menu_buttons(UserState.HOME)
+                        from adapters.messenger.ui_factory import get_messenger_home_buttons
+                        buttons = get_messenger_home_buttons()
                     elif "Find New" in str_markup and "My Stats" in str_markup:
-                        buttons = get_end_menu_buttons(UserState.HOME)
+                        from adapters.messenger.ui_factory import get_messenger_post_chat_buttons
+                        buttons = get_messenger_post_chat_buttons(match_id)
                     elif "Female" in str_markup and "Male" in str_markup:
-                        buttons = get_search_pref_buttons(UserState.HOME)
+                        from adapters.messenger.ui_factory import get_messenger_preferences_buttons
+                        buttons = get_messenger_preferences_buttons()
                     elif "Reply" in str_markup or "msg_friend_" in str_markup:
                         import re
                         match = re.search(r"msg_friend_(\d+)", str_markup)
                         if match:
                             target_friend_id = match.group(1)
                             buttons = [{"title": "\u26a1 Reply", "payload": f"msg_friend_{target_friend_id}"}]
+                
+                # Fallback: if no buttons could be derived from reply_markup, use the user's current state
+                if not buttons:
+                    from adapters.messenger.ui_factory import (
+                        get_messenger_home_buttons, get_messenger_chat_buttons,
+                        get_messenger_post_chat_buttons, get_messenger_preferences_buttons,
+                        get_gender_buttons, get_interests_skip_buttons,
+                        get_location_skip_buttons, get_bio_skip_buttons
+                    )
+                    from utils.renderer import StateBoundPayload
+                    if current_state == UnifiedState.CHAT_ACTIVE:
+                        buttons = get_messenger_chat_buttons(match_id)
+                    elif current_state == UnifiedState.VOTING:
+                        buttons = get_messenger_post_chat_buttons(match_id)
+                    elif current_state == UnifiedState.SEARCHING:
+                        buttons = [{"title": "❌ Cancel", "payload": StateBoundPayload.encode("STOP_SEARCH", "0", UnifiedState.SEARCHING)}]
+                    elif current_state == UnifiedState.PREFERENCES:
+                        buttons = get_messenger_preferences_buttons()
+                    elif current_state == UnifiedState.REG_GENDER:
+                        buttons = get_gender_buttons(UnifiedState.REG_GENDER)
+                    elif current_state == UnifiedState.REG_INTERESTS:
+                        buttons = get_interests_skip_buttons(UnifiedState.REG_INTERESTS)
+                    elif current_state == UnifiedState.REG_LOCATION:
+                        buttons = get_location_skip_buttons(UnifiedState.REG_LOCATION)
+                    elif current_state == UnifiedState.REG_BIO:
+                        buttons = get_bio_skip_buttons(UnifiedState.REG_BIO)
+                    else:
+                        buttons = get_messenger_home_buttons()
                 
                 try:
                     result = None

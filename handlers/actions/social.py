@@ -44,6 +44,78 @@ class SocialHandler:
         }
 
     @staticmethod
+    async def handle_karma_boost(client: Client, user_id: int) -> Dict[str, Any]:
+        """Show partner's karma and offer to send a karma boost gift."""
+        partner_id = await match_state.get_partner(user_id)
+        if not partner_id:
+            return {"alert": "❌ You are not in a chat!", "show_alert": True}
+
+        from database.repositories.user_repository import UserRepository
+        from adapters.telegram.keyboards import chat_menu
+
+        partner = await UserRepository.get_by_telegram_id(partner_id)
+        partner_karma = partner.get("karma", 0) if partner else 0
+
+        from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🌹 Send Rose (+1 Karma, 10 coins)", callback_data="send_gift_rose")],
+            [InlineKeyboardButton("🔙 Back to Chat", callback_data="back_to_chat")]
+        ])
+        return {
+            "text": (
+                f"⭐ **Partner Karma Score:** {partner_karma}\n\n"
+                "Send a Rose to boost their karma! Each rose adds +1 Karma and costs 10 coins."
+            ),
+            "reply_markup": markup
+        }
+
+    @staticmethod
+    async def handle_send_premium_sticker(client: Client, user_id: int, pack_type: str) -> Dict[str, Any]:
+        """Send a premium sticker pack to the chat partner."""
+        partner_id = await match_state.get_partner(user_id)
+        if not partner_id:
+            return {"alert": "❌ You are not in a chat!", "show_alert": True}
+
+        from services.user_service import UserService
+        from adapters.telegram.keyboards import gift_menu
+
+        costs = {"premium": 50, "rare": 150}
+        sticker_file_ids = {
+            # Replace these with real Telegram sticker file_ids from your chosen pack
+            "premium": "CAACAgIAAxkBAAIBhGXm_EXAMPLE_PREMIUM_STICKER_ID",
+            "rare":    "CAACAgIAAxkBAAIBhGXm_EXAMPLE_RARE_STICKER_ID",
+        }
+        cost = costs.get(pack_type, 50)
+        file_id = sticker_file_ids.get(pack_type)
+
+        if not await UserService.deduct_coins(user_id, cost):
+            return {"alert": f"❌ Not enough coins! Need {cost} coins.", "show_alert": True}
+
+        # Send the sticker to partner
+        from utils.helpers import update_user_ui
+        try:
+            if partner_id < 10**15:
+                await client.send_sticker(chat_id=partner_id, sticker=file_id)
+            else:
+                # Messenger fallback: send as text emoji
+                from utils.platform_adapter import PlatformAdapter
+                await PlatformAdapter.send_cross_platform(
+                    client, partner_id,
+                    f"🎴 Your partner sent you a {'rare' if pack_type == 'rare' else 'premium'} sticker!"
+                )
+        except Exception as e:
+            from utils.logger import logger
+            logger.error(f"Sticker send failed: {e}")
+            return {"alert": "❌ Failed to send sticker.", "show_alert": True}
+
+        return {
+            "alert": f"🎴 {pack_type.capitalize()} sticker sent!",
+            "show_alert": True,
+            "text": "💬 **Chatting...**\nSelect an action below:",
+            "reply_markup": gift_menu()
+        }
+
+    @staticmethod
     async def handle_gift_menu(client: Client, user_id: int) -> Dict[str, Any]:
         """Shows the gift shop menu during a chat."""
         if not await match_state.is_in_chat(user_id):

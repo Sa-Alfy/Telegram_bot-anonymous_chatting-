@@ -124,11 +124,12 @@ function appendViolation(payload) {
 async function refreshStats() {
     try {
         const headers = { "Authorization": `Bearer ${token}` };
-        const [qRes, sRes, dRes, srvRes] = await Promise.all([
+        const [qRes, sRes, dRes, srvRes, evRes] = await Promise.all([
             fetch("/admin/queue", { headers }),
             fetch("/admin/sessions", { headers }),
             fetch("/admin/stats/distribution", { headers }),
-            fetch("/admin/server_status", { headers }).catch(() => null)
+            fetch("/admin/server_status", { headers }).catch(() => null),
+            fetch("/admin/event_status", { headers }).catch(() => null)
         ]);
         
         const queue = await qRes.json();
@@ -141,6 +142,14 @@ async function refreshStats() {
         updateStuckUsers(queue.users || []);
         renderDistribution(dist.distribution || {});
         
+        if (evRes && evRes.ok) {
+            const evData = await evRes.json();
+            const ev = evData.event;
+            document.getElementById("stat-event-name").innerText = ev.name;
+            const mins = Math.max(0, Math.floor((ev.ends_at - Date.now()/1000) / 60));
+            document.getElementById("stat-event-details").innerText = `Multiplier: ${ev.multiplier}x | Ends in: ${mins}m`;
+        }
+
         if (srvRes && srvRes.ok) {
             const srvData = await srvRes.json();
             renderServerStatus(srvData);
@@ -246,14 +255,119 @@ async function forceDisconnect() {
     if (!confirm(`Are you sure you want to force disconnect ${uid}?`)) return;
     
     try {
-        await fetch(`/admin/disconnect/${uid}`, { 
+        const res = await fetch(`/admin/disconnect/${uid}`, { 
             method: "POST",
             headers: { "Authorization": `Bearer ${token}` } 
         });
-        alert("Force disconnect sent");
+        if (res.ok) alert("Force disconnect sent");
+        else alert("Failed: " + (await res.text()));
         inspectUser();
     } catch (e) {
         alert("Force disconnect failed");
+    }
+}
+
+async function giftCoins() {
+    const uid = document.getElementById("inspect-user-id").value;
+    const amount = document.getElementById("gift-amount").value;
+    if (!uid || !amount) return;
+    
+    try {
+        const res = await fetch(`/admin/user/${uid}/gift`, {
+            method: "POST",
+            headers: { 
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ amount: parseInt(amount) })
+        });
+        if (res.ok) alert(`Successfully gifted ${amount} coins to ${uid}`);
+        else alert("Failed to gift coins");
+    } catch (e) {
+        alert("Gift failed");
+    }
+}
+
+async function toggleBan() {
+    const uid = document.getElementById("inspect-user-id").value;
+    if (!uid) return;
+    const isBan = confirm(`Manage User ${uid}:\nClick OK to BAN, Cancel to UNBAN`);
+    
+    try {
+        const res = await fetch(`/admin/user/${uid}/ban`, {
+            method: "POST",
+            headers: { 
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ banned: isBan })
+        });
+        if (res.ok) alert(`User ${uid} ${isBan ? 'BANNED' : 'UNBANNED'}`);
+        else alert("Action failed");
+    } catch (e) {
+        alert("Ban toggle failed");
+    }
+}
+
+async function toggleVIP() {
+    const uid = document.getElementById("inspect-user-id").value;
+    if (!uid) return;
+    const isVIP = confirm(`Manage User ${uid}:\nClick OK to Grant VIP, Cancel to Remove VIP`);
+    
+    try {
+        const res = await fetch(`/admin/user/${uid}/vip`, {
+            method: "POST",
+            headers: { 
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ vip: isVIP })
+        });
+        if (res.ok) alert(`User ${uid} VIP: ${isVIP}`);
+        else alert("Action failed");
+    } catch (e) {
+        alert("VIP toggle failed");
+    }
+}
+
+async function sendBroadcast() {
+    const text = document.getElementById("broadcast-text").value.trim();
+    if (!text) return;
+    
+    if (!confirm(`Are you sure you want to broadcast this message to ALL users?\n\n"${text.substring(0, 50)}..."`)) return;
+    
+    try {
+        const res = await fetch("/admin/broadcast", {
+            method: "POST",
+            headers: { 
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ text })
+        });
+        if (res.ok) {
+            alert("Broadcast queued successfully!");
+            document.getElementById("broadcast-text").value = "";
+        } else {
+            alert("Broadcast failed");
+        }
+    } catch (e) {
+        alert("Network error during broadcast");
+    }
+}
+
+async function resetSystem() {
+    if (!confirm("🚨 WARNING: This will clear ALL active chats and the waiting queue!\nProceed with FULL SYSTEM RESET?")) return;
+    
+    try {
+        const res = await fetch("/admin/system/reset", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${token}` }
+        });
+        if (res.ok) alert("System reset command dispatched.");
+        else alert("Reset failed");
+    } catch (e) {
+        alert("Network error during reset");
     }
 }
 

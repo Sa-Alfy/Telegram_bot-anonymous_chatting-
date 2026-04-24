@@ -271,10 +271,12 @@ async def main():
     # ── Background services ───────────────────────────────────────────
     from services.session_manager import start_session_manager
     from services.event_manager  import start_event_manager
+    from services.admin_worker   import start_admin_worker
     # from services.backup_service import start_backup_service # SQLite backup obsolete
 
     asyncio.create_task(start_session_manager(pyrogram_app))
     asyncio.create_task(start_event_manager(pyrogram_app))
+    asyncio.create_task(start_admin_worker(pyrogram_app))
 
     # Cross-platform match poller — pairs Telegram & Messenger users
     from services.matchmaker_loop import start_matchmaker_loop

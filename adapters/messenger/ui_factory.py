@@ -275,13 +275,13 @@ def get_messenger_chat_buttons(match_id: str):
     ]
 
 def get_messenger_tools_buttons(match_id: str):
-    """Hidden secondary actions — Reactions added for Messenger parity with Telegram."""
+    """Hidden secondary actions."""
     return [
-        {"title": "\U0001f9ca Icebreaker", "payload": StateBoundPayload.encode("ICEBREAKER", match_id, UnifiedState.CHAT_ACTIVE)},
-        {"title": "\U0001f513 Reveal",      "payload": StateBoundPayload.encode("REVEAL", match_id, UnifiedState.CHAT_ACTIVE)},
-        {"title": "\U0001f6a9 Report",      "payload": StateBoundPayload.encode("REPORT", match_id, UnifiedState.CHAT_ACTIVE)},
-        {"title": "\u2764\ufe0f React Heart", "payload": StateBoundPayload.encode("REACT_HEART", match_id, UnifiedState.CHAT_ACTIVE)},
-        {"title": "\U0001f602 React Joy",  "payload": StateBoundPayload.encode("REACT_JOY", match_id, UnifiedState.CHAT_ACTIVE)},
+        {"title": "🧊 Icebreaker",    "payload": StateBoundPayload.encode("ICEBREAKER", match_id, UnifiedState.CHAT_ACTIVE)},
+        {"title": "🔍 Partial Reveal", "payload": StateBoundPayload.encode("REVEAL", match_id, UnifiedState.CHAT_ACTIVE)},
+        {"title": "⭐ Karma Boost",    "payload": StateBoundPayload.encode("karma_boost", match_id, UnifiedState.CHAT_ACTIVE)},
+        {"title": "🎴 Premium Sticker","payload": StateBoundPayload.encode("send_sticker_premium", "0", UnifiedState.CHAT_ACTIVE)},
+        {"title": "🚩 Report",          "payload": StateBoundPayload.encode("REPORT", match_id, UnifiedState.CHAT_ACTIVE)},
     ]
 
 def get_messenger_vote_card(match_id: str, signal: str):

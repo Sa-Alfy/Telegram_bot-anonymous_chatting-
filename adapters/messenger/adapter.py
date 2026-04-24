@@ -139,6 +139,8 @@ class MessengerAdapter(BaseAdapter):
             
             if not t_lower.startswith("/"):
                 logger.info(f"DROPPED message from {uid} because state={state}")
+                # Don't drop silently, trigger a SET_STATE to current state so UI re-renders and quick replies appear
+                return self.create_event("SET_STATE", uid, payload={"new_state": state or UnifiedState.HOME})
 
         return None
 
@@ -188,13 +190,30 @@ class MessengerAdapter(BaseAdapter):
                 resp = payload["response"]
                 if not resp: return True
                 
+                from adapters.messenger.ui_factory import (
+                    get_messenger_home_buttons, get_messenger_chat_buttons,
+                    get_messenger_post_chat_buttons, get_messenger_preferences_buttons
+                )
+                from utils.renderer import StateBoundPayload
+                
+                # Resolve fallback buttons for current state
+                fallback_buttons = get_messenger_home_buttons()
+                if state == UnifiedState.CHAT_ACTIVE:
+                    fallback_buttons = get_messenger_chat_buttons(mid)
+                elif state == UnifiedState.VOTING:
+                    fallback_buttons = get_messenger_post_chat_buttons(mid)
+                elif state == UnifiedState.SEARCHING:
+                    fallback_buttons = [{"title": "❌ Cancel", "payload": StateBoundPayload.encode("STOP_SEARCH", "0", UnifiedState.SEARCHING)}]
+                elif state == UnifiedState.PREFERENCES:
+                    fallback_buttons = get_messenger_preferences_buttons()
+
                 if "text" in resp:
                     from messenger_handlers import _map_reply_markup
                     buttons = _map_reply_markup(resp.get("reply_markup"))
-                    if buttons: send_quick_replies(psid, resp["text"], buttons)
-                    else: send_message(psid, resp["text"])
+                    if not buttons: buttons = fallback_buttons
+                    send_quick_replies(psid, resp["text"], buttons)
                 elif "alert" in resp:
-                    send_message(psid, resp["alert"])
+                    send_quick_replies(psid, f"⚠️ {resp['alert']}", fallback_buttons)
                 return True
 
             logger.info(f"[RENDER] User:{user_id} State:{state} Payload:{payload}")
@@ -290,4 +309,5 @@ class MessengerAdapter(BaseAdapter):
 
     async def send_error(self, user_id: str, error_msg: str):
         psid = user_id[4:] if user_id.startswith("msg_") else user_id
-        send_message(psid, f"⚠️ Error: {error_msg}")
+        from adapters.messenger.ui_factory import get_messenger_home_buttons
+        send_quick_replies(psid, f"⚠️ Error: {error_msg}\n\nUse the menu below to recover:", get_messenger_home_buttons())

@@ -136,6 +136,11 @@ CALLBACK_MAP: Dict[str, Callable[[Client, int, Any], Coroutine[Any, Any, Dict[st
     
     # Matching
     "icebreaker": lambda c, uid, _: MatchingHandler.handle_icebreaker(c, uid),
+    # New features
+    "partial_reveal":    lambda c, uid, _: EconomyHandler.handle_reveal(c, uid),
+    "karma_boost":       lambda c, uid, _: SocialHandler.handle_karma_boost(c, uid),
+    "send_sticker_premium": lambda c, uid, _: SocialHandler.handle_send_premium_sticker(c, uid, "premium"),
+    "send_sticker_rare":    lambda c, uid, _: SocialHandler.handle_send_premium_sticker(c, uid, "rare"),
     "cancel_search": lambda c, uid, _: MatchingHandler.handle_cancel(c, uid),
     
     # Onboarding — gender

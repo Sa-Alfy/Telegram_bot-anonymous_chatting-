@@ -209,6 +209,8 @@ def gift_menu():
         [InlineKeyboardButton("🌹 Rose (10 coins)", callback_data="send_gift_rose")],
         [InlineKeyboardButton("💎 Diamond (100 coins)", callback_data="send_gift_diamond")],
         [InlineKeyboardButton("👑 Treasure Chest (500 coins)", callback_data="send_gift_treasure")],
+        [InlineKeyboardButton("🎴 Premium Sticker Pack (50 coins)", callback_data="send_sticker_premium")],
+        [InlineKeyboardButton("🎴 Rare Sticker Pack (150 coins)", callback_data="send_sticker_rare")],
         [InlineKeyboardButton("🔙 Back to Chat", callback_data="back_to_chat")]
     ])
 
@@ -423,7 +425,7 @@ def get_searching_keyboard():
     ])
 
 def get_chat_keyboard(match_id: str):
-    """Engine chat keyboard — single End Chat button, full action set."""
+    """Engine chat keyboard."""
     state = UnifiedState.CHAT_ACTIVE
     return InlineKeyboardMarkup([
         [
@@ -432,7 +434,11 @@ def get_chat_keyboard(match_id: str):
         ],
         [
             InlineKeyboardButton("🧊 Icebreaker", callback_data=StateBoundPayload.encode("ICEBREAKER", match_id, state)),
-            InlineKeyboardButton("🔓 Reveal", callback_data=StateBoundPayload.encode("REVEAL", match_id, state))
+            InlineKeyboardButton("🔍 Partial Reveal", callback_data=StateBoundPayload.encode("partial_reveal", match_id, state))
+        ],
+        [
+            InlineKeyboardButton("⭐ Karma Boost", callback_data=StateBoundPayload.encode("karma_boost", match_id, state)),
+            InlineKeyboardButton("🎁 Gifts", callback_data=StateBoundPayload.encode("gift_menu", "0", state))
         ],
         [
             InlineKeyboardButton("❤️ Reactions", callback_data=StateBoundPayload.encode("open_reactions", "0", state)),
