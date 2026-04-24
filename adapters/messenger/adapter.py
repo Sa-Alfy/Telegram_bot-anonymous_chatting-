@@ -160,6 +160,12 @@ class MessengerAdapter(BaseAdapter):
 
     async def render_state(self, user_id: str, state: str, payload: Optional[Dict[str, Any]] = None) -> bool:
         """Standardized Messenger rendering. Returns True for Render-ACK."""
+        from adapters.messenger.ui_factory import (
+            get_messenger_chat_buttons, get_messenger_home_buttons, 
+            get_messenger_post_chat_buttons, get_messenger_preferences_buttons,
+            get_gender_buttons, get_interests_skip_buttons, 
+            get_location_skip_buttons, get_bio_skip_buttons, get_start_menu_buttons
+        )
         if not state:
             return True # No state to render (e.g. after SEND_MESSAGE)
         try:
@@ -187,7 +193,6 @@ class MessengerAdapter(BaseAdapter):
                 
                 # Default fallback buttons if none mapped
                 if not buttons:
-                    from adapters.messenger.ui_factory import get_messenger_chat_buttons, get_messenger_home_buttons
                     buttons = get_messenger_chat_buttons(mid) if state == UnifiedState.CHAT_ACTIVE else get_messenger_home_buttons()
                 
                 send_quick_replies(psid, text, buttons)
