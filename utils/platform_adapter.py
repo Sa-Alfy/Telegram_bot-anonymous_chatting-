@@ -80,8 +80,18 @@ class PlatformAdapter:
                 from core.engine.state_machine import UnifiedState
                 from state.match_state import match_state
                 
-                virtual_id = UserRepository._sanitize_id(target_id)
-                current_state = await distributed_state.get_user_state(str(virtual_id))
+                # Resolve the correct Platform ID for Redis state lookup
+                redis_uid = str(target_id) # Could be int or string
+                if not redis_uid.startswith("msg_") and is_messenger:
+                    # If it's a numeric ID but on Messenger platform, we need the raw PSID/msg_ prefix
+                    if username and username.startswith("msg_"):
+                        redis_uid = username
+                    else:
+                        # Final fallback: if target_id is a PSID string without prefix
+                        if not redis_uid.startswith("10"): # Not a virtual ID
+                             redis_uid = f"msg_{redis_uid}"
+
+                current_state = await distributed_state.get_user_state(redis_uid)
                 
                 # Fetch match_id if in chat or voting
                 match_id = "global"

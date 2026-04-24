@@ -149,8 +149,9 @@ async def _notify_user(partner_virtual_id: Any, text: str):
 
 async def handle_messenger_text(psid: str, virtual_id: int, user: dict, text: str):
     """Route text messages (Async). Refactored for Engine."""
+    uid = f"msg_{psid}"
     if not await distributed_state.validate_session(virtual_id, repair=True):
-        await app_state.engine.process_event({"event_type": "RECOVER", "user_id": str(virtual_id)})
+        await app_state.engine.process_event({"event_type": "RECOVER", "user_id": uid})
         return
 
     text_stripped = text.strip()
@@ -159,10 +160,11 @@ async def handle_messenger_text(psid: str, virtual_id: int, user: dict, text: st
     # 1. Engine Translation Hook
     event = await app_state.msg_adapter.translate_event({"sender": {"id": psid}, "message": {"text": text_stripped}})
     if event:
-        event["user_id"] = str(virtual_id)
+        # DO NOT overwrite user_id with virtual_id. 
+        # The Engine expects the platform-native ID (msg_psid) provided by the adapter.
         result = await app_state.engine.process_event(event)
         if result.get("success"): return
-        logger.warning(f"Engine failed to process {event['event_type']} for {virtual_id}: {result.get('error', 'Unknown Error')}")
+        logger.warning(f"Engine failed to process {event['event_type']} for {uid}: {result.get('error', 'Unknown Error')}")
     
     # 2. Legacy Command Fallback
     if text_stripped.startswith("/"):
@@ -178,12 +180,12 @@ async def handle_messenger_quick_reply(psid: str, virtual_id: int, user: dict, p
     if not event:
         return await _handle_legacy_messenger_action(psid, virtual_id, user, payload)
 
-    event["user_id"] = str(virtual_id)
+    # Use the ID from adapter (msg_psid)
     result = await app_state.engine.process_event(event)
     if not result.get("success"):
         if "error" in result:
-            await app_state.msg_adapter.send_error(str(virtual_id), result["error"])
-        await app_state.engine.process_event({"event_type": "RECOVER", "user_id": str(virtual_id)})
+            await app_state.msg_adapter.send_error(event["user_id"], result["error"])
+        await app_state.engine.process_event({"event_type": "RECOVER", "user_id": event["user_id"]})
 
 async def _handle_legacy_messenger_action(psid: str, virtual_id: int, user: dict, payload: str):
     """Legacy action routing."""
@@ -197,14 +199,14 @@ async def _handle_legacy_messenger_action(psid: str, virtual_id: int, user: dict
     elif action in ("ADD_FRIEND",): await handle_add_friend(psid, virtual_id)
     elif action == "CONFIRM_FRIEND": await handle_confirm_friend(psid, virtual_id)
     elif action == "STOP_SEARCH":
-        await app_state.engine.process_event({"event_type": "CANCEL_SEARCH", "user_id": str(virtual_id)})
+        await app_state.engine.process_event({"event_type": "CANCEL_SEARCH", "user_id": f"msg_{psid}"})
     else:
         # Unknown or legacy action -> Force Engine to re-evaluate state
-        logger.info(f"Unknown legacy action {action} for {virtual_id}. Triggering Engine recovery.")
+        logger.info(f"Unknown legacy action {action} for {psid}. Triggering Engine recovery.")
         from app_state import engine
         await engine.process_event({
             "event_type": "RECOVER",
-            "user_id": str(virtual_id),
+            "user_id": f"msg_{psid}",
             "payload": {}
         })
 
@@ -217,7 +219,6 @@ async def handle_messenger_attachment(psid: str, virtual_id: int, attachments: l
     uid = f"msg_{psid}"
     event = await app_state.msg_adapter.translate_event({"sender": {"id": psid}, "message": {"attachments": attachments}})
     if event:
-        event["user_id"] = str(virtual_id)
         await app_state.engine.process_event(event)
     else:
         # Fallback for profile photo
