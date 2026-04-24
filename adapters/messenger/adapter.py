@@ -111,9 +111,8 @@ class MessengerAdapter(BaseAdapter):
 
         elif msg.get("attachments"):
             from services.distributed_state import distributed_state
-            from database.repositories.user_repository import UserRepository
-            virtual_id = UserRepository._sanitize_id(uid)
-            state = await distributed_state.get_user_state(virtual_id)
+            # Use raw uid for Redis state lookup (ActionRouter uses raw uid as key)
+            state = await distributed_state.get_user_state(uid)
             if state == UnifiedState.CHAT_ACTIVE:
                 att = msg["attachments"][0]
                 m_type = att.get("type", "image")
@@ -123,7 +122,6 @@ class MessengerAdapter(BaseAdapter):
 
         elif msg.get("text"):
             from services.distributed_state import distributed_state
-            from database.repositories.user_repository import UserRepository
             # Use raw uid for Redis state lookup (ActionRouter uses raw uid as key)
             state = await distributed_state.get_user_state(uid)
             text = msg.get("text").strip()

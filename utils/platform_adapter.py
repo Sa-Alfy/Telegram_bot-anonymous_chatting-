@@ -82,6 +82,8 @@ class PlatformAdapter:
                 
                 # Resolve the correct Platform ID for Redis state lookup
                 redis_uid = str(target_id) # Could be int or string
+                virtual_id = int(target_id) if str(target_id).isdigit() else 0
+                
                 if not redis_uid.startswith("msg_") and is_messenger:
                     # If it's a numeric ID but on Messenger platform, we need the raw PSID/msg_ prefix
                     if username and username.startswith("msg_"):
@@ -91,15 +93,24 @@ class PlatformAdapter:
                         if not redis_uid.startswith("10"): # Not a virtual ID
                              redis_uid = f"msg_{redis_uid}"
 
+                if not virtual_id and redis_uid.startswith("msg_"):
+                    # Derive virtual_id from PSID if we only have the string
+                    from messenger.utils import _raw
+                    psid = _raw(redis_uid)
+                    import hashlib
+                    psid_hash = int(hashlib.sha256(psid.encode()).hexdigest(), 16)
+                    virtual_id = (psid_hash % (10**15)) + 10**15
+
                 current_state = await distributed_state.get_user_state(redis_uid)
                 
                 # Fetch match_id if in chat or voting
                 match_id = "global"
                 if current_state in {UnifiedState.CHAT_ACTIVE, UnifiedState.VOTING}:
                     # Match state uses integer ID for user
-                    partner_id = await match_state.get_partner(int(virtual_id))
+                    partner_id = await match_state.get_partner(virtual_id)
                     if partner_id:
-                        match_id = f"m_{virtual_id}_{partner_id}"
+                        u1, u2 = (str(virtual_id), str(partner_id))
+                        match_id = f"m_{min(u1, u2)}_{max(u1, u2)}"
 
                 if reply_markup is not None:
                     str_markup = str(reply_markup)
@@ -167,6 +178,11 @@ class PlatformAdapter:
                     return False
             return False
         else:
+            # 3. Handle Telegram delivery
+            # Safety: Ensure target_id is likely a valid Telegram ID or username
+            if not str(target_id).replace("-", "").isdigit() and not str(target_id).startswith("@"):
+                logger.warning(f"Aborting TG send: target_id '{target_id}' is not a valid identifier.")
+                return False
             try:
                 if media_url:
                     if media_type == "image":

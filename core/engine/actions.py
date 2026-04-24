@@ -259,9 +259,22 @@ class ActionRouter:
                     elif m_body.endswith("_" + u_str):
                         p_uid = m_body[:-len(u_str)-1]
                     else:
-                        # Fallback for legacy simple IDs
+                        # Final fallback: look for the part that is NOT our own ID
+                        # (Handles cases where mid might be "m_idA_idB" in any order)
                         parts = m_body.split("_")
-                        p_uid = parts[1] if parts[0] == u_str else parts[0]
+                        if len(parts) == 2:
+                            p_uid = parts[1] if parts[0] == u_str else parts[0]
+                        elif len(parts) > 2:
+                            # Complex case: one or both IDs contain underscores (Messenger)
+                            if m_body.startswith(u_str + "_"):
+                                p_uid = m_body[len(u_str)+1:]
+                            elif m_body.endswith("_" + u_str):
+                                p_uid = m_body[:-len(u_str)-1]
+                            else:
+                                # This should be unreachable if mid was created correctly
+                                p_uid = parts[0] # Desperate fallback
+                        else:
+                            p_uid = m_body # Likely a single ID match_id (searching)
                     
                     from database.repositories.vote_repository import VoteRepository
                     db_vote_type = vval if vtype == "reputation" else None

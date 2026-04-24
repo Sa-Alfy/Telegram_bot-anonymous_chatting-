@@ -150,14 +150,7 @@ class MatchmakingService:
         match_text = get_match_found_text(include_safety=True)
         for uid in uids:
             try:
-                if isinstance(uid, str) and uid.startswith("msg_"):
-                    from messenger.utils import _raw
-                    psid = _raw(uid)
-                    import hashlib
-                    psid_hash = int(hashlib.sha256(psid.encode()).hexdigest(), 16)
-                    notify_id = (psid_hash % (10**15)) + 10**15
-                else:
-                    notify_id = int(uid)
+                notify_id = UserRepository._sanitize_id(uid)
 
                 await update_user_ui(client, notify_id, match_text, persistent_chat_menu(), force_new=True)
             except Exception as e:
@@ -166,14 +159,7 @@ class MatchmakingService:
         # 2. Safety Warning & Additional Context (Post-Engine)
         for uid in uids:
             try:
-                if isinstance(uid, str) and uid.startswith("msg_"):
-                    from messenger.utils import _raw
-                    psid = _raw(uid)
-                    import hashlib
-                    psid_hash = int(hashlib.sha256(psid.encode()).hexdigest(), 16)
-                    db_id = (psid_hash % (10**15)) + 10**15
-                else:
-                    db_id = int(uid)
+                db_id = UserRepository._sanitize_id(uid)
 
                 user = await UserRepository.get_by_telegram_id(db_id)
                 if not user: continue
@@ -193,15 +179,7 @@ class MatchmakingService:
         """Ends a chat session and calculates rewards (Atomic Disconnect -> Calc -> DB)."""
         from core.behavior_engine import behavior_engine
         
-        # Derive virtual integer ID for DB operations
-        if isinstance(user_id, str) and user_id.startswith("msg_"):
-            from messenger.utils import _raw
-            psid = _raw(user_id)
-            import hashlib
-            psid_hash = int(hashlib.sha256(psid.encode()).hexdigest(), 16)
-            db_id = (psid_hash % (10**15)) + 10**15
-        else:
-            db_id = int(user_id)
+        db_id = UserRepository._sanitize_id(user_id)
 
         # 1. ATOMIC DISCONNECT FIRST (Provides Idempotency)
         # MatchState.disconnect handles both TG ints and MSG strings via DistributedState
@@ -221,14 +199,7 @@ class MatchmakingService:
         duration_seconds = stats.get("duration", 0)
         duration_minutes = duration_seconds // 60
         
-        # Derive partner DB ID
-        if isinstance(partner_id, str) and partner_id.startswith("msg_"):
-            psid = partner_id[4:]
-            import hashlib
-            psid_hash = int(hashlib.sha256(psid.encode()).hexdigest(), 16)
-            db_p_id = (psid_hash % (10**15)) + 10**15
-        else:
-            db_p_id = int(partner_id)
+        db_p_id = UserRepository._sanitize_id(partner_id)
 
         u1 = await UserRepository.get_by_telegram_id(db_id)
         u2 = await UserRepository.get_by_telegram_id(db_p_id)
