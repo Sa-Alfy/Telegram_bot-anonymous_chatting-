@@ -51,6 +51,10 @@ def _map_reply_markup(reply_markup) -> list:
     if reply_markup is None:
         return None
 
+    if isinstance(reply_markup, list):
+        # Unified Engine format: [{"title": "...", "payload": "..."}]
+        return reply_markup
+
     str_markup = str(reply_markup).lower()
 
     if "stop" in str_markup:

@@ -57,6 +57,11 @@ class TelegramAdapter(BaseAdapter):
                 if len(parts) >= 2:
                     sig, val = parts[0], parts[1]
                     return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
+            elif action == "KARMA_BOOST":
+                return self.create_event("KARMA_BOOST", uid)
+            elif action.startswith("SEND_GIFT_"):
+                gift_key = action.replace("SEND_GIFT_", "").lower()
+                return self.create_event("SEND_GIFT", uid, payload={"gift_key": gift_key})
             
             # Non-engine events (Stats, Shop, etc.) return LEGACY_DISPATCH to fallback to legacy dispatcher
             return self.create_event("LEGACY_DISPATCH", uid, payload={"raw_data": data})
@@ -119,6 +124,29 @@ class TelegramAdapter(BaseAdapter):
         try:
             uid = int(user_id)
             mid = payload.get("match_id") if payload else "global"
+
+            # ── Generic Engine-Driven Rendering ───────────────────────────
+            if payload and payload.get("text"):
+                text = payload["text"]
+                markup = payload.get("reply_markup")
+                
+                # If markup is a list of dicts, convert to InlineKeyboardMarkup
+                if isinstance(markup, list):
+                    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                    rows = []
+                    for btn in markup:
+                        rows.append([InlineKeyboardButton(btn["title"], callback_data=btn["payload"])])
+                    markup = InlineKeyboardMarkup(rows)
+                
+                # Use query.edit_message_text if this is a callback response, 
+                # but since render_state is usually called async via _rehydrate_ui, 
+                # we just send a new message or we need to track the last message ID.
+                # For now, we'll send a new message to keep it simple and avoid crashes.
+                sent = await self.client.send_message(uid, text, reply_markup=markup)
+                
+                from state.match_state import match_state
+                await match_state.track_ui_message(uid, sent.id)
+                return True
 
             if state == UnifiedState.HOME:
                 await self.client.send_message(

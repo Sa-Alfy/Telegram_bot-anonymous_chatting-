@@ -268,11 +268,11 @@ async function inspectUser() {
             dbInfo.innerHTML = `
                 <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); font-size: 0.8rem;">
                     <strong>DB PROFILE:</strong><br>
-                    Coins: ${data.db.coins} | Karma: ${data.db.karma || 0} | Level: ${data.db.level}<br>
-                    Gender: ${data.db.gender} | Location: ${data.db.location}<br>
-                    VIP: ${data.db.vip_status ? '🌟 YES' : 'NO'}<br>
+                    Coins: ${data.db?.coins ?? 0} | Karma: ${data.db?.karma ?? 0} | Level: ${data.db?.level ?? 1}<br>
+                    Gender: ${data.db?.gender ?? 'Unknown'} | Location: ${data.db?.location ?? 'Unknown'}<br>
+                    VIP: ${data.db?.vip_status ? '🌟 YES' : 'NO'}<br>
                     <div style="margin-top: 5px; color: var(--text-dim); font-style: italic;">
-                        Bio: ${data.db.bio}
+                        Bio: ${data.db?.bio ?? 'No bio'}
                     </div>
                 </div>
             `;

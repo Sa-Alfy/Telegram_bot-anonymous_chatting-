@@ -101,6 +101,8 @@ class MessengerAdapter(BaseAdapter):
                 return self.create_event("START_ONBOARDING", uid)
             elif action == "SET_GENDER":
                 return self.create_event("SUBMIT_ONBOARDING", uid, payload={"field": "gender", "value": target_str})
+            elif action == "KARMA_BOOST":
+                return self.create_event("KARMA_BOOST", uid)
             elif action == "TOOLS_MENU":
                 # This doesn't trigger a core action, just UI re-render
                 await self.render_tools(psid, mid)
@@ -172,6 +174,21 @@ class MessengerAdapter(BaseAdapter):
             
             mid = payload.get("match_id") if payload else "global"
             vid = int(payload.get("vid")) if payload and payload.get("vid") else None
+
+            # ── Generic Engine-Driven Rendering ───────────────────────────
+            if payload and payload.get("text"):
+                from messenger_handlers import _map_reply_markup
+                text = payload["text"]
+                markup = payload.get("reply_markup")
+                buttons = _map_reply_markup(markup)
+                
+                # Default fallback buttons if none mapped
+                if not buttons:
+                    from adapters.messenger.ui_factory import get_messenger_chat_buttons, get_messenger_home_buttons
+                    buttons = get_messenger_chat_buttons(mid) if state == UnifiedState.CHAT_ACTIVE else get_messenger_home_buttons()
+                
+                send_quick_replies(psid, text, buttons)
+                return True
             
             # Fetch user context defensively
             user = await UserRepository.get_by_telegram_id(UserRepository._sanitize_id(user_id))

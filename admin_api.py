@@ -157,34 +157,42 @@ async def get_user_state(user_id: str, _=Depends(verify_token)):
     lookup_id = user_id
     state = await redis_client.get(f"sm:state:{lookup_id}")
     
-    if state is None and not lookup_id.startswith("msg_") and not lookup_id.isdigit():
-        # Might be a PSID string without prefix
-        alt_id = f"msg_{lookup_id}"
+    if state is None:
+        # Try with msg_ prefix if not already present
+        alt_id = lookup_id if lookup_id.startswith("msg_") else f"msg_{lookup_id}"
         alt_state = await redis_client.get(f"sm:state:{alt_id}")
         if alt_state:
             lookup_id = alt_id
             state = alt_state
-    elif state is None and lookup_id.isdigit() and len(lookup_id) > 12:
-        # Long digits usually mean PSID
-        alt_id = f"msg_{lookup_id}"
-        alt_state = await redis_client.get(f"sm:state:{alt_id}")
-        if alt_state:
-            lookup_id = alt_id
-            state = alt_state
+        elif lookup_id.isdigit() and len(lookup_id) > 12:
+            # Long digits usually mean PSID, try prefixing
+            prefix_id = f"msg_{lookup_id}"
+            prefix_state = await redis_client.get(f"sm:state:{prefix_id}")
+            if prefix_state:
+                lookup_id = prefix_id
+                state = prefix_state
 
     partner = await redis_client.get(f"sm:partner:{lookup_id}")
     start = await redis_client.get(f"sm:chat_start:{lookup_id}")
     
     # Fetch DB Data
     from database.repositories.user_repository import UserRepository
-    user_db = await UserRepository.get_by_telegram_id(UserRepository._sanitize_id(lookup_id))
+    user_db = None
+    try:
+        user_db = await UserRepository.get_by_telegram_id(UserRepository._sanitize_id(lookup_id))
+    except Exception as e:
+        print(f"Admin API DB lookup error: {e}")
     
     return {
         "user_id": lookup_id,
         "state": state or "HOME",
         "partner_id": partner,
         "chat_start_ts": float(start) if start else None,
-        "db": user_db
+        "db": user_db or {
+            "coins": 0, "xp": 0, "level": 1, "vip_status": False,
+            "total_matches": 0, "is_blocked": False, "is_guest": True,
+            "gender": "Unknown", "location": "Unknown", "bio": "No record in DB"
+        }
     }
 
 @app.get("/admin/queue")

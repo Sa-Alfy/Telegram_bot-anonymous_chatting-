@@ -454,7 +454,56 @@ class ActionRouter:
                         return {"success": True}
                     except Exception as e:
                         return {"success": False, "error": "Delivery failed"}
-                    
+
+        elif etype == "KARMA_BOOST":
+            from state.match_state import match_state
+            c_uid = UserRepository._sanitize_id(uid)
+            partner_id = await match_state.get_partner(c_uid)
+            if not partner_id:
+                return {"success": False, "error": "❌ You are not in a chat!"}
+            
+            partner = await UserRepository.get_by_telegram_id(partner_id)
+            partner_karma = partner.get("karma", 0) if partner else 0
+            
+            return {
+                "success": True,
+                "text": f"⭐ **Partner Karma Score:** {partner_karma}\n\nSend a Rose to boost their karma! Each rose adds +1 Karma and costs 10 coins.",
+                "reply_markup": [
+                    {"title": "🌹 Send Rose (+1 Karma, 10 coins)", "payload": "send_gift_rose"},
+                    {"title": "🔙 Back to Chat", "payload": "RECOVER"}
+                ]
+            }
+
+        elif etype == "SEND_GIFT":
+            from state.match_state import match_state
+            from services.economy_service import EconomyService
+            c_uid = UserRepository._sanitize_id(uid)
+            partner_id = await match_state.get_partner(c_uid)
+            if not partner_id:
+                return {"success": False, "error": "❌ Partner disconnected."}
+            
+            gift_key = payload.get("gift_key")
+            result = await EconomyService.send_gift(c_uid, partner_id, gift_key)
+            
+            if not result.get("success"):
+                return {"success": False, "error": result.get("error", "Transaction failed")}
+            
+            # Send result back to UI
+            return {
+                "success": True,
+                "alert": result.get("alert"),
+                "show_alert": True,
+                "text": result.get("text"),
+                "reply_markup": [
+                    {"title": "🔙 Back to Chat", "payload": "RECOVER"}
+                ],
+                "notify_partner": {
+                    "user_id": str(partner_id),
+                    "text": result.get("notify_partner", {}).get("text"),
+                    "force_render": True
+                }
+            }
+
         elif etype == "SEND_MEDIA":
             from state.match_state import match_state
             from utils.behavior_tracker import behavior_tracker
