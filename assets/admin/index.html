@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Matchmaking Debugger</title>
+    <title>Matchmaking Debugger | Admin</title>
     <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
@@ -18,116 +18,120 @@
 
     <header>
         <h1>Matchmaking Debugger</h1>
-        <div class="connection-status" id="ws-status">🔴 Disconnected</div>
+        <div class="connection-status" id="ws-status">Disconnected</div>
     </header>
 
     <div class="dashboard-grid">
-        <!-- Panel 1: Global Stats & Stuck Detector -->
-        <section class="panel">
-            <h2>Global System</h2>
+        <!-- Panel 1: Pulse -->
+        <section class="panel col-3">
+            <h2>System Pulse ⚡</h2>
             <div class="stats-grid">
                 <div class="stat-card">
-                    <span class="label">Queue Length</span>
+                    <span class="label">Queue</span>
                     <span class="value" id="stat-queue-len">0</span>
                 </div>
                 <div class="stat-card">
-                    <span class="label">Active Sessions</span>
+                    <span class="label">Sessions</span>
                     <span class="value" id="stat-active-sessions">0</span>
                 </div>
             </div>
 
-            <div class="stat-card full-width" style="margin-top: 10px; background: linear-gradient(45deg, #1a1a2e, #16213e); border: 1px solid #334; border-radius: 8px; padding: 15px;">
-                <span class="label" style="display: block; margin-bottom: 5px;">🏆 Active Event</span>
+            <div class="stat-card full-width" style="margin-top: 15px;">
+                <span class="label">🏆 Active Event</span>
                 <span class="value" id="stat-event-name" style="font-size: 1.1rem; color: #f1c40f;">Loading...</span>
-                <div id="stat-event-details" style="font-size: 0.8rem; color: #889; margin-top: 5px;">--</div>
-            </div>
-
-            <h3>State Distribution 📊</h3>
-            <div id="state-distribution" class="dist-list">
-                <!-- Populated via JS -->
-            </div>
-            
-            <h3>Stuck User Detector ⚠️</h3>
-            <div id="stuck-users-list" class="warning-list">
-                <!-- Populated via JS -->
-            </div>
-            <div class="panel-actions">
-                <button class="danger" onclick="clearQueue()">Clear Queue</button>
-                <button class="fatal" onclick="resetSystem()">Reset System</button>
+                <div id="stat-event-details" style="font-size: 0.8rem; color: var(--text-dim); margin-top: 5px;">--</div>
             </div>
         </section>
 
-        <!-- Panel: Management Actions -->
-        <section class="panel">
-            <h2>Global Broadcast 📢</h2>
-            <div class="search-box">
-                <textarea id="broadcast-text" placeholder="Type message to all users..." style="width: 100%; height: 80px; background: #1a1a2e; color: #fff; border: 1px solid #334; border-radius: 4px; padding: 10px; margin-bottom: 10px;"></textarea>
-                <button class="success" style="width: 100%" onclick="sendBroadcast()">Send Broadcast</button>
-            </div>
-        </section>
-
-        <!-- Panel: Server Health & Status -->
-        <section class="panel">
-            <h2>Server Status 🖥️</h2>
-            <div id="server-status-list" class="dist-list" style="margin-bottom: 15px;">
-                <div class="dist-item"><span class="dist-label">🤖 Main Bot</span> <span id="status-bot" class="tag">Loading...</span></div>
-                <div class="dist-item"><span class="dist-label">✉️ Telegram</span> <span id="status-telegram" class="tag">Loading...</span></div>
-                <div class="dist-item"><span class="dist-label">💬 Messenger</span> <span id="status-messenger" class="tag">Loading...</span></div>
+        <!-- Panel 2: Server Status -->
+        <section class="panel col-4">
+            <h2>Server Health 🖥️</h2>
+            <div id="server-status-list" class="dist-list">
+                <div class="dist-item"><span class="dist-label">🤖 Bot</span> <span id="status-bot" class="tag">...</span></div>
+                <div class="dist-item"><span class="dist-label">✉️ TG</span> <span id="status-telegram" class="tag">...</span></div>
+                <div class="dist-item"><span class="dist-label">💬 MSG</span> <span id="status-messenger" class="tag">...</span></div>
                 <div class="dist-item"><span class="dist-label">🗄️ PostgreSQL</span> <span id="status-db" class="tag">Loading...</span></div>
                 <div class="dist-item"><span class="dist-label">⚡ Redis</span> <span id="status-redis" class="tag">Loading...</span></div>
             </div>
+            <div id="server-error-msg" style="color: var(--danger); font-size: 0.75rem; margin-top: 10px; font-family: monospace;"></div>
         </section>
 
-        <!-- Panel 2: User Inspector -->
-        <section class="panel">
-            <h2>User Inspector</h2>
+        <!-- Panel 3: Broadcast -->
+        <section class="panel col-5">
+            <h2>Global Broadcast 📢</h2>
+            <div style="display: flex; flex-direction: column; height: 100%; gap: 12px;">
+                <textarea id="broadcast-text" placeholder="Type message to all users..." style="flex: 1; min-height: 80px;"></textarea>
+                <button class="success" onclick="sendBroadcast()">🚀 Dispatch Announcement</button>
+            </div>
+        </section>
+
+        <!-- Panel 4: User Inspector -->
+        <section class="panel col-4">
+            <h2>User Inspector 🔍</h2>
             <div class="search-box">
-                <input type="text" id="inspect-user-id" placeholder="Enter User ID">
+                <input type="text" id="inspect-user-id" placeholder="User ID / Platform ID">
                 <button onclick="inspectUser()">Inspect</button>
             </div>
             
             <div id="user-inspector-content" class="inspector-content">
-                <div class="inspector-row"><span class="label">State:</span> <span id="ui-state">--</span></div>
-                <div class="inspector-row"><span class="label">Partner:</span> <span id="ui-partner">--</span></div>
-                <div class="inspector-row"><span class="label">Chat Start:</span> <span id="ui-chat-start">--</span></div>
+                <div class="inspector-row"><span class="label">State</span> <span id="ui-state">--</span></div>
+                <div class="inspector-row"><span class="label">Partner</span> <span id="ui-partner">--</span></div>
+                <div class="inspector-row"><span class="label">Uptime</span> <span id="ui-chat-start">--</span></div>
                 
-                <hr style="border: 0; border-top: 1px solid #334; margin: 15px 0;">
-                
-                <div class="inspector-row">
-                    <span class="label">Coins:</span>
-                    <input type="number" id="gift-amount" placeholder="Amt" style="width: 60px; background: #1a1a2e; color: #fff; border: 1px solid #334;">
-                    <button class="success btn-sm" onclick="giftCoins()">Gift</button>
+                <div class="inspector-row" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                    <span class="label">Coins</span>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="number" id="gift-amount" placeholder="Amt" style="width: 70px; padding: 6px;">
+                        <button class="success btn-sm" onclick="giftCoins()">Gift</button>
+                    </div>
                 </div>
                 
-                <div class="inspector-actions" style="margin-top: 15px; display: flex; gap: 5px; flex-wrap: wrap;">
-                    <button class="danger" id="btn-ban" onclick="toggleBan()">Ban User</button>
-                    <button class="warning" id="btn-vip" onclick="toggleVIP()">Toggle VIP</button>
-                    <button class="danger" onclick="forceDisconnect()">Disconnect</button>
+                <div class="inspector-actions" style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <button class="danger" id="btn-ban" onclick="toggleBan()">Ban</button>
+                    <button class="warning" id="btn-vip" onclick="toggleVIP()">VIP</button>
+                    <button class="danger full-width" style="grid-column: span 2;" onclick="forceDisconnect()">Force Disconnect</button>
                 </div>
             </div>
         </section>
 
-        <!-- Panel 3: Invariant Violations (Failure Highlight Engine) -->
+        <!-- Panel 5: Queue & Stuck -->
+        <section class="panel col-8">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>Queue Management 🚦</h2>
+                <div style="display: flex; gap: 10px;">
+                    <button class="danger btn-sm" onclick="clearQueue()">Flush Queue</button>
+                    <button class="danger btn-sm" onclick="resetSystem()">System Reset</button>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <h3>Distribution 📊</h3>
+                    <div id="state-distribution" class="dist-list"></div>
+                </div>
+                <div>
+                    <h3>Stuck Detector ⚠️</h3>
+                    <div id="stuck-users-list" class="warning-list"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Diagnostics -->
         <section class="panel full-width">
             <h2>Failure Highlight Engine 🚨</h2>
-            <div id="violations-list" class="violations-container">
-                <!-- Violations appear here -->
-            </div>
+            <div id="violations-list" class="violations-container"></div>
         </section>
 
-        <!-- Panel 4: Live Event Timeline (with Pipeline View + State Diffs) -->
         <section class="panel full-width timeline-panel">
             <div class="timeline-header">
                 <h2>Event Timeline & Pipeline View</h2>
-                <div class="filters">
-                    <input type="text" id="filter-trace" placeholder="Filter by trace_id">
-                    <input type="text" id="filter-user" placeholder="Filter by user_id">
-                    <button onclick="clearTimeline()">Clear</button>
+                <div class="filters" style="display: flex; gap: 10px;">
+                    <input type="text" id="filter-trace" placeholder="Trace ID" style="width: 150px;">
+                    <input type="text" id="filter-user" placeholder="User ID" style="width: 150px;">
+                    <button class="warning btn-sm" onclick="clearTimeline()">Clear</button>
                 </div>
             </div>
-            <div id="timeline" class="terminal-view">
-                <!-- Events appear here -->
-            </div>
+            <div id="timeline" class="terminal-view"></div>
         </section>
     </div>
 

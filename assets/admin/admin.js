@@ -183,8 +183,12 @@ function renderServerStatus(data) {
         setStatus("status-messenger", "error");
         setStatus("status-db", "error");
         setStatus("status-redis", "error");
+        const errEl = document.getElementById("server-error-msg");
+        if (errEl) errEl.innerText = `Error: ${data.message || "Unknown error"}`;
         return;
     }
+    const errEl = document.getElementById("server-error-msg");
+    if (errEl) errEl.innerText = "";
 
     setStatus("status-bot", data.bot_loop);
     setStatus("status-telegram", data.telegram);

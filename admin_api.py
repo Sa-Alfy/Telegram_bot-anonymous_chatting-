@@ -220,19 +220,32 @@ async def get_event_status(_=Depends(verify_token)):
 async def get_server_status(_=Depends(verify_token)):
     """Proxies the health status from the main webhook server."""
     from config import PORT
-    try:
-        # Increase timeout to 10s to allow for bot loop response
-        response = await asyncio.to_thread(
-            requests.get, 
-            f"http://127.0.0.1:{PORT}/health", 
-            timeout=10
-        )
-        if response.status_code == 200:
-            return response.json()
-        return {"status": "error", "message": f"HTTP {response.status_code}"}
-    except Exception as e:
-        print(f"Server Status Fetch Error: {e}")
-        return {"status": "error", "message": "Main Server Unreachable"}
+    
+    # List of possible addresses to try (Internal loopback)
+    # We try 127.0.0.1, localhost, and also try the default 10000 if PORT was overridden
+    ports_to_try = [PORT]
+    if PORT != 10000:
+        ports_to_try.append(10000)
+    
+    hosts = ["127.0.0.1", "localhost"]
+    
+    last_error = "No attempts made"
+    
+    for p in ports_to_try:
+        for host in hosts:
+            url = f"http://{host}:{p}/health"
+            try:
+                response = await asyncio.to_thread(
+                    requests.get, url, timeout=3
+                )
+                if response.status_code == 200:
+                    return response.json()
+                last_error = f"HTTP {response.status_code} at {url}"
+            except Exception as e:
+                last_error = f"Connection failed at {url}: {str(e)}"
+    
+    print(f"Server Status Final Error: {last_error}")
+    return {"status": "error", "message": last_error}
 
 @app.post("/admin/broadcast")
 async def broadcast_message(request: Request, _=Depends(verify_token)):
