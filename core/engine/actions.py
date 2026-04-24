@@ -641,7 +641,8 @@ class ActionRouter:
             return {
                 "success": True,
                 "text": "🎁 *Gift Shop*\nSurprise your partner with a gift! Gifts boost Karma and reveal special perks.",
-                "reply_markup": buttons
+                "reply_markup": buttons,
+                "force_render": True
             }
 
         elif etype == "SHOW_TOOLS":
@@ -659,7 +660,8 @@ class ActionRouter:
             return {
                 "success": True,
                 "text": "🛠 *Companion Tools*\nEnhance your chat with these features!",
-                "reply_markup": buttons
+                "reply_markup": buttons,
+                "force_render": True
             }
 
         elif etype == "SHOW_REACTIONS":
@@ -682,7 +684,8 @@ class ActionRouter:
             return {
                 "success": True,
                 "text": "🎭 *Select a Reaction*\nYour partner will see a popup with your reaction.",
-                "reply_markup": buttons
+                "reply_markup": buttons,
+                "force_render": True
             }
 
         elif etype == "SUBMIT_REACTION":

@@ -166,7 +166,7 @@ class MessengerAdapter(BaseAdapter):
             get_gender_buttons, get_interests_skip_buttons, 
             get_location_skip_buttons, get_bio_skip_buttons, get_start_menu_buttons
         )
-        if not state:
+        if not state and not (payload and (payload.get("text") or payload.get("show_shop") or payload.get("item_name") or payload.get("response"))):
             return True # No state to render (e.g. after SEND_MESSAGE)
         try:
             # Robust PSID resolution: Handle msg_ prefix, and resolve virtual IDs via DB
