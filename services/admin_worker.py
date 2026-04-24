@@ -53,6 +53,34 @@ async def start_admin_worker(app: Client):
                         elif action == "RESET_SYSTEM":
                             await match_state.clear_all()
                             logger.warning("Admin Worker: FULL SYSTEM RESET executed via Web API.")
+                        
+                        elif action == "GIFT_COINS":
+                            uid = payload.get("user_id")
+                            amount = payload.get("amount", 0)
+                            if uid and amount:
+                                from database.repositories.user_repository import UserRepository
+                                await UserRepository.increment_coins(uid, amount)
+                                await send_cross_platform(app, uid, f"🎁 **Gift Received!**\nAn admin has gifted you **{amount} coins**. Enjoy!")
+                        
+                        elif action == "BAN_USER":
+                            uid = payload.get("user_id")
+                            banned = payload.get("banned", True)
+                            if uid:
+                                from database.repositories.user_repository import UserRepository
+                                await UserRepository.set_blocked(uid, banned)
+                                if banned:
+                                    await send_cross_platform(app, uid, "🚫 **Account Banned**\nYour account has been restricted by an administrator.")
+                                else:
+                                    await send_cross_platform(app, uid, "✅ **Account Unbanned**\nYour account restrictions have been lifted.")
+
+                        elif action == "SET_VIP":
+                            uid = payload.get("user_id")
+                            is_vip = payload.get("vip", True)
+                            if uid:
+                                from database.repositories.user_repository import UserRepository
+                                await UserRepository.update(uid, vip_status=is_vip)
+                                status_str = "ENABLED" if is_vip else "DISABLED"
+                                await send_cross_platform(app, uid, f"💎 **VIP Status Update**\nYour VIP status has been **{status_str}** by an administrator.")
 
                         # Acknowledge
                         await distributed_state.redis.xack("admin:commands", "bot_worker", message_id)

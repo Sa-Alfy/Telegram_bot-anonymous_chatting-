@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import time
 import requests
 from typing import Dict, Any, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Request
@@ -10,6 +11,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import redis.asyncio as redis_async
 import redis.exceptions as redis_exceptions
 from dotenv import load_dotenv
+from database.connection import db
 
 load_dotenv()
 
@@ -51,6 +53,9 @@ async def startup_event():
     try:
         await redis_client.ping()
         print("Admin API connected to Redis.")
+        # Setup Database connection
+        await db.connect()
+        print("Admin API connected to Database.")
         # Setup Consumer Group
         try:
             await redis_client.xgroup_create("admin:events", "dashboard", id="0", mkstream=True)
@@ -276,38 +281,47 @@ async def broadcast_message(request: Request, _=Depends(verify_token)):
 async def gift_coins(user_id: str, request: Request, _=Depends(verify_token)):
     data = await request.json()
     amount = data.get("amount", 0)
-    from database.repositories.user_repository import UserRepository
-    # Sanitize user_id for the repository
-    target_id = UserRepository._sanitize_id(user_id)
-    await UserRepository.increment_coins(target_id, amount)
-    
-    # Notify user via Redis command
+    if not amount:
+        raise HTTPException(status_code=400, detail="Amount required")
+        
     if redis_client:
         await redis_client.xadd("admin:commands", {
-            "action": "NOTIFY_USER",
-            "user_id": str(target_id),
-            "text": f"🎁 **Admin gifted you {amount} coins!**",
+            "action": "GIFT_COINS",
+            "user_id": user_id,
+            "amount": amount,
             "timestamp": time.time()
         })
-    return {"status": "ok", "balance_change": amount}
+        return {"status": "ok", "message": f"Queued gift of {amount} coins to {user_id}"}
+    
+    return {"status": "error", "message": "Redis unavailable"}
 
 @app.post("/admin/user/{user_id}/ban")
 async def ban_user(user_id: str, request: Request, _=Depends(verify_token)):
     data = await request.json()
     banned = data.get("banned", True)
-    from database.repositories.user_repository import UserRepository
-    target_id = UserRepository._sanitize_id(user_id)
-    await UserRepository.update(target_id, is_blocked=banned)
-    return {"status": "ok", "is_blocked": banned}
+    if redis_client:
+        await redis_client.xadd("admin:commands", {
+            "action": "BAN_USER",
+            "user_id": user_id,
+            "banned": banned,
+            "timestamp": time.time()
+        })
+        return {"status": "ok", "message": f"Queued ban status {banned} for {user_id}"}
+    return {"status": "error", "message": "Redis unavailable"}
 
 @app.post("/admin/user/{user_id}/vip")
 async def set_vip(user_id: str, request: Request, _=Depends(verify_token)):
     data = await request.json()
     vip = data.get("vip", True)
-    from database.repositories.user_repository import UserRepository
-    target_id = UserRepository._sanitize_id(user_id)
-    await UserRepository.update(target_id, vip_status=vip)
-    return {"status": "ok", "vip_status": vip}
+    if redis_client:
+        await redis_client.xadd("admin:commands", {
+            "action": "SET_VIP",
+            "user_id": user_id,
+            "vip": vip,
+            "timestamp": time.time()
+        })
+        return {"status": "ok", "message": f"Queued VIP status {vip} for {user_id}"}
+    return {"status": "error", "message": "Redis unavailable"}
 
 @app.post("/admin/system/reset")
 async def system_reset(_=Depends(verify_token)):
