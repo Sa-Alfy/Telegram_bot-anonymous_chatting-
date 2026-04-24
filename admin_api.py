@@ -153,17 +153,34 @@ async def verify_admin_token(_=Depends(verify_token)):
 
 @app.get("/admin/user/{user_id}")
 async def get_user_state(user_id: str, _=Depends(verify_token)):
-    if not redis_client: raise HTTPException(status_code=503, detail="Redis unavailable")
-    state = await redis_client.get(f"sm:state:{user_id}")
-    partner = await redis_client.get(f"sm:partner:{user_id}")
-    start = await redis_client.get(f"sm:chat_start:{user_id}")
+    # Smart Lookup: Try raw ID first, then msg_ prefix for Messenger users
+    lookup_id = user_id
+    state = await redis_client.get(f"sm:state:{lookup_id}")
+    
+    if state is None and not lookup_id.startswith("msg_") and not lookup_id.isdigit():
+        # Might be a PSID string without prefix
+        alt_id = f"msg_{lookup_id}"
+        alt_state = await redis_client.get(f"sm:state:{alt_id}")
+        if alt_state:
+            lookup_id = alt_id
+            state = alt_state
+    elif state is None and lookup_id.isdigit() and len(lookup_id) > 12:
+        # Long digits usually mean PSID
+        alt_id = f"msg_{lookup_id}"
+        alt_state = await redis_client.get(f"sm:state:{alt_id}")
+        if alt_state:
+            lookup_id = alt_id
+            state = alt_state
+
+    partner = await redis_client.get(f"sm:partner:{lookup_id}")
+    start = await redis_client.get(f"sm:chat_start:{lookup_id}")
     
     # Fetch DB Data
     from database.repositories.user_repository import UserRepository
-    user_db = await UserRepository.get_by_telegram_id(UserRepository._sanitize_id(user_id))
+    user_db = await UserRepository.get_by_telegram_id(UserRepository._sanitize_id(lookup_id))
     
     return {
-        "user_id": user_id,
+        "user_id": lookup_id,
         "state": state or "HOME",
         "partner_id": partner,
         "chat_start_ts": float(start) if start else None,
