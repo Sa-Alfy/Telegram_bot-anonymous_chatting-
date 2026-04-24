@@ -87,7 +87,12 @@ class ActionRouter:
             if result.get("notify_partner"):
                 p_info = result["notify_partner"]
                 if p_info.get("state") or p_info.get("force_render"):
-                    await cls._rehydrate_ui(p_info["user_id"], p_info["state"], p_info["match_id"], p_info)
+                    await cls._rehydrate_ui(
+                        p_info["user_id"], 
+                        p_info.get("state"), 
+                        p_info.get("match_id", "global"), 
+                        p_info
+                    )
 
         EventLogger.log_event(
             event=TelemetryEvent.ACTION_END,
@@ -582,14 +587,6 @@ class ActionRouter:
             success = response and "error" not in response
             return {"success": success, "response": response}
 
-        elif etype == "SEND_GIFT":
-            from handlers.actions.social import SocialHandler
-            c_uid = UserRepository._sanitize_id(uid)
-            gift_key = payload.get("gift_key")
-            if not gift_key: return {"success": False, "error": "Missing gift key."}
-            response = await SocialHandler.handle_send_gift(app_state.telegram_app, c_uid, gift_key)
-            success = response and "error" not in response
-            return {"success": success, "response": response}
 
         elif etype == "SEND_ICEBREAKER":
             from handlers.actions.matching import MatchingHandler
@@ -600,15 +597,21 @@ class ActionRouter:
         elif etype == "RECOVER":
             from state.match_state import match_state
             c_uid = UserRepository._sanitize_id(uid)
-            current_state = await match_state.get_user_state(c_uid) or UnifiedState.HOME
+            current_state = await match_state.get_user_state(uid) or UnifiedState.HOME
             mid = None
+            
+            # SELF-HEALING: If in a chat state but no partner exists, force reset to HOME
             if current_state in {UnifiedState.CHAT_ACTIVE, UnifiedState.MATCHED, UnifiedState.CONNECTING}:
-                p_id = await match_state.get_partner(c_uid)
+                p_id = await match_state.get_partner(uid)
                 if p_id: 
-                    # Correct multi-platform ID sorting for match_id
-                    u1, u2 = (str(c_uid), str(p_id))
+                    u1, u2 = (str(uid), str(p_id))
                     mid = f"m_{min(u1, u2)}_{max(u1, u2)}"
-                elif current_state == UnifiedState.CHAT_ACTIVE: current_state = UnifiedState.HOME
+                else:
+                    logger.warning(f"RECOVER: Found ghost state '{current_state}' for {uid}. Force resetting to HOME.")
+                    current_state = UnifiedState.HOME
+                    await redis.set(f"sm:state:{uid}", UnifiedState.HOME)
+                    await redis.delete(f"sm:partner:{uid}")
+            
             await cls._rehydrate_ui(uid, current_state, mid, {"force_render": True})
             return {"success": True, "state": current_state}
 

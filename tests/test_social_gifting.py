@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from services.economy_service import EconomyService
 from database.repositories.user_repository import UserRepository
 from database.repositories.gift_repository import GiftRepository
@@ -91,8 +91,11 @@ async def test_send_gift_treasure_reveal():
 
 @pytest.mark.asyncio
 async def test_engine_send_gift_event():
-    with patch("handlers.actions.social.SocialHandler.handle_send_gift") as mock_handle:
-        mock_handle.return_value = {"text": "✅ Gift Sent!"}
+    with patch("services.economy_service.EconomyService.send_gift") as mock_send, \
+         patch("state.match_state.match_state.get_partner") as mock_partner:
+         
+        mock_send.return_value = {"success": True, "text": "✅ Gift Sent!"}
+        mock_partner.return_value = 200
         
         event = {
             "event_type": "SEND_GIFT",
@@ -100,22 +103,18 @@ async def test_engine_send_gift_event():
             "payload": {"gift_key": "rose"}
         }
         
-        # Mock redis with AsyncMock
+        # Mock redis
         from services.distributed_state import distributed_state
-        from unittest.mock import AsyncMock
         distributed_state.redis = MagicMock()
         distributed_state.redis.exists = AsyncMock(return_value=False)
         distributed_state.redis.setex = AsyncMock(return_value=True)
-        distributed_state.redis.publish = AsyncMock(return_value=1)
         distributed_state.redis.xadd = AsyncMock(return_value=True)
         distributed_state.redis.get = AsyncMock(return_value=None)
         distributed_state.redis.set = AsyncMock(return_value=True)
+        distributed_state.redis.publish = AsyncMock(return_value=1)
         
         result = await ActionRouter.process_event(event)
-
-
-
         
         assert result["success"] == True
-        assert mock_handle.called
-
+        assert mock_send.called
+        assert result["text"] == "✅ Gift Sent!"

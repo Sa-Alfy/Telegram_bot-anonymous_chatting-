@@ -20,11 +20,11 @@ class RedisScripts:
         -- 1. Idempotency Check
         if redis.call("EXISTS", idemp_key) == 1 then return {2, "ALREADY_PROCESSED"} end
 
-        -- 2. State Validation
+        -- 2. State Validation (Relaxed for resilience)
         local current = redis.call("GET", state_key)
-        if current and current ~= "HOME" and current ~= "VOTING" and current ~= "SEARCHING" then return {0, "INVALID_STATE", current} end
+        if current == "CHAT_ACTIVE" then return {0, "INVALID_STATE", current} end
 
-        -- 3. Execution
+        -- 3. Execution & Cleanup
         redis.call("SET", state_key, "PREFERENCES")
         redis.call("SET", idemp_key, "1", "EX", 30)
 
@@ -47,13 +47,13 @@ class RedisScripts:
         -- 1. Idempotency Check
         if redis.call("EXISTS", idemp_key) == 1 then return {2, "ALREADY_PROCESSED"} end
 
-        -- 2. State Validation
+        -- 2. State Validation (Allow searching from any non-active chat state)
         local current = redis.call("GET", state_key)
-        if current and current ~= "HOME" and current ~= "PREFERENCES" and current ~= "SEARCHING" and current ~= "VOTING" then 
-            return {0, "INVALID_STATE", current or "NULL"} 
+        if current == "CHAT_ACTIVE" then 
+            return {0, "INVALID_STATE", current} 
         end
 
-        -- 3. Execution
+        -- 3. Execution & Symmetrical Cleanup
         redis.call("SET", state_key, "SEARCHING")
         
         -- Store preference if provided

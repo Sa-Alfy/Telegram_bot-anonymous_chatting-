@@ -37,6 +37,18 @@ class TestUserRepository:
             assert result["extra_field"] == "val"
 
     @pytest.mark.asyncio
+    async def test_get_by_polymorphic_id(self):
+        from database.repositories.user_repository import UserRepository
+        with patch("database.repositories.user_repository.db") as mock_db:
+            mock_db.fetchone = AsyncMock(return_value={"telegram_id": 1774009810560778})
+            # msg_26642135455381080 sanitizes to 1774009810560778
+            result = await UserRepository.get_by_telegram_id("msg_26642135455381080")
+            assert result is not None
+            # Check if db was called with integer
+            args, _ = mock_db.fetchone.call_args
+            assert args[1][0] == 1774009810560778
+
+    @pytest.mark.asyncio
     async def test_create_user(self):
         from database.repositories.user_repository import UserRepository
         with patch("database.repositories.user_repository.db") as mock_db:
