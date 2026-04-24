@@ -59,11 +59,21 @@ class TelegramAdapter(BaseAdapter):
                     return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
             elif action == "KARMA_BOOST":
                 return self.create_event("KARMA_BOOST", uid)
-            elif action.startswith("SEND_GIFT_"):
-                gift_key = action.replace("SEND_GIFT_", "").lower()
+            elif action == "gift_menu":
+                return self.create_event("SHOW_GIFTS", uid)
+            elif action == "open_reactions":
+                return self.create_event("SHOW_REACTIONS", uid, payload={"menu": True})
+            elif action.startswith("react_"):
+                reaction_type = action.replace("react_", "")
+                # Map internal names to emojis if needed, or just pass the type
+                reactions = {"heart": "❤️", "joy": "😂", "wow": "😮", "sad": "😢", "up": "👍"}
+                emoji = reactions.get(reaction_type, "✨")
+                return self.create_event("SUBMIT_REACTION", uid, payload={"value": emoji})
+            elif action.startswith("send_gift_") or action.startswith("SEND_GIFT:"):
+                gift_key = action.replace("send_gift_", "").replace("SEND_GIFT:", "").lower()
                 return self.create_event("SEND_GIFT", uid, payload={"gift_key": gift_key})
             
-            # Non-engine events (Stats, Shop, etc.) return LEGACY_DISPATCH to fallback to legacy dispatcher
+            # Non-engine events (Stats, Shop, etc.) return LEGACY_DISPATCH
             return self.create_event("LEGACY_DISPATCH", uid, payload={"raw_data": data})
         elif hasattr(raw_update, "text") or hasattr(raw_update, "photo") or hasattr(raw_update, "sticker") or hasattr(raw_update, "video") or hasattr(raw_update, "animation") or hasattr(raw_update, "voice"):
             # Telegram Message

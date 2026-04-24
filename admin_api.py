@@ -195,6 +195,21 @@ async def get_user_state(user_id: str, _=Depends(verify_token)):
         }
     }
 
+@app.get("/admin/events")
+async def get_recent_events(_=Depends(verify_token)):
+    """Fetch the latest engine traces from Redis Stream."""
+    try:
+        # Read the last 100 events from the stream
+        raw_events = await redis_client.xrevrange("admin:events", max="+", min="-", count=100)
+        events = []
+        for entry_id, data in raw_events:
+            event = {k.decode() if isinstance(k, bytes) else k: v.decode() if isinstance(v, bytes) else v for k, v in data.items()}
+            event["timestamp_id"] = entry_id.decode() if isinstance(entry_id, bytes) else entry_id
+            events.append(event)
+        return events
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/admin/queue")
 async def get_queue(_=Depends(verify_token)):
     if not redis_client: raise HTTPException(status_code=503, detail="Redis unavailable")

@@ -53,17 +53,27 @@ class MatchState:
 
     # --- Core State Accessors (Authoritative via DistributedState) ---
     async def get_user_state(self, user_id: Any) -> str:
+        # Try RAW ID first (preserves msg_ prefix for Redis keys)
+        state = await distributed_state.get_user_state(str(user_id))
+        if state: return state
+        
+        # Fallback to sanitized integer
         c_uid = self._c_uid(user_id)
-        # Always fetch from Redis to ensure single source of truth
-        state = await distributed_state.get_user_state(c_uid)
+        if str(c_uid) != str(user_id):
+            state = await distributed_state.get_user_state(c_uid)
+        
         return state or UnifiedState.HOME
 
     async def set_user_state(self, user_id: Any, state: str):
-        c_uid = self._c_uid(user_id)
-        old_state = await self.get_user_state(c_uid)
+        # Use RAW ID for Redis keys
+        raw_id = str(user_id)
+        old_state = await self.get_user_state(raw_id)
         
         from core.telemetry import EventLogger, TelemetryEvent, InvariantEngine
-        partner_id = await self.get_partner(c_uid)
+        partner_id = await self.get_partner(raw_id)
+        
+        # We still sanitize for Telemetry/Logging to keep DB IDs consistent
+        c_uid = self._c_uid(user_id)
         InvariantEngine.check_state_transition(c_uid, old_state, state, partner_id)
         
         EventLogger.log_event(
@@ -71,24 +81,37 @@ class MatchState:
             user_id=c_uid, data={"old_state": old_state, "new_state": state}
         )
         
-        await distributed_state.set_user_state(c_uid, state)
+        await distributed_state.set_user_state(raw_id, state)
 
-    async def get_partner(self, user_id: Any) -> Optional[int]:
+    async def get_partner(self, user_id: Any) -> Optional[Any]:
+        # Try RAW ID first
+        raw_id = str(user_id)
+        partner = await distributed_state.get_partner(raw_id)
+        if partner: return partner
+        
+        # Fallback to sanitized integer
         c_uid = self._c_uid(user_id)
-        partner = await distributed_state.get_partner(c_uid)
-        if partner: 
-            try: return int(partner) if str(partner).isdigit() else partner
-            except: return partner
-        return None
+        if str(c_uid) != raw_id:
+            partner = await distributed_state.get_partner(c_uid)
+            
+        return partner
 
     async def set_partner(self, user1: Any, user2: Any):
-        u1 = self._c_uid(user1)
-        u2 = self._c_uid(user2)
-        await distributed_state.set_partner(u1, u2)
+        # Always use Raw IDs for Redis partnership keys
+        await distributed_state.set_partner(str(user1), str(user2))
 
     async def clear_partner(self, user_id: Any):
+        # Clear both Raw and Sanitized (to be safe during migration)
+        raw_id = str(user_id)
+        await distributed_state.clear_partner(raw_id)
+        
         c_uid = self._c_uid(user_id)
-        await distributed_state.clear_partner(c_uid)
+        if str(c_uid) != raw_id:
+            await distributed_state.clear_partner(c_uid)
+
+    async def is_in_chat(self, user_id: Any) -> bool:
+        state = await self.get_user_state(user_id)
+        return state == UnifiedState.CHAT_ACTIVE
 
     async def disconnect(self, user_id: Any) -> dict:
         """Atomic Disconnect logic."""

@@ -416,11 +416,14 @@ class ActionRouter:
             from utils.content_filter import check_message, apply_enforcement, get_user_warning
             from services.user_service import UserService
             from services.matchmaking import MatchmakingService
-            c_uid = UserRepository._sanitize_id(uid)
-            partner_id = await match_state.get_partner(c_uid)
+            
+            # CRITICAL: Use RAW uid for Redis/Partner lookup. 
+            # Redis keys (sm:partner:...) preserve the msg_ prefix.
+            partner_id = await match_state.get_partner(uid)
             text = payload.get("text", "")
             from utils.rate_limiter import rate_limiter
             
+            c_uid = UserRepository._sanitize_id(uid)
             can_send, reason = await rate_limiter.can_send_message(c_uid)
             if not can_send:
                 if reason.startswith("MUTED:"):
@@ -507,12 +510,17 @@ class ActionRouter:
         elif etype == "SEND_MEDIA":
             from state.match_state import match_state
             from utils.behavior_tracker import behavior_tracker
+            
+            # Use RAW uid for Redis lookup
+            partner_id = await match_state.get_partner(uid)
             c_uid = UserRepository._sanitize_id(uid)
-            partner_id = await match_state.get_partner(c_uid)
+            
             media_type = payload.get("media_type")
             url = payload.get("url")
             file_id = payload.get("file_id")
             from utils.rate_limiter import rate_limiter
+            
+            if not partner_id: return {"success": False, "error": "No partner."}
             
             can_send, reason = await rate_limiter.can_send_message(c_uid)
             if not can_send:
@@ -610,7 +618,88 @@ class ActionRouter:
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SET_STATE_LUA, keys, [uid, str(ts), new_s])
             return {"success": code in {1, 2}, "state": msg, "version": ver}
 
-        return {"success": False, "error": "Unknown event"}
+        elif etype == "SHOW_GIFTS":
+            from services.economy_service import GIFT_TYPES
+            from state.match_state import match_state
+            
+            partner_id = await match_state.get_partner(uid)
+            if not partner_id:
+                return {"success": False, "error": "You must be in a chat to send gifts!"}
+            
+            # Generate gift buttons
+            buttons = []
+            for key, gift in GIFT_TYPES.items():
+                buttons.append({
+                    "title": f"{gift['name']} ({gift['cost']} 💰)",
+                    "payload": f"SEND_GIFT:{key}"
+                })
+            buttons.append({"title": "🔙 Back", "payload": "RECOVER"})
+            
+            return {
+                "success": True,
+                "text": "🎁 *Gift Shop*\nSurprise your partner with a gift! Gifts boost Karma and reveal special perks.",
+                "reply_markup": buttons
+            }
+
+        elif etype == "SHOW_TOOLS":
+            from state.match_state import match_state
+            partner_id = await match_state.get_partner(uid)
+            if not partner_id:
+                return {"success": False, "error": "Not in a chat."}
+                
+            buttons = [
+                {"title": "🎭 Reactions", "payload": "SHOW_REACTIONS"},
+                {"title": "👁️ Reveal Identity", "payload": "REVEAL"},
+                {"title": "🎁 Send Gift", "payload": "SHOW_GIFTS"},
+                {"title": "🔙 Back", "payload": "RECOVER"}
+            ]
+            return {
+                "success": True,
+                "text": "🛠 *Companion Tools*\nEnhance your chat with these features!",
+                "reply_markup": buttons
+            }
+
+        elif etype == "SHOW_REACTIONS":
+            from state.match_state import match_state
+            partner_id = await match_state.get_partner(uid)
+            if not partner_id:
+                return {"success": False, "error": "Not in a chat."}
+            
+            # Emoji picker
+            buttons = [
+                [
+                    {"title": "❤️", "payload": "react_heart"},
+                    {"title": "😂", "payload": "react_joy"},
+                    {"title": "😮", "payload": "react_wow"},
+                    {"title": "😢", "payload": "react_sad"},
+                    {"title": "👍", "payload": "react_up"}
+                ],
+                [{"title": "🔙 Back", "payload": "RECOVER"}]
+            ]
+            return {
+                "success": True,
+                "text": "🎭 *Select a Reaction*\nYour partner will see a popup with your reaction.",
+                "reply_markup": buttons
+            }
+
+        elif etype == "SUBMIT_REACTION":
+            from state.match_state import match_state
+            partner_id = await match_state.get_partner(uid)
+            if not partner_id:
+                return {"success": False, "error": "Not in a chat."}
+            
+            reaction = payload.get("value", "❤️")
+            # Reactions are essentially special messages
+            return {
+                "success": True,
+                "notify_partner": {
+                    "user_id": str(partner_id),
+                    "text": f"✨ Your partner sent a reaction: {reaction}",
+                    "force_render": False
+                }
+            }
+
+        return {"success": False, "error": f"Unknown event type: {etype}"}
 
     @classmethod
     async def _rehydrate_ui(cls, user_id: str, state: str, match_id: str, extra: dict = None):

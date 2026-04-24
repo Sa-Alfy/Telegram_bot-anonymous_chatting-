@@ -41,6 +41,7 @@ async function connectWS() {
         document.getElementById("ws-status").className = "connection-status online";
         document.getElementById("auth-overlay").style.display = "none";
         refreshStats();
+        fetchRecentEvents();
     };
     
     socket.onclose = () => {
@@ -94,6 +95,37 @@ function appendTrace(payload) {
     if (timeline.children.length > 200) {
         timeline.removeChild(timeline.lastChild);
     }
+}
+
+async function fetchRecentEvents() {
+    try {
+        const res = await fetch("/admin/events", {
+            headers: { "Authorization": `Bearer ${token}` }
+        });
+        if (res.ok) {
+            const events = await res.json();
+            // Clear current timeline first
+            document.getElementById("timeline").innerHTML = "";
+            // Add them in reverse (oldest first) so prepend works correctly
+            events.reverse().forEach(ev => {
+                // The API returns fields like 'event_type', 'user_id', etc.
+                // map them to the format appendTrace expects
+                appendTrace({
+                    event: ev.event || ev.event_type,
+                    user_id: ev.user_id,
+                    state: ev.state,
+                    data: ev.data ? JSON.parse(ev.data) : (ev.payload ? JSON.parse(ev.payload) : {}),
+                    error: ev.error
+                });
+            });
+        }
+    } catch (e) {
+        console.error("Failed to fetch recent events:", e);
+    }
+}
+
+function clearTimeline() {
+    document.getElementById("timeline").innerHTML = "";
 }
 
 function appendViolation(payload) {

@@ -89,11 +89,18 @@ class MessengerAdapter(BaseAdapter):
                 cost = int(parts[-1]) if parts[-1].isdigit() else 15
                 return self.create_event("CONFIRM_REVEAL", uid, payload={"cost": cost})
             elif action == "GIFT_MENU":
-                # UI re-render, no engine action needed
-                await self.render_gift_store(psid, mid)
-                return None
-            elif action.startswith("SEND_GIFT_"):
-                gift_key = action.replace("SEND_GIFT_", "").lower()
+                return self.create_event("SHOW_GIFTS", uid)
+            elif action == "TOOLS_MENU":
+                return self.create_event("SHOW_TOOLS", uid)
+            elif action == "SHOW_REACTIONS":
+                return self.create_event("SHOW_REACTIONS", uid)
+            elif action.startswith("react_"):
+                reaction_type = action.replace("react_", "")
+                reactions = {"heart": "❤️", "joy": "😂", "wow": "😮", "sad": "😢", "up": "👍"}
+                emoji = reactions.get(reaction_type, "✨")
+                return self.create_event("SUBMIT_REACTION", uid, payload={"value": emoji})
+            elif action.startswith("SEND_GIFT_") or action.startswith("SEND_GIFT:"):
+                gift_key = action.replace("send_gift_", "").replace("SEND_GIFT:", "").lower()
                 return self.create_event("SEND_GIFT", uid, payload={"gift_key": gift_key})
             elif action in {"CMD_START", "BACK_HOME", "HOME_MENU"}:
                 return self.create_event("SET_STATE", uid, payload={"new_state": "HOME"})
@@ -103,10 +110,6 @@ class MessengerAdapter(BaseAdapter):
                 return self.create_event("SUBMIT_ONBOARDING", uid, payload={"field": "gender", "value": target_str})
             elif action == "KARMA_BOOST":
                 return self.create_event("KARMA_BOOST", uid)
-            elif action == "TOOLS_MENU":
-                # This doesn't trigger a core action, just UI re-render
-                await self.render_tools(psid, mid)
-                return None
 
             # Non-engine events return None to fallback
             return None
