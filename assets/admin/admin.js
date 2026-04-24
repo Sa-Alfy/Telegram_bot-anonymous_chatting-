@@ -119,24 +119,15 @@ function appendViolation(payload) {
 async function refreshStats() {
     try {
         const headers = { "Authorization": `Bearer ${token}` };
-        const [qRes, sRes, dRes, srvRes, evRes] = await Promise.all([
-            fetch("/admin/queue", { headers }),
-            fetch("/admin/sessions", { headers }),
-            fetch("/admin/stats/distribution", { headers }),
-            fetch("/admin/server_status", { headers }).catch(() => null),
-            fetch("/admin/event_status", { headers }).catch(() => null)
+        const [dist, queue, sessions, srvData, globalData] = await Promise.all([
+            fetch('/admin/stats/distribution', { headers: { "Authorization": `Bearer ${token}` } }).then(r => r.json()),
+            fetch('/admin/queue', { headers: { "Authorization": `Bearer ${token}` } }).then(r => r.json()),
+            fetch('/admin/sessions', { headers: { "Authorization": `Bearer ${token}` } }).then(r => r.json()),
+            fetch('/admin/server_status', { headers: { "Authorization": `Bearer ${token}` } }).then(r => r.json()),
+            fetch('/admin/stats/global', { headers: { "Authorization": `Bearer ${token}` } }).then(r => r.json())
         ]);
         
-        const queue = await qRes.json();
-        const sessions = await sRes.json();
-        const dist = await dRes.json();
-        
-        document.getElementById("stat-queue-len").innerText = queue.queue_length || 0;
-        document.getElementById("stat-active-sessions").innerText = sessions.active_sessions || 0;
-        
-        updateStuckUsers(queue.users || []);
         renderDistribution(dist.distribution || {});
-        
         if (evRes && evRes.ok) {
             const evData = await evRes.json();
             const ev = evData.event;
@@ -219,6 +210,32 @@ function renderDistribution(dist) {
     `).join('');
 }
 
+function renderGlobalStats(data) {
+    const el = document.getElementById("global-stats");
+    if (!el) return;
+    
+    el.innerHTML = `
+        <div class="stat-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Users</div>
+                <div class="stat-value">${data.total_users || 0}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Coins</div>
+                <div class="stat-value">${data.total_coins || 0}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Matches</div>
+                <div class="stat-value">${data.total_matches_all_time || 0}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">VIP Users</div>
+                <div class="stat-value">${data.total_vip || 0}</div>
+            </div>
+        </div>
+    `;
+}
+
 function updateStuckUsers(users) {
     const list = document.getElementById("stuck-users-list");
     if (!users.length) {
@@ -245,6 +262,23 @@ async function inspectUser() {
         document.getElementById("ui-state").innerText = data.state;
         document.getElementById("ui-partner").innerText = data.partner_id || "None";
         document.getElementById("ui-chat-start").innerText = data.chat_start_ts ? new Date(data.chat_start_ts * 1000).toLocaleString() : "N/A";
+        
+        const dbInfo = document.getElementById("ui-db-info");
+        if (data.db) {
+            dbInfo.innerHTML = `
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); font-size: 0.8rem;">
+                    <strong>DB PROFILE:</strong><br>
+                    Coins: ${data.db.coins} | Karma: ${data.db.karma || 0} | Level: ${data.db.level}<br>
+                    Gender: ${data.db.gender} | Location: ${data.db.location}<br>
+                    VIP: ${data.db.vip_status ? '🌟 YES' : 'NO'}<br>
+                    <div style="margin-top: 5px; color: var(--text-dim); font-style: italic;">
+                        Bio: ${data.db.bio}
+                    </div>
+                </div>
+            `;
+        } else {
+            dbInfo.innerHTML = "<div class='tag danger'>User not in DB</div>";
+        }
     } catch (e) {
         alert("Failed to inspect user");
     }

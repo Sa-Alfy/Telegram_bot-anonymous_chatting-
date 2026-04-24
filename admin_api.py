@@ -158,11 +158,16 @@ async def get_user_state(user_id: str, _=Depends(verify_token)):
     partner = await redis_client.get(f"sm:partner:{user_id}")
     start = await redis_client.get(f"sm:chat_start:{user_id}")
     
+    # Fetch DB Data
+    from database.repositories.user_repository import UserRepository
+    user_db = await UserRepository.get_by_telegram_id(UserRepository._sanitize_id(user_id))
+    
     return {
         "user_id": user_id,
         "state": state or "HOME",
         "partner_id": partner,
-        "chat_start_ts": float(start) if start else None
+        "chat_start_ts": float(start) if start else None,
+        "db": user_db
     }
 
 @app.get("/admin/queue")
@@ -214,15 +219,27 @@ async def get_state_distribution(_=Depends(verify_token)):
     while True:
         cursor, keys = await redis_client.scan(cursor=cursor, match="sm:state:*", count=1000)
         if keys:
-            # Fetch values in batches
             states = await redis_client.mget(keys)
             for s in states:
-                if s:
-                    distribution[s] = distribution.get(s, 0) + 1
-        if cursor == 0:
-            break
-            
+                if s: distribution[s] = distribution.get(s, 0) + 1
+        if cursor == 0: break
     return {"distribution": distribution}
+
+@app.get("/admin/stats/global")
+async def get_global_stats(_=Depends(verify_token)):
+    """Fetch global aggregates from the database."""
+    try:
+        stats = await db.fetchone("""
+            SELECT 
+                COUNT(*) as total_users,
+                SUM(COALESCE(coins, 0)) as total_coins,
+                SUM(COALESCE(total_matches, 0)) as total_matches_all_time,
+                COUNT(*) FILTER (WHERE vip_status = true) as total_vip
+            FROM users
+        """)
+        return dict(stats) if stats else {}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/admin/event_status")
 async def get_event_status(_=Depends(verify_token)):

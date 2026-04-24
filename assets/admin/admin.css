@@ -289,3 +289,28 @@ button.secondary { background: var(--border); }
     .col-4, .col-8, .col-6 { grid-column: span 12; }
     aside { display: none; }
 }
+.stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 5px;
+}
+
+.stat-card {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.stat-label {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+
+.stat-value {
+    font-size: 0.9rem !important;
+    font-weight: bold;
+    color: var(--primary);
+}
