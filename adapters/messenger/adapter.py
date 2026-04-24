@@ -265,7 +265,7 @@ class MessengerAdapter(BaseAdapter):
                 if stats and isinstance(stats, dict):
                     summary_text = "📊 **Session Summary**\n" + format_session_summary(stats, is_user1=True, coins_balance=stats.get("coins_balance", 0)) + "\n\n"
                 
-                signals = payload.get("signals") if payload else {}
+                signals = (payload.get("signals") or {}) if payload else {}
                 mid = mid or "global"
 
                 # UX: Single Consolidated Message
