@@ -72,7 +72,7 @@ class ActionRouter:
             "payload": payload,
             "success": result.get("success", False),
             "error": result.get("error"),
-            "state": result.get("state") or event.get("current_state", "unknown"),
+            "state": result.get("state") or "unknown",
             "duration_ms": duration
         }
         asyncio.create_task(cls._publish_trace(trace))
