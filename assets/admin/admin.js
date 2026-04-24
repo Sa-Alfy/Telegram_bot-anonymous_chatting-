@@ -235,7 +235,7 @@ function updateStuckUsers(users) {
 }
 
 async function inspectUser() {
-    const uid = document.getElementById("inspect-user-id").value;
+    const uid = document.getElementById("inspect-user-id").value.trim();
     if (!uid) return;
     
     try {
@@ -251,7 +251,7 @@ async function inspectUser() {
 }
 
 async function forceDisconnect() {
-    const uid = document.getElementById("inspect-user-id").value;
+    const uid = document.getElementById("inspect-user-id").value.trim();
     if (!uid) return;
     
     if (!confirm(`Are you sure you want to force disconnect ${uid}?`)) return;
@@ -270,8 +270,8 @@ async function forceDisconnect() {
 }
 
 async function giftCoins() {
-    const uid = document.getElementById("inspect-user-id").value;
-    const amount = document.getElementById("gift-amount").value;
+    const uid = document.getElementById("inspect-user-id").value.trim();
+    const amount = document.getElementById("gift-amount").value.trim();
     if (!uid || !amount) return;
     
     try {
@@ -291,7 +291,7 @@ async function giftCoins() {
 }
 
 async function toggleBan() {
-    const uid = document.getElementById("inspect-user-id").value;
+    const uid = document.getElementById("inspect-user-id").value.trim();
     if (!uid) return;
     const isBan = confirm(`Manage User ${uid}:\nClick OK to BAN, Cancel to UNBAN`);
     
@@ -312,7 +312,7 @@ async function toggleBan() {
 }
 
 async function toggleVIP() {
-    const uid = document.getElementById("inspect-user-id").value;
+    const uid = document.getElementById("inspect-user-id").value.trim();
     if (!uid) return;
     const isVIP = confirm(`Manage User ${uid}:\nClick OK to Grant VIP, Cancel to Remove VIP`);
     

@@ -283,20 +283,13 @@ async def broadcast_message(request: Request, _=Depends(verify_token)):
     if not text:
         raise HTTPException(status_code=400, detail="Message text required")
     
-    # We use the db to get all users and send_cross_platform
-    # Note: This is a heavy operation, ideally should be a background task
-    users = await db.fetchall("SELECT telegram_id FROM users")
-    
-    # We need a pyrogram client. Since admin_api is a separate process,
-    # we can't easily use the bot's client. 
-    # However, for a web admin, we can trigger an event in Redis that the bot process picks up.
     if redis_client:
         await redis_client.xadd("admin:commands", {
             "action": "BROADCAST",
             "text": text,
             "timestamp": time.time()
         })
-        return {"status": "ok", "message": f"Broadcast of '{text[:20]}...' queued for {len(users)} users"}
+        return {"status": "ok", "message": "Broadcast queued for background dispatch"}
     
     return {"status": "error", "message": "Redis unavailable for command dispatch"}
 

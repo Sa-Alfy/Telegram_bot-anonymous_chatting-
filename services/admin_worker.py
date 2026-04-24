@@ -97,21 +97,24 @@ async def start_admin_worker(app: Client):
             logger.error(f"Error in admin worker loop: {e}")
             await asyncio.sleep(5)
 
-async def handle_broadcast(app: Client, text: str):
-    """Executes a global broadcast."""
-    users = await db.fetchall("SELECT telegram_id FROM users")
-    logger.info(f"Admin Worker: Starting broadcast to {len(users)} users...")
-    
-    count = 0
-    for user in users:
-        uid = user['telegram_id']
-        try:
-            success = await send_cross_platform(app, uid, text)
-            if success:
-                count += 1
-            if count % 30 == 0:
-                await asyncio.sleep(1) # Simple rate limit
-        except Exception:
-            pass
-            
-    logger.info(f"Admin Worker: Broadcast complete. Delivered to {count}/{len(users)} users.")
+async def handle_broadcast(app, text):
+    try:
+        users = await db.fetchall("SELECT telegram_id FROM users")
+        logger.info(f"📢 Starting broadcast to {len(users)} users.")
+        
+        # Parallelize with a semaphore to avoid hitting platform rate limits too hard
+        # and to keep the loop responsive.
+        sem = asyncio.Semaphore(20) 
+        
+        async def safe_send(uid):
+            async with sem:
+                try:
+                    await send_cross_platform(app, uid, text)
+                except Exception:
+                    pass
+
+        tasks = [safe_send(user['telegram_id']) for user in users]
+        await asyncio.gather(*tasks)
+        logger.info(f"✅ Broadcast complete for {len(users)} users.")
+    except Exception as e:
+        logger.error(f"❌ Broadcast handler failed: {e}")
