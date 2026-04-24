@@ -38,11 +38,12 @@ def get_stats_card(user_data: dict, state: str = UserState.HOME):
     level = user_data.get("level", 1)
     xp = user_data.get("xp", 0)
     matches = user_data.get("total_matches", 0)
+    karma = user_data.get("karma", 0)
     photo = user_data.get("profile_photo") or LEADERBOARD_IMAGE_URL
     
     return [{
         "title": f"Profile: {user_data.get('first_name', 'User')}",
-        "subtitle": f"🌟 Level {level} | 💰 {coins} Coins | 🤝 {matches} Matches\nXP: {xp}",
+        "subtitle": f"🌟 Level {level} | 💰 {coins} Coins | 🤝 {matches} Matches\n✨ Karma: {karma} | XP: {xp}",
         "image_url": photo,
         "buttons": [
             {"type": "postback", "title": "🔍 Find Partner", "payload": StateBoundPayload.encode("SEARCH", "0", state)},
@@ -61,9 +62,10 @@ def get_profile_dashboard_card(user_data: dict, state: str = UserState.HOME):
     photo = user_data.get("profile_photo") or LOGO_URL
     has_photo = bool(user_data.get("profile_photo"))
     photo_status = "📸 Photo set" if has_photo else "📷 No photo"
+    karma = user_data.get("karma", 0)
     
     subtitle = (
-        f"Gender: {gender} | Age: {age}\n"
+        f"Gender: {gender} | Age: {age} | ✨ Karma: {karma}\n"
         f"📍 {location} | {photo_status}\n"
         f"📝 {bio[:60]}{'...' if len(bio) > 60 else ''}"
     )

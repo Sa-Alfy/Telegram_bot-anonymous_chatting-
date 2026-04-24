@@ -29,6 +29,9 @@ class MessengerAdapter(BaseAdapter):
 
         data = msg.get("quick_reply", {}).get("payload") or postback.get("payload")
         
+        if data == "GET_STARTED":
+            return self.create_event("RECOVER", uid)
+            
         if data:
             # Decode payload using the now-robust decode logic
             action, target_str, state_gate = StateBoundPayload.decode(data)
@@ -129,8 +132,8 @@ class MessengerAdapter(BaseAdapter):
                 return self.create_event("SUBMIT_ONBOARDING", uid, payload={"value": text})
 
             t_lower = text.lower()
-            if t_lower in ["/start", "menu"]:
-                return self.create_event("CMD_START", uid)
+            if t_lower in ["/start", "menu", "start", "get started"]:
+                return self.create_event("RECOVER", uid)
             elif t_lower == "/report":
                 return self.create_event("REPORT_USER", uid)
             elif t_lower == "/block":
@@ -146,9 +149,9 @@ class MessengerAdapter(BaseAdapter):
                 return self.create_event("SEND_MESSAGE", uid, payload={"text": text})
             
             if not t_lower.startswith("/"):
-                logger.info(f"DROPPED message from {uid} because state={state}")
-                # Don't drop silently, trigger a SET_STATE to current state so UI re-renders and quick replies appear
-                return self.create_event("SET_STATE", uid, payload={"new_state": state or UnifiedState.HOME})
+                logger.info(f"DROPPED message from {uid} because state={state} - Triggering RECOVER")
+                # Auto-recovery: force re-render current state UI
+                return self.create_event("RECOVER", uid)
 
         return None
 

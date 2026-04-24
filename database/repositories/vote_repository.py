@@ -108,20 +108,22 @@ class VoteRepository:
                 elif female_cnt / total_gender_votes >= 0.8:
                     verified_gender = 'female'
 
+            # Calculate Karma
+            karma = likes_cnt - dislikes_cnt
+
             # Only update columns we're confident exist.
-            # votes_male/votes_female/verified_gender are optional schema columns.
             try:
                 await db.execute("""
                     UPDATE users 
-                    SET likes = $1, dislikes = $2, votes_male = $3, votes_female = $4, verified_gender = $5
-                    WHERE telegram_id = $6
-                """, (likes_cnt, dislikes_cnt, male_cnt, female_cnt, verified_gender, user_id))
+                    SET likes = $1, dislikes = $2, votes_male = $3, votes_female = $4, verified_gender = $5, karma = $6
+                    WHERE telegram_id = $7
+                """, (likes_cnt, dislikes_cnt, male_cnt, female_cnt, verified_gender, karma, user_id))
             except Exception:
-                # Fallback: update only the guaranteed-to-exist likes/dislikes columns
+                # Fallback: update only the guaranteed-to-exist likes/dislikes/karma columns
                 try:
                     await db.execute("""
-                        UPDATE users SET likes = $1, dislikes = $2 WHERE telegram_id = $3
-                    """, (likes_cnt, dislikes_cnt, user_id))
+                        UPDATE users SET likes = $1, dislikes = $2, karma = $3 WHERE telegram_id = $4
+                    """, (likes_cnt, dislikes_cnt, karma, user_id))
                 except Exception as e2:
                     logger.warning(f"Aggregate fallback update also failed for {user_id}: {e2}")
         except Exception as e:

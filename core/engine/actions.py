@@ -266,6 +266,18 @@ class ActionRouter:
                                                        vote_type=db_vote_type, gender_vote=db_gender_vote)
                     else:
                         logger.warning(f"Skipping DB vote: Target user {c_pid} not found in database.")
+                    if result["success"] and vtype == "reputation" and vval == "good":
+                        try:
+                            # Notify the voted user about their karma boost
+                            from core.telemetry import TelemetryEvent
+                            await PlatformAdapter.send_cross_platform(
+                                app_state.telegram_app, 
+                                p_uid, 
+                                "✨ **Karma Boost!**\nYour partner gave you a 'Good' rating. Your reputation has increased!"
+                            )
+                        except Exception:
+                            pass
+
                 except Exception as e:
                     logger.error(f"Failed to persist vote for {uid} in {mid}: {e}")
             return result
