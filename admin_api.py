@@ -13,7 +13,11 @@ import redis.exceptions as redis_exceptions
 from dotenv import load_dotenv
 from database.connection import db
 
-load_dotenv()
+# Ensure .env is loaded relative to this file
+env_path = os.path.join(os.path.dirname(__file__), '.env')
+load_dotenv(env_path)
+if not os.getenv("DATABASE_URL"):
+    load_dotenv() # Fallback to default behavior if explicit path fails
 
 app = FastAPI(title="Matchmaking Debug Dashboard")
 
@@ -61,6 +65,11 @@ async def startup_event():
         
     try:
         print("Connecting to Database...")
+        db_url = os.getenv("DATABASE_URL")
+        if not db_url:
+            print("❌ CRITICAL: DATABASE_URL not set in env. DB Inspector will fail.")
+        else:
+            print(f"Database URL detected (Starts with: {db_url[:15]}...)")
         await db.connect()
         print("✅ Admin API connected to Database.")
     except Exception as e:
@@ -222,11 +231,17 @@ async def get_user_state(user_id: str, _=Depends(verify_token)):
                 db_id_used = cid
                 break
         except Exception as e:
-            db_error = str(e)
+            db_error = f"DB Error ({cid}): {str(e)}"
             print(f"Admin API DB lookup error (id={cid}): {e}")
 
-    if user_db is None and db_error is None:
-        db_error = f"No DB record found for lookup_id={lookup_id} (tried IDs: {unique_candidates})"
+    if user_db is None:
+        if db_error:
+            db_error = f"{db_error} | Tried IDs: {unique_candidates}"
+        else:
+            db_error = f"No DB record found for lookup_id={lookup_id} (tried IDs: {unique_candidates})"
+        # For UI display: show the first candidate if we have one
+        if not db_id_used and unique_candidates:
+            db_id_used = unique_candidates[0]
 
     return {
         "user_id": lookup_id,
