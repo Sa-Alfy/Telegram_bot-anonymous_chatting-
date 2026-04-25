@@ -58,26 +58,33 @@ async def startup_event():
         print(f"❌ Failed to connect Admin API to Redis: {e}")
         redis_client = None
         return
-
+        
     try:
-        # Setup Database connection
         print("Connecting to Database...")
         await db.connect()
         print("✅ Admin API connected to Database.")
     except Exception as e:
         print(f"❌ Failed to connect Admin API to Database: {e}")
-        # We don't set redis_client to None here, let it continue if Redis is ok
-    
+
     # Setup Consumer Group
-    try:
-        await redis_client.xgroup_create("admin:events", "dashboard", id="0", mkstream=True)
-        print("✅ Consumer group 'dashboard' ready.")
-    except redis_exceptions.ResponseError as e:
-        if "BUSYGROUP" not in str(e):
-            print(f"ℹ️ Consumer group info: {e}")
-    
-    # Start event consumer task
-    asyncio.create_task(consume_events())
+    if redis_client:
+        try:
+            await redis_client.xgroup_create("admin:events", "dashboard", id="0", mkstream=True)
+            print("✅ Consumer group 'dashboard' ready.")
+        except redis_exceptions.ResponseError as e:
+            if "already exists" not in str(e).lower() and "BUSYGROUP" not in str(e):
+                print(f"ℹ️ Consumer group info: {e}")
+        
+        # Start event consumer task
+        asyncio.create_task(consume_events())
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    if db:
+        await db.close()
+    if redis_client:
+        await redis_client.close()
+
 
 
 class ConnectionManager:
