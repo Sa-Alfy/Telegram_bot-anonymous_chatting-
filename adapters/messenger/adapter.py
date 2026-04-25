@@ -49,7 +49,7 @@ class MessengerAdapter(BaseAdapter):
                 return self.create_event("START_SEARCH", uid, payload={"pref": target_str})
             elif action in {"CANCEL_SEARCH", "STOP_SEARCH"}:
                 return self.create_event("STOP_SEARCH", uid)
-            elif action in {"STOP", "END_CHAT"}:
+            elif action in {"STOP", "END_CHAT", "CMD_STOP"}:
                 return self.create_event("END_CHAT", uid, mid)
             elif action in {"NEXT", "NEXT_MATCH"}:
                 return self.create_event("NEXT_MATCH", uid, mid)

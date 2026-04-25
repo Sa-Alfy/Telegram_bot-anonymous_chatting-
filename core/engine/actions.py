@@ -8,10 +8,7 @@ from typing import Dict, Any, Optional
 from utils.logger import logger
 from core.engine.state_machine import UnifiedState
 from core.engine.redis_scripts import RedisScripts
-from services.distributed_state import distributed_state
 from core.telemetry import EventLogger, TelemetryEvent, with_trace_id
-from utils.platform_adapter import PlatformAdapter
-from database.repositories.user_repository import UserRepository
 import app_state
 
 class ActionRouter:
@@ -180,7 +177,7 @@ class ActionRouter:
         elif etype == "END_CHAT":
             from services.matchmaking import MatchmakingService
             c_uid = UserRepository._sanitize_id(uid)
-            stats = await MatchmakingService.disconnect(c_uid)
+            stats = await MatchmakingService.disconnect(uid)
             if not stats: return {"success": False, "error": "No active session"}
             
             p_uid = str(stats["partner_id"])
@@ -285,7 +282,6 @@ class ActionRouter:
                     if result["success"] and vtype == "reputation" and vval == "good":
                         try:
                             # Notify the voted user about their karma boost
-                            from core.telemetry import TelemetryEvent
                             await PlatformAdapter.send_cross_platform(
                                 app_state.telegram_app, 
                                 p_uid, 
@@ -395,7 +391,6 @@ class ActionRouter:
                 return {"success": False, "error": "Partner disconnected!"}
             
             # Message count check (Legacy: 50 messages)
-            from services.distributed_state import distributed_state
             msg_count = await distributed_state.get_message_count(uid, partner_id)
             if msg_count < 50:
                 return {"success": False, "error": f"🔒 Reveal Locked. You need 50 messages (Current: {msg_count})."}
@@ -553,7 +548,6 @@ class ActionRouter:
 
         elif etype == "SEND_MEDIA":
             from state.match_state import match_state
-            from utils.platform_adapter import PlatformAdapter
             c_uid = str(UserRepository._sanitize_id(uid))
             partner_id = await match_state.get_partner(uid)
             if not partner_id:

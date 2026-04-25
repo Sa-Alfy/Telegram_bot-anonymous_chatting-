@@ -124,7 +124,7 @@ def get_chat_menu_buttons(state: str = UserState.HOME, partner_id: int = 0):
     target = str(partner_id)
     return [
         {"title": "⏭ Next",        "payload": StateBoundPayload.encode("NEXT", target, state)},
-        {"title": "🛑 Stop",        "payload": StateBoundPayload.encode("STOP", target, state)},
+        {"title": "🛑 End Chat",    "payload": StateBoundPayload.encode("END_CHAT", target, state)},
         {"title": "👁 Reveal",      "payload": StateBoundPayload.encode("REVEAL", target, state)},
         {"title": "⚠️ Report",      "payload": StateBoundPayload.encode("REPORT", target, state)},
         {"title": "🚫 Block",       "payload": StateBoundPayload.encode("BLOCK_PARTNER", target, state)},

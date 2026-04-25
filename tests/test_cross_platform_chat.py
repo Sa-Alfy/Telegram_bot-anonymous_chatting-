@@ -877,21 +877,22 @@ class TestEngineStatesMigration:
         
         # In mock_env, we need to manually update state for rehydration simulation
         from services.distributed_state import distributed_state
-        await distributed_state.set_user_state(vid, UnifiedState.REG_GENDER)
+        uid = f"msg_{psid}"
+        await distributed_state.set_user_state(uid, UnifiedState.REG_GENDER)
 
         # 2. Submit Gender
         gender_payload = StateBoundPayload.encode("SET_GENDER", "Male", UnifiedState.REG_GENDER)
         await handle_messenger_quick_reply(psid, vid, user, gender_payload)
-        await distributed_state.set_user_state(vid, UnifiedState.REG_INTERESTS)
+        await distributed_state.set_user_state(uid, UnifiedState.REG_INTERESTS)
 
         # 3. Submit Interests (Text)
         # handle_messenger_text translates text based on current state
         await handle_messenger_text(psid, vid, user, "Gaming, Anime")
-        await distributed_state.set_user_state(vid, UnifiedState.REG_LOCATION)
+        await distributed_state.set_user_state(uid, UnifiedState.REG_LOCATION)
         
         # 4. Submit Location (Text)
         await handle_messenger_text(psid, vid, user, "Tokyo")
-        await distributed_state.set_user_state(vid, UnifiedState.REG_BIO)
+        await distributed_state.set_user_state(uid, UnifiedState.REG_BIO)
         
         # 5. Submit Bio (Text)
         await handle_messenger_text(psid, vid, user, "Hello world")
@@ -980,11 +981,12 @@ class TestEngineStatesMigration:
         from database.repositories.user_repository import UserRepository
         psid = "psid_chatter"
         vid = UserRepository._sanitize_id(f"msg_{psid}")
+        uid = f"msg_{psid}"
         user = _make_user(vid, psid)
         mock_env["users"][vid] = user
         
-        # Set state to CHAT_ACTIVE
-        await distributed_state.set_user_state(vid, UnifiedState.CHAT_ACTIVE)
+        # Set state to CHAT_ACTIVE using RAW string ID (msg_PSID) for the Engine
+        await distributed_state.set_user_state(uid, UnifiedState.CHAT_ACTIVE)
         
         await handle_messenger_text(psid, vid, user, "Hello partner!")
         
