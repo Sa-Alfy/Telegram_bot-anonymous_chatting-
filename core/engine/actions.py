@@ -31,6 +31,9 @@ from utils.logger import logger
 from core.engine.state_machine import UnifiedState
 from core.engine.redis_scripts import RedisScripts
 from core.telemetry import EventLogger, TelemetryEvent, with_trace_id
+from services.distributed_state import distributed_state
+from database.repositories.user_repository import UserRepository
+from utils.platform_adapter import PlatformAdapter
 import app_state
 
 class ActionRouter:
