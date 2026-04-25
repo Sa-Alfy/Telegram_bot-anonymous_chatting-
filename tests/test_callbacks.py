@@ -15,28 +15,32 @@ async def test_callback_lockout_enforcement():
     
     # Mock app_state to allow legacy routing
     app_state.tg_adapter = MagicMock()
-    app_state.tg_adapter.translate_event = AsyncMock(return_value=None)
+    app_state.tg_adapter.translate_event = AsyncMock(return_value={"event_type": "START_SEARCH", "user_id": "999"})
     user_id = 999
     query = AsyncMock()
     query.from_user.id = user_id
     query.data = "search"
     query.answer = AsyncMock()
 
+    app_state.engine = MagicMock()
+    
     # 1. First click succeeds (records time)
-    with patch("handlers.callbacks.MatchingHandler.handle_search", new_callable=AsyncMock) as mock_handle:
+    with patch.object(app_state.engine, "process_event", new_callable=AsyncMock) as mock_process:
+        mock_process.return_value = {"success": True}
         await on_callback(None, query)
-        assert mock_handle.called
+        assert mock_process.called
         assert user_id in match_state.last_button_time
 
     # 2. Second rapid click (0.1s later) fails with "Please wait"
-    with patch("handlers.callbacks.MatchingHandler.handle_search", new_callable=AsyncMock) as mock_handle:
+    with patch.object(app_state.engine, "process_event", new_callable=AsyncMock) as mock_process:
         match_state.last_button_time[user_id] = time.time()
         await on_callback(None, query)
-        assert not mock_handle.called
+        assert not mock_process.called
         query.answer.assert_called_with("Please wait...", show_alert=False)
 
     # 3. Click after cooldown succeeds
-    with patch("handlers.callbacks.MatchingHandler.handle_search", new_callable=AsyncMock) as mock_handle:
+    with patch.object(app_state.engine, "process_event", new_callable=AsyncMock) as mock_process:
+        mock_process.return_value = {"success": True}
         match_state.last_button_time[user_id] = time.time() - 2.0
         await on_callback(None, query)
-        assert mock_handle.called
+        assert mock_process.called

@@ -141,6 +141,7 @@ class ActionRouter:
     @classmethod
     async def _handle_event(cls, etype, uid, mid, ts, payload, idemp_key, redis) -> Dict[str, Any]:
         """Internal router for event logic."""
+        logger.info(f"[ENGINE] uid={uid} event={etype}")
         if etype == "SHOW_PREFS":
             keys = [f"sm:state:{uid}", idemp_key, f"sm:ver:u:{uid}"]
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SET_PREFS_LUA, keys, [uid, str(ts)])
@@ -416,6 +417,9 @@ class ActionRouter:
             await RedisScripts.execute(redis, RedisScripts.SET_STATE_LUA, keys, [uid, str(ts), UnifiedState.HOME])
             return {"success": True, "deleted": True}
 
+        # DUAL-RELAY NOTE: This handles engine-routed messages (Messenger + cross-platform).
+        # Telegram-originated messages are relayed in handlers/chat.py directly.
+        # Do NOT consolidate until both paths are fully audited.
         elif etype == "SEND_MESSAGE":
             from state.match_state import match_state
             from utils.content_filter import check_message, apply_enforcement, get_user_warning
@@ -573,26 +577,132 @@ class ActionRouter:
                     return {"success": True, "item_name": item_id}
 
         elif etype == "REVEAL_IDENTITY":
-            from handlers.actions.economy import EconomyHandler
-            c_uid = UserRepository._sanitize_id(uid)
-            response = await EconomyHandler.handle_reveal(app_state.telegram_app, c_uid)
-            success = response and "error" not in response
-            return {"success": success, "response": response}
+            # INLINED from EconomyHandler.handle_reveal() — do NOT import from handlers/ here.
+            # EconomyHandler.handle_reveal() is preserved in handlers/actions/economy.py
+            # for CALLBACK_MAP legacy path and admin flows.
+            from state.match_state import match_state as _ms
+            from services.economy_service import EconomyService
+            from database.repositories.user_repository import UserRepository as _UR
+            from services.distributed_state import distributed_state as _ds
+            c_uid = _UR._sanitize_id(uid)
+            partner_id = await _ms.get_partner(c_uid)
+            if not partner_id:
+                return {"success": False, "error": "❌ Partner disconnected!", "force_render": True}
+            cost = await EconomyService.get_dynamic_cost(c_uid, "identity_reveal", partner_id)
+            user = await _UR.get_by_telegram_id(c_uid)
+            msg_count = await _ds.get_message_count(c_uid, partner_id)
+            if cost == -1:
+                return {
+                    "success": False,
+                    "error": f"🔒 Reveal Locked — need 50 messages ({msg_count}/50)",
+                    "force_render": True
+                }
+            if user and user.get("is_guest", 1):
+                return {"success": False, "error": "❌ Create a profile first!", "force_render": True}
+            if user and user["coins"] < cost:
+                return {"success": False, "error": f"❌ Need {cost} coins!", "force_render": True}
+            if msg_count < 200:
+                tier_name, reveal_desc = "🥉 Tier 1: Basic", "Reveals: Gender, Age"
+            elif msg_count < 500:
+                tier_name, reveal_desc = "🥈 Tier 2: Detailed", "Reveals: Age, Location, Bio, Interests"
+            else:
+                tier_name, reveal_desc = "🥇 Tier 3: Full Profile", "Reveals: Full Name, Profile Photo, and all Bio details"
+            from adapters.telegram.keyboards import confirm_reveal_menu
+            from state.match_state import UserState
+            return {
+                "success": True,
+                "text": f"🔍 **Unmask Partner: {tier_name}**\n\n{reveal_desc}\n\nCost: **{cost} coins**\n"
+                        f"(Conversation: {msg_count} msgs)\n\nContinue?",
+                "reply_markup": confirm_reveal_menu(cost, partner_id, UserState.CHATTING),
+                "force_render": True
+            }
 
         elif etype == "CONFIRM_REVEAL":
-            from handlers.actions.economy import EconomyHandler
-            c_uid = UserRepository._sanitize_id(uid)
-            cost = event.get("payload", {}).get("cost", 15)
-            response = await EconomyHandler.handle_confirm_reveal(app_state.telegram_app, c_uid, cost)
-            success = response and "error" not in response
-            return {"success": success, "response": response}
-
+            # INLINED from EconomyHandler.handle_confirm_reveal() — do NOT import from handlers/ here.
+            # EconomyHandler.handle_confirm_reveal() is preserved in handlers/actions/economy.py
+            # for the confirm_reveal_ dynamic prefix path in on_callback().
+            from state.match_state import match_state as _ms
+            from services.user_service import UserService as _US
+            from database.repositories.user_repository import UserRepository as _UR
+            from services.distributed_state import distributed_state as _ds
+            c_uid = _UR._sanitize_id(uid)
+            cost = payload.get("cost", 15)
+            partner_id = await _ms.get_partner(c_uid)
+            if not partner_id:
+                return {"success": False, "error": "❌ Partner disconnected!", "force_render": True}
+            if not await _US.deduct_coins(c_uid, cost):
+                return {"success": False, "error": "❌ Not enough coins!", "force_render": True}
+            partner = await _UR.get_by_telegram_id(partner_id)
+            msg_count = await _ds.get_message_count(c_uid, partner_id)
+            if not partner:
+                reveal_text = "🌟 **Identity Unmasked!**\n🆔 **ID:** `1`\n🏷 **Name:** System AI (Echo)"
+                notify_text = None
+            else:
+                age = partner.get("age", "Unknown")
+                interests = partner.get("interests", "None specified")
+                gender = partner.get("gender", "Secret")
+                location = partner.get("location", "Hidden")
+                bio = partner.get("bio", "No bio")
+                name = partner.get("first_name", "Stranger")
+                if msg_count < 200:
+                    reveal_text = f"🥉 Basic Reveal (Tier 1)\n━━━━━━━━━━━━━━━━━━\n🚻 **Gender:** {gender}\n🎂 **Age:** {age}\n\n_Chat more for more details!_"
+                    notify_text = "⚠️ Someone unmasked your **Gender & Age**!"
+                elif msg_count < 500:
+                    reveal_text = f"🥈 Detailed Reveal (Tier 2)\n━━━━━━━━━━━━━━━━━━\n🚻 **Gender:** {gender}\n🎂 **Age:** {age}\n📍 **Loc:** {location}\n🎨 **Interests:** {interests}\n📝 **Bio:** {bio}"
+                    notify_text = "⚠️ Someone unmasked your **Bio, Location & Interests**!"
+                else:
+                    reveal_text = f"🥇 Full Reveal (Tier 3)\n━━━━━━━━━━━━━━━━━━\n🏷 **Name:** {name}\n🚻 **Gender:** {gender}\n🎂 **Age:** {age}\n📍 **Loc:** {location}\n🎨 **Interests:** {interests}\n📝 **Bio:** {bio}"
+                    notify_text = "⚠️ Someone just performed a **Full Identity Unmask** on you!"
+            if partner_id != 1:
+                from database.repositories.reveal_repository import RevealRepository
+                await RevealRepository.log_reveal(c_uid, partner_id, "tiered", cost)
+            from adapters.telegram.keyboards import chat_menu
+            from state.match_state import UserState
+            resp = {
+                "success": True,
+                "text": reveal_text,
+                "reply_markup": chat_menu(UserState.CHATTING, partner_id),
+                "force_render": True
+            }
+            if notify_text and partner_id != 1:
+                resp["notify_partner"] = {"user_id": str(partner_id), "text": notify_text, "force_render": False}
+            return resp
 
         elif etype == "SEND_ICEBREAKER":
-            from handlers.actions.matching import MatchingHandler
-            c_uid = UserRepository._sanitize_id(uid)
-            response = await MatchingHandler.handle_icebreaker(app_state.telegram_app, c_uid)
-            return {"success": "error" not in response, "response": response}
+            # INLINED from MatchingHandler.handle_icebreaker() — do NOT import from handlers/ here.
+            # MatchingHandler.handle_icebreaker() is preserved in handlers/actions/matching.py
+            # for CALLBACK_MAP legacy path and admin flows.
+            import random
+            from state.match_state import match_state as _ms
+            from services.user_service import UserService as _US
+            from database.repositories.user_repository import UserRepository as _UR
+            from state.match_state import UserState
+            c_uid = _UR._sanitize_id(uid)
+            partner_id = await _ms.get_partner(c_uid)
+            if not partner_id:
+                return {"success": False, "error": "❌ You are not connected to anyone!", "force_render": True}
+            questions = [
+                "Truth or Dare: What's the most embarrassing thing you've done on a date? 😳",
+                "Deep Question: What's a controversial opinion you have? 🤔",
+                "Fun Fact: If you could only eat one food for the rest of your life, what would it be? 🍕",
+                "Spicy: What's the worst pickup line you've ever used or heard? 🔥",
+                "Icebreaker: If you had to describe yourself in 3 emojis, what would they be? 🙈"
+            ]
+            if not await _US.deduct_coins(c_uid, 5):
+                return {"success": False, "error": "❌ Icebreakers cost 5 coins!", "force_render": True}
+            question = random.choice(questions)
+            from adapters.telegram.keyboards import chat_menu
+            return {
+                "success": True,
+                "text": f"🎲 **You activated an Icebreaker!**\n\n{question}",
+                "reply_markup": chat_menu(UserState.CHATTING, partner_id),
+                "force_render": True,
+                "notify_partner": {
+                    "user_id": str(partner_id),
+                    "text": f"🎲 **Your partner activated an Icebreaker!**\n\n{question}",
+                    "force_render": False
+                }
+            }
 
         elif etype == "RECOVER":
             from state.match_state import match_state

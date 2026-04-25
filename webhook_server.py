@@ -332,7 +332,8 @@ def health():
         if app_state.bot_loop and app_state.bot_loop.is_running():
             from state.match_state import match_state
             future = asyncio.run_coroutine_threadsafe(match_state.get_stats(), app_state.bot_loop)
-            bot_stats = future.result(timeout=5) or bot_stats
+            # lowered timeout to 1s to prevent Waitress thread exhaustion
+            bot_stats = future.result(timeout=1.0) or bot_stats 
     except Exception as e:
         logger.debug(f"Health check could not fetch live stats: {e}")
 
@@ -345,7 +346,7 @@ def health():
             async def _ping_redis():
                 return await distributed_state.redis.ping()
             future = asyncio.run_coroutine_threadsafe(_ping_redis(), app_state.bot_loop)
-            pong = future.result(timeout=3)
+            pong = future.result(timeout=1.0)
             redis_status = "connected" if pong else "error"
     except Exception as e:
         logger.debug(f"Health check: Redis liveness probe failed: {e}")
@@ -361,7 +362,7 @@ def health():
                 async with db._pool.acquire() as conn:
                     return await conn.fetchval("SELECT 1")
             future = asyncio.run_coroutine_threadsafe(_ping_db(), app_state.bot_loop)
-            result = future.result(timeout=5)
+            result = future.result(timeout=1.0)
             db_status = "connected" if result == 1 else "error"
     except Exception as e:
         logger.debug(f"Health check: DB liveness probe failed: {e}")

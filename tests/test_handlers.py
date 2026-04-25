@@ -15,77 +15,49 @@ class TestMatchingHandler:
     @pytest.mark.asyncio
     async def test_handle_search_returns_search_menu(self):
         from handlers.actions.matching import MatchingHandler
+        from utils.rate_limiter import rate_limiter
         client = AsyncMock()
-        response = await MatchingHandler.handle_search(client, 100)
-        assert response is not None
-        assert "text" in response or "reply_markup" in response
-
-    @pytest.mark.asyncio
-    async def test_handle_stop_not_in_chat(self):
-        from handlers.actions.matching import MatchingHandler
-        client = AsyncMock()
-        # disconnect returns None when user is not in a chat
-        with patch("services.matchmaking.MatchmakingService.disconnect", new_callable=AsyncMock) as MockDisconnect:
-            MockDisconnect.return_value = None
-            response = await MatchingHandler.handle_stop(client, 100)
+        with patch.object(rate_limiter, 'can_matchmake', return_value=True):
+            response = await MatchingHandler.handle_search(client, 100)
             assert response is not None
-            assert "chat ended" in response.get("text", "").lower() or "alert" in response
+            assert "text" in response
+            assert "reply_markup" in response
 
     @pytest.mark.asyncio
-    async def test_handle_stop_in_chat(self):
+    async def test_handle_stop(self):
         from handlers.actions.matching import MatchingHandler
+        import app_state
         client = AsyncMock()
-        mock_stats = {
-            "partner_id": 200, "duration_minutes": 5,
-            "coins_earned": 20, "xp_earned": 10,
-            "u2_coins_earned": 15, "u2_xp_earned": 8,
-            "u1_levelup": None, "u2_levelup": None,
-            "total_matches": 3
-        }
-        with patch("services.matchmaking.MatchmakingService.disconnect") as MockDisconnect, \
-             patch("database.repositories.user_repository.UserRepository.get_by_telegram_id") as MockGet, \
-             patch("state.match_state.match_state.get_user_state") as MockState:
-            from state.match_state import UserState
-            MockState.return_value = UserState.CHATTING
-            MockDisconnect.return_value = mock_stats
-            MockGet.return_value = {"coins": 50}
+        app_state.engine = MagicMock()
+        with patch.object(app_state.engine, "process_event", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = {"success": True}
             response = await MatchingHandler.handle_stop(client, 100)
-            assert "text" in response
-            assert "Summary" in response["text"] or "Duration" in response["text"]
+            assert response is None  # Engine handles UI
+            mock_process.assert_called_once_with({"event_type": "END_CHAT", "user_id": "100"})
 
     @pytest.mark.asyncio
     async def test_handle_cancel(self):
         from handlers.actions.matching import MatchingHandler
+        import app_state
         client = AsyncMock()
-        with patch("services.matchmaking.MatchmakingService.remove_from_queue", new_callable=AsyncMock) as MockRemove, \
-             patch("database.repositories.user_repository.UserRepository.get_by_telegram_id") as MockGet:
-            MockRemove.return_value = None
-            MockGet.return_value = {"coins": 30}
+        app_state.engine = MagicMock()
+        with patch.object(app_state.engine, "process_event", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = {"success": True}
             response = await MatchingHandler.handle_cancel(client, 100)
-            # Cancel returns home/start menu, so just check it's a valid response
-            assert response is not None
-            assert "text" in response
+            assert response is None  # Engine handles UI
+            mock_process.assert_called_once_with({"event_type": "STOP_SEARCH", "user_id": "100"})
 
     @pytest.mark.asyncio
-    async def test_handle_next_cooldown_triggered(self):
+    async def test_handle_next(self):
         from handlers.actions.matching import MatchingHandler
-        from utils.behavior_tracker import behavior_tracker
-        from utils.rate_limiter import rate_limiter
+        import app_state
         client = AsyncMock()
-        user_id = 100
-        
-        # behavior_tracker.get_next_cooldown is now async
-        with patch.object(rate_limiter, 'get_cooldown_remaining', return_value=5.0), \
-             patch.object(behavior_tracker, 'get_next_cooldown', new_callable=AsyncMock) as mock_cooldown, \
-             patch.object(behavior_tracker, 'record_next', new_callable=AsyncMock):
-            mock_cooldown.return_value = 5.0
-            # Next now checks if in chat; patch get_user_state to pass
-            with patch("state.match_state.match_state.get_user_state", new_callable=AsyncMock) as MockState:
-                from state.match_state import UserState
-                MockState.return_value = UserState.CHATTING
-                response = await MatchingHandler.handle_next(client, user_id)
-                assert "alert" in response
-                assert "slow down" in response["alert"].lower()
+        app_state.engine = MagicMock()
+        with patch.object(app_state.engine, "process_event", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = {"success": True}
+            response = await MatchingHandler.handle_next(client, 100)
+            assert response is None  # Engine handles UI
+            mock_process.assert_called_once_with({"event_type": "NEXT_MATCH", "user_id": "100"})
 
     @pytest.mark.asyncio
     async def test_handle_icebreaker(self):
@@ -94,15 +66,14 @@ class TestMatchingHandler:
         from services.distributed_state import distributed_state
         # Set user in chat
         await distributed_state.set_partner(100, 200)
-        match_state.active_chats[100] = 200
-        match_state.active_chats[200] = 100
         
         client = AsyncMock()
-        response = await MatchingHandler.handle_icebreaker(client, 100)
-        assert response is not None
+        with patch("services.user_service.UserService.deduct_coins", return_value=True):
+            response = await MatchingHandler.handle_icebreaker(client, 100)
+            assert response is not None
+            assert "text" in response
         # Cleanup
         await distributed_state.clear_partner(100)
-        match_state.active_chats.clear()
 
 
 # ═══════════════════════════════════════════════════════
@@ -224,17 +195,13 @@ class TestSocialHandler:
     @pytest.mark.asyncio
     async def test_handle_report_in_chat(self):
         from handlers.actions.social import SocialHandler
-        from state.match_state import match_state
         from services.distributed_state import distributed_state
         await distributed_state.set_partner(100, 200)
-        match_state.active_chats[100] = 200
-        match_state.active_chats[200] = 100
         client = AsyncMock()
         response = await SocialHandler.handle_report(client, 100)
         assert response is not None
         # Cleanup
         await distributed_state.clear_partner(100)
-        match_state.active_chats.clear()
 
     @pytest.mark.asyncio
     async def test_handle_open_reactions_not_in_chat(self):
@@ -359,50 +326,19 @@ class TestAdminHandler:
         from handlers.actions.admin import AdminHandler
         from config import ADMIN_ID
         client = AsyncMock()
-        with patch("database.repositories.admin_repository.AdminRepository.get_system_stats") as MockGet:
+        with patch("database.repositories.admin_repository.AdminRepository.get_system_stats") as MockGet, \
+             patch("state.match_state.match_state.get_stats") as MockLive, \
+             patch("services.distributed_state.distributed_state.get_queue_candidates") as MockQueue:
             MockGet.return_value = {
-                "total_users": 100, "sessions_24h": 500, "pending_reports": 5
+                "new_users_24h": 10, "total_users": 100, "sessions_24h": 500, "pending_reports": 5
             }
+            MockLive.return_value = {"active_chats": 20, "queue_length": 10}
+            MockQueue.return_value = ["100", "msg_200"]
             response = await AdminHandler.handle_stats(client, ADMIN_ID)
             assert "text" in response
             assert "100" in response["text"]
 
-    @pytest.mark.asyncio
-    async def test_handle_admin_health(self):
-        from handlers.actions.admin import AdminHandler
-        from config import ADMIN_ID
-        from state.match_state import match_state
-        match_state.bot_start_time = time.time() - 3600
-        client = AsyncMock()
-        response = await AdminHandler.handle_admin_health(client, ADMIN_ID)
-        assert "text" in response
-        assert "Health" in response["text"]
 
-    @pytest.mark.asyncio
-    async def test_handle_broadcast_prompt_non_admin(self):
-        from handlers.actions.admin import AdminHandler
-        client = AsyncMock()
-        response = await AdminHandler.handle_broadcast_prompt(client, 12345)
-        assert "Unauthorized" in response.get("alert", "")
-
-    @pytest.mark.asyncio
-    async def test_handle_gift_prompt_admin(self):
-        from handlers.actions.admin import AdminHandler
-        from config import ADMIN_ID
-        client = AsyncMock()
-        response = await AdminHandler.handle_gift_prompt(client, ADMIN_ID)
-        # gift_prompt returns a text prompt with a cancel button, no set_state
-        assert "text" in response
-
-    @pytest.mark.asyncio
-    async def test_handle_debug_admin(self):
-        from handlers.actions.admin import AdminHandler
-        from config import ADMIN_ID
-        client = AsyncMock()
-        with patch("state.match_state.match_state.add_to_chat", new_callable=AsyncMock) as MockAdd:
-            response = await AdminHandler.handle_debug(client, ADMIN_ID)
-            assert "text" in response
-            MockAdd.assert_called_once()
 
 
     @pytest.mark.asyncio

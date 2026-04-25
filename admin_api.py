@@ -153,10 +153,16 @@ async def verify_admin_token(_=Depends(verify_token)):
 
 @app.get("/admin/user/{user_id}")
 async def get_user_state(user_id: str, _=Depends(verify_token)):
-    # Smart Lookup: Try raw ID first, then msg_ prefix for Messenger users
+    """User Inspector: Redis state + DB profile.
+    Tries multiple ID strategies so both Telegram and Messenger PSIDs resolve correctly.
+    """
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Redis unavailable")
+
+    # ──── 1. Redis lookup with smart prefix detection ────
     lookup_id = user_id
     state = await redis_client.get(f"sm:state:{lookup_id}")
-    
+
     if state is None:
         # Try with msg_ prefix if not already present
         alt_id = lookup_id if lookup_id.startswith("msg_") else f"msg_{lookup_id}"
@@ -165,7 +171,7 @@ async def get_user_state(user_id: str, _=Depends(verify_token)):
             lookup_id = alt_id
             state = alt_state
         elif lookup_id.isdigit() and len(lookup_id) > 12:
-            # Long digits usually mean PSID, try prefixing
+            # Long digit string — could be a Messenger PSID; try prefixed form
             prefix_id = f"msg_{lookup_id}"
             prefix_state = await redis_client.get(f"sm:state:{prefix_id}")
             if prefix_state:
@@ -173,25 +179,60 @@ async def get_user_state(user_id: str, _=Depends(verify_token)):
                 state = prefix_state
 
     partner = await redis_client.get(f"sm:partner:{lookup_id}")
-    start = await redis_client.get(f"sm:chat_start:{lookup_id}")
-    
-    # Fetch DB Data
+    start   = await redis_client.get(f"sm:chat_start:{lookup_id}")
+
+    # ──── 2. DB lookup — try sanitized ID, then raw, then stripped numeric ────
     from database.repositories.user_repository import UserRepository
     user_db = None
+    db_error = None
+    db_id_used = None
+
+    candidate_ids = []
+    # Primary: _sanitize_id resolves msg_ prefix via hash
     try:
-        user_db = await UserRepository.get_by_telegram_id(UserRepository._sanitize_id(lookup_id))
-    except Exception as e:
-        print(f"Admin API DB lookup error: {e}")
-    
+        candidate_ids.append(UserRepository._sanitize_id(lookup_id))
+    except Exception:
+        pass
+    # Secondary: if lookup_id is already numeric (Telegram user typed raw PSID)
+    if lookup_id.lstrip("msg_").isdigit():
+        try:
+            candidate_ids.append(int(lookup_id.lstrip("msg_")))
+        except Exception:
+            pass
+    # Deduplicate while preserving order
+    seen = set()
+    unique_candidates = []
+    for c in candidate_ids:
+        if c not in seen:
+            seen.add(c)
+            unique_candidates.append(c)
+
+    for cid in unique_candidates:
+        try:
+            row = await UserRepository.get_by_telegram_id(cid)
+            if row:
+                user_db = row
+                db_id_used = cid
+                break
+        except Exception as e:
+            db_error = str(e)
+            print(f"Admin API DB lookup error (id={cid}): {e}")
+
+    if user_db is None and db_error is None:
+        db_error = f"No DB record found for lookup_id={lookup_id} (tried IDs: {unique_candidates})"
+
     return {
         "user_id": lookup_id,
         "state": state or "HOME",
         "partner_id": partner,
         "chat_start_ts": float(start) if start else None,
+        "db_id_used": db_id_used,
+        "db_error": db_error,
         "db": user_db or {
             "coins": 0, "xp": 0, "level": 1, "vip_status": False,
             "total_matches": 0, "is_blocked": False, "is_guest": True,
-            "gender": "Unknown", "location": "Unknown", "bio": "No record in DB"
+            "gender": "Unknown", "location": "Unknown",
+            "bio": db_error or "No record in DB"
         }
     }
 

@@ -334,6 +334,11 @@ async def chat_handler(client: Client, message: Message):
             return
 
     # ═══════════════════════════════════════════════════════════════
+    # DUAL-RELAY NOTE: Messages from Telegram users are relayed here directly.
+    # Messages routed through the engine use SEND_MESSAGE in core/engine/actions.py.
+    # Do NOT consolidate these until match_state.get_platform() is implemented.
+    # See architecture notes in README.
+    # ───────────────────────────────────────────────────────────────
     # UNIFIED ENGINE RELAY — All chat messages route through Engine
     # This ensures: single delivery path, telemetry, content filter
     # ═══════════════════════════════════════════════════════════════

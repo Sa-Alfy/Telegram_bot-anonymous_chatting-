@@ -212,11 +212,15 @@ class TestPlatformAdapter:
         client = AsyncMock()
         mock_user = {"username": "msg_PSID123"}
 
-        with patch("database.repositories.user_repository.UserRepository") as MockRepo:
-            MockRepo.get_by_telegram_id = AsyncMock(return_value=mock_user)
-            with patch("messenger_api.send_message") as mock_send:
+        with patch("database.repositories.user_repository.UserRepository.get_by_telegram_id", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_user
+            with patch("messenger_api._send_payload") as mock_send:
+                mock_send.return_value = {"success": True}
                 await PlatformAdapter.send_cross_platform(client, 10**15 + 1, "Hi from TG")
-                mock_send.assert_called_once_with("PSID123", "Hi from TG")
+                assert mock_send.called
+                # Verify PSID was extracted correctly
+                args, kwargs = mock_send.call_args
+                assert args[0]["recipient"]["id"] == "PSID123"
 
     @pytest.mark.asyncio
     async def test_send_to_messenger_no_user(self):
@@ -291,7 +295,7 @@ class TestUpdateUserUI:
         client.send_message.assert_called_once()
         # Verify both legacy and new history tracking
         assert match_state.user_ui_messages.get(8888) == 99
-        assert 99 in match_state.ui_history.get(8888, [])
+        assert any(item["id"] == 99 for item in match_state.ui_history.get(8888, []))
         # Cleanup
         match_state.user_ui_messages.pop(8888, None)
         match_state.ui_history.pop(8888, None)

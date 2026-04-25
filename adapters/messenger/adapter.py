@@ -104,10 +104,19 @@ class MessengerAdapter(BaseAdapter):
                 return self.create_event("SEND_GIFT", uid, payload={"gift_key": gift_key})
             elif action in {"CMD_START", "BACK_HOME", "HOME_MENU"}:
                 return self.create_event("SET_STATE", uid, payload={"new_state": "HOME"})
-            elif action in {"START_ONBOARDING", "REG_START"}:
+            elif action in {"START_ONBOARDING", "REG_START", "CONSENT_ACCEPT"}:
                 return self.create_event("START_ONBOARDING", uid)
             elif action == "SET_GENDER":
                 return self.create_event("SUBMIT_ONBOARDING", uid, payload={"field": "gender", "value": target_str})
+            elif action.startswith("SET_GENDER_"):
+                 val = action.replace("SET_GENDER_", "")
+                 return self.create_event("SUBMIT_ONBOARDING", uid, payload={"field": "gender", "value": val})
+            elif action == "SET_INTERESTS_SKIP":
+                 return self.create_event("SUBMIT_ONBOARDING", uid, payload={"field": "interests", "value": "SKIP"})
+            elif action == "SET_LOCATION_SKIP":
+                 return self.create_event("SUBMIT_ONBOARDING", uid, payload={"field": "location", "value": "SKIP"})
+            elif action == "SET_BIO_SKIP":
+                 return self.create_event("SUBMIT_ONBOARDING", uid, payload={"field": "bio", "value": "SKIP"})
             elif action == "KARMA_BOOST":
                 return self.create_event("KARMA_BOOST", uid)
 
@@ -116,8 +125,10 @@ class MessengerAdapter(BaseAdapter):
 
         elif msg.get("attachments"):
             from services.distributed_state import distributed_state
-            # Use raw uid for Redis state lookup (ActionRouter uses raw uid as key)
-            state = await distributed_state.get_user_state(uid)
+            from database.repositories.user_repository import UserRepository
+            # Must sanitize ID for DistributedState lookup
+            sid = UserRepository._sanitize_id(uid)
+            state = await distributed_state.get_user_state(sid)
             if state == UnifiedState.CHAT_ACTIVE:
                 att = msg["attachments"][0]
                 m_type = att.get("type", "image")
@@ -127,8 +138,10 @@ class MessengerAdapter(BaseAdapter):
 
         elif msg.get("text"):
             from services.distributed_state import distributed_state
-            # Use raw uid for Redis state lookup (ActionRouter uses raw uid as key)
-            state = await distributed_state.get_user_state(uid)
+            from database.repositories.user_repository import UserRepository
+            # Must sanitize ID for DistributedState lookup
+            sid = UserRepository._sanitize_id(uid)
+            state = await distributed_state.get_user_state(sid)
             text = msg.get("text").strip()
             
             if state in {UnifiedState.REG_INTERESTS, UnifiedState.REG_LOCATION, UnifiedState.REG_BIO}:
@@ -151,6 +164,14 @@ class MessengerAdapter(BaseAdapter):
             if state == UnifiedState.CHAT_ACTIVE and not t_lower.startswith("/"):
                 return self.create_event("SEND_MESSAGE", uid, payload={"text": text})
             
+            # Handle Onboarding Text submissions
+            ONBOARDING_STATES = {
+                UnifiedState.REG_GENDER, UnifiedState.REG_INTERESTS,
+                UnifiedState.REG_LOCATION, UnifiedState.REG_BIO
+            }
+            if state in ONBOARDING_STATES:
+                return self.create_event("SUBMIT_ONBOARDING", uid, payload={"text": text})
+
             if not t_lower.startswith("/"):
                 logger.info(f"DROPPED message from {uid} because state={state} - Triggering RECOVER")
                 # Auto-recovery: force re-render current state UI

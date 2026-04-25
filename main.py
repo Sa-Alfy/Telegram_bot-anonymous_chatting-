@@ -107,6 +107,30 @@ def setup_exception_handler(pyrogram_app: Client):
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Routing contract guard (crashes at startup on conflicts)
+# ─────────────────────────────────────────────────────────────────────
+def _assert_routing_contract():
+    """Crashes at startup if the same action is owned by both CALLBACK_MAP and engine.
+    This makes routing conflicts loud immediately instead of silent at runtime."""
+    from handlers.callbacks import CALLBACK_MAP
+    ENGINE_OWNED = {
+        "KARMA_BOOST", "REVEAL_IDENTITY", "CONFIRM_REVEAL", "SEND_ICEBREAKER",
+        "SHOW_REACTIONS", "SHOW_GIFTS", "SHOW_TOOLS", "SUBMIT_REACTION",
+        "SHOW_PREFS", "START_SEARCH", "STOP_SEARCH", "END_CHAT", "NEXT_MATCH",
+        "RECOVER", "CONNECT", "SEND_MESSAGE", "SEND_MEDIA", "SEND_GIFT",
+        "REPORT_USER", "BLOCK_USER", "SUBMIT_VOTE", "SKIP_VOTE"
+    }
+    legacy_upper = {k.upper() for k in CALLBACK_MAP}
+    conflicts = ENGINE_OWNED & legacy_upper
+    if conflicts:
+        raise RuntimeError(
+            f"ROUTING CONFLICT — these actions exist in both CALLBACK_MAP and engine: "
+            f"{conflicts}\nRemove them from CALLBACK_MAP and let the engine own them."
+        )
+    logger.info("✅ Routing contract check passed — no CALLBACK_MAP / engine conflicts.")
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Flask thread runner
 # ─────────────────────────────────────────────────────────────────────
 def run_flask_in_thread():
@@ -295,6 +319,9 @@ async def main():
         if ngrok_url:
             base_url = ngrok_url
             
+    # ── Routing contract assertion (must pass before bot starts polling) ──
+    _assert_routing_contract()
+
     # ── Start Pyrogram ────────────────────────────────────────────────
     logger.info("Production-Grade Anonymous Bot (Telegram + Messenger) starting...")
     await pyrogram_app.start()

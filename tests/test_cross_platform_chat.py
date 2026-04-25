@@ -222,6 +222,19 @@ def mock_env():
         elif etype == "SET_STATE": state = event.get("payload", {}).get("new_state", "HOME")
         elif etype == "RECOVER":
             state = await match_state.get_user_state(vid) or "HOME"
+        elif etype == "CONSENT_ACCEPT": state = "REG_GENDER"
+        elif etype == "SET_GENDER": state = "REG_INTERESTS"
+        elif etype == "SET_INTERESTS": state = "REG_LOCATION"
+        elif etype == "SET_LOCATION": state = "REG_BIO"
+        elif etype == "SET_BIO": state = "HOME"
+        elif etype == "START_ONBOARDING": state = "REG_GENDER"
+        elif etype == "SUBMIT_ONBOARDING":
+            # Just advance the state
+            cur = await match_state.get_user_state(vid)
+            if cur == "REG_GENDER": state = "REG_INTERESTS"
+            elif cur == "REG_INTERESTS": state = "REG_LOCATION"
+            elif cur == "REG_LOCATION": state = "REG_BIO"
+            else: state = "HOME"
         
         # Sync state back to match_state/distributed_state so legacy lookups work
         await distributed_state.set_user_state(vid, state)
@@ -245,6 +258,14 @@ def mock_env():
 
     engine.process_event.side_effect = mock_process_event
     app_state.engine = engine
+
+    def _mock_sanitize(uid):
+        if uid == MSG_USER_C_PSID or uid == f"msg_{MSG_USER_C_PSID}": return MSG_USER_C_VID
+        if uid == MSG_USER_D_PSID or uid == f"msg_{MSG_USER_D_PSID}": return MSG_USER_D_VID
+        try: return int(str(uid).replace("msg_", ""))
+        except: return 0
+
+    _patches.append(patch("database.repositories.user_repository.UserRepository._sanitize_id", side_effect=_mock_sanitize))
 
     # 2. Setup Adapters
     # Telegram
@@ -573,10 +594,11 @@ class TestTelegramToMessenger:
     
         # Verify Engine rehydrated the partner (MSG_USER_C) via Adapter
         found = False
-        # The Messenger partner should receive a message to their PSID
-        for msg in self.env["sent_messages"]:
+        # The Messenger partner should receive a message to their PSID (could be message or quick reply)
+        all_sent = self.env["sent_messages"] + [(psid, text) for psid, text, _ in self.env["sent_quick_replies"]]
+        for msg in all_sent:
             if msg[0] == MSG_USER_C_PSID:
-                if "Session Summary" in msg[1] or "ended by stranger" in msg[1]:
+                if "Session Summary" in msg[1] or "Chat Ended" in msg[1]:
                     found = True
         assert found, f"Partner (Messenger {MSG_USER_C_PSID}) did not receive session summary. Sent: {self.env['sent_messages']}"
 
@@ -723,8 +745,8 @@ class TestMessengerLegacyActionRouting:
         assert self.env["sent_quick_replies"], "Must send a response"
         _, _, buttons = self.env["sent_quick_replies"][-1]
         button_payloads = str(buttons)
-        # Chat menu must contain STOP or NEXT
-        assert "STOP" in button_payloads or "NEXT" in button_payloads, (
+        # Chat menu must contain END_CHAT or NEXT
+        assert "END_CHAT" in button_payloads or "NEXT" in button_payloads, (
             f"Expected chat-menu buttons but got: {button_payloads}"
         )
 

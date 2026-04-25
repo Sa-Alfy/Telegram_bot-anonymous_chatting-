@@ -75,8 +75,8 @@ async def handle_consent_decline(client: Client, user_id: int) -> Dict[str, Any]
 # Dispatcher Map for Callback Actions (Only non-matchmaking/supporting actions)
 CALLBACK_MAP: Dict[str, Callable[[Client, int, Any], Coroutine[Any, Any, Dict[str, Any]]]] = {
     # Economy
+    # NOTE: reveal migrated to engine REVEAL_IDENTITY
     "priority_search": lambda c, uid, _: EconomyHandler.handle_priority_search(c, uid),
-    "reveal": lambda c, uid, _: EconomyHandler.handle_reveal(c, uid),
     "priority_packs": lambda c, uid, _: EconomyHandler.handle_priority_packs(c, uid),
     "booster_menu": lambda c, uid, _: EconomyHandler.handle_booster_menu(c, uid),
     "seasonal_shop": lambda c, uid, _: handle_seasonal_shop(c, uid),
@@ -88,8 +88,8 @@ CALLBACK_MAP: Dict[str, Callable[[Client, int, Any], Coroutine[Any, Any, Dict[st
     "event_leaderboard": lambda c, uid, _: StatsHandler.handle_leaderboard_category(c, uid, "event_leaderboard"),
     
     # Social
-    "open_reactions": lambda c, uid, _: SocialHandler.handle_open_reactions(c, uid),
-    "gift_menu": lambda c, uid, _: SocialHandler.handle_gift_menu(c, uid),
+    # NOTE: open_reactions migrated to engine SHOW_REACTIONS
+    # NOTE: gift_menu migrated to engine SHOW_GIFTS
     "back_to_chat": lambda c, uid, _: SocialHandler.handle_back_to_chat(c, uid),
     "cancel_reactions": lambda c, uid, _: SocialHandler.handle_back_to_chat(c, uid),
     "report": lambda c, uid, _: SocialHandler.handle_report(c, uid),
@@ -135,10 +135,11 @@ CALLBACK_MAP: Dict[str, Callable[[Client, int, Any], Coroutine[Any, Any, Dict[st
     "help": lambda c, uid, _: handle_help(c, uid),
     
     # Matching
-    "icebreaker": lambda c, uid, _: MatchingHandler.handle_icebreaker(c, uid),
+    # NOTE: icebreaker migrated to engine SEND_ICEBREAKER
     # New features
-    "partial_reveal":    lambda c, uid, _: EconomyHandler.handle_reveal(c, uid),
-    "karma_boost":       lambda c, uid, _: SocialHandler.handle_karma_boost(c, uid),
+    # NOTE: reveal migrated to engine REVEAL_IDENTITY
+    # NOTE: partial_reveal migrated to engine REVEAL_IDENTITY
+    # NOTE: karma_boost migrated to engine KARMA_BOOST
     "send_sticker_premium": lambda c, uid, _: SocialHandler.handle_send_premium_sticker(c, uid, "premium"),
     "send_sticker_rare":    lambda c, uid, _: SocialHandler.handle_send_premium_sticker(c, uid, "rare"),
     "cancel_search": lambda c, uid, _: MatchingHandler.handle_cancel(c, uid),
@@ -302,6 +303,7 @@ async def on_callback(client: Client, query: CallbackQuery):
         action_key = raw.split(":")[0].lower()
         handler = CALLBACK_MAP.get(action_key)
         if handler:
+            logger.info(f"[ROUTE:LEGACY] uid={user_id} action={action_key}")
             response = await handler(client, int(event["user_id"]), event)
             if response:
                 await process_response(client, query, response)
@@ -309,6 +311,7 @@ async def on_callback(client: Client, query: CallbackQuery):
 
         # Dynamic prefix callbacks — handle before giving up
         uid_int = int(event["user_id"])
+        logger.info(f"[ROUTE:PREFIX] uid={user_id} action={raw}")
         try:
             if action_key.startswith("friend_action_"):
                 friend_id = raw.replace("friend_action_", "")
@@ -342,6 +345,7 @@ async def on_callback(client: Client, query: CallbackQuery):
             return await query.answer("Something went wrong.", show_alert=True)
 
     # 3. Concurrency check & Process via Engine
+    logger.info(f"[ROUTE:ENGINE] uid={user_id} event={event['event_type']}")
     result = await app_state.engine.process_event(event)
 
     if not result.get("success") and "error" in result:

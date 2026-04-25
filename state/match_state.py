@@ -24,6 +24,10 @@ class UserState:
             return False
         return target in UserState.ALLOWED_TRANSITIONS[current]
 
+    @staticmethod
+    def is_client_settable(state: str) -> bool:
+        return UnifiedState.is_client_settable(state)
+
 
 class MatchState:
     _instance = None
@@ -38,7 +42,7 @@ class MatchState:
         # Authoritative state is now in Redis/DistributedState.
         # Local state is only for per-instance utility (rate limiting, UI history).
         self.rematch_requests: Dict[int, int] = {}
-        self.user_ui_messages: Dict[int, List[int]] = {}
+        self.user_ui_messages: Dict[int, int] = {}
         self.ui_history: Dict[int, List[dict]] = {}
         self.last_button_time: Dict[int, float] = {}
         self.last_message_time: Dict[int, float] = {}
@@ -109,10 +113,6 @@ class MatchState:
         if str(c_uid) != raw_id:
             await distributed_state.clear_partner(c_uid)
 
-    async def is_in_chat(self, user_id: Any) -> bool:
-        state = await self.get_user_state(user_id)
-        return state == UnifiedState.CHAT_ACTIVE
-
     async def disconnect(self, user_id: Any) -> dict:
         """Atomic Disconnect logic."""
         c_uid = self._c_uid(user_id)
@@ -145,10 +145,31 @@ class MatchState:
             return [int(c) for c in candidates if str(c).isdigit()]
         return []
 
+    async def validate_target(self, target_id: Any) -> Tuple[bool, str]:
+        """Validates that a target user exists and is not banned."""
+        if not target_id or target_id == 0:
+            return True, "OK"
+        
+        from database.repositories.user_repository import UserRepository
+        user = await UserRepository.get_by_telegram_id(target_id)
+        if not user:
+            return False, "Target user no longer exists."
+        if user.get("is_banned"):
+            return False, "Target user is no longer available."
+        return True, "OK"
+
     async def get_user_preference(self, user_id: int) -> str:
         c_uid = self._c_uid(user_id)
         data = await distributed_state.get_user_queue_data(c_uid)
         return data.get('pref', 'Any') if data else 'Any'
+
+    async def track_ui_message(self, user_id: int, message_id: int):
+        """Tracks the latest UI message for editing/deletion."""
+        c_uid = self._c_uid(user_id)
+        self.user_ui_messages[c_uid] = message_id
+        if c_uid not in self.ui_history:
+            self.ui_history[c_uid] = []
+        self.ui_history[c_uid].append({"id": message_id, "time": time.time()})
 
     async def clear_all(self):
         """Clears global and local state."""
@@ -180,9 +201,6 @@ class MatchState:
             active_count = 0
             queue_len = 0
         return {"active_chats": active_count, "in_queue": queue_len}
-
-# Global Singleton
-match_state = MatchState()
 
 # Global Singleton
 match_state = MatchState()

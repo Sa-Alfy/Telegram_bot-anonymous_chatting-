@@ -151,33 +151,45 @@ function appendViolation(payload) {
 async function refreshStats() {
     try {
         const headers = { "Authorization": `Bearer ${token}` };
-        const [dist, queue, sessions, srvData, globalData] = await Promise.all([
-            fetch('/admin/stats/distribution', { headers: { "Authorization": `Bearer ${token}` } }).then(r => r.json()),
-            fetch('/admin/queue', { headers: { "Authorization": `Bearer ${token}` } }).then(r => r.json()),
-            fetch('/admin/sessions', { headers: { "Authorization": `Bearer ${token}` } }).then(r => r.json()),
-            fetch('/admin/server_status', { headers: { "Authorization": `Bearer ${token}` } }).then(r => r.json()),
-            fetch('/admin/stats/global', { headers: { "Authorization": `Bearer ${token}` } }).then(r => r.json())
-        ]);
         
+        // Helper to prevent HTML 502 errors from crashing the Promise.all
+        const safeFetch = async (url) => {
+            try {
+                const r = await fetch(url, { headers });
+                if (!r.ok) return { error: true, status: r.status };
+                return await r.json();
+            } catch (e) {
+                return { error: true, message: String(e) };
+            }
+        };
+
+        const [dist, queue, sessions, srvData, globalData] = await Promise.all([
+            safeFetch('/admin/stats/distribution'),
+            safeFetch('/admin/queue'),
+            safeFetch('/admin/sessions'),
+            safeFetch('/admin/server_status'),
+            safeFetch('/admin/stats/global')
+        ]);
+
         renderDistribution(dist.distribution || {});
-        if (evRes && evRes.ok) {
-            const evData = await evRes.json();
-            const ev = evData.event;
-            document.getElementById("stat-event-name").innerText = ev.name;
-            const mins = Math.max(0, Math.floor((ev.ends_at - Date.now()/1000) / 60));
-            document.getElementById("stat-event-details").innerText = `Multiplier: ${ev.multiplier}x | Ends in: ${mins}m`;
+        renderGlobalStats(globalData.error ? {} : globalData);
+
+        // Queue + sessions
+        document.getElementById("stat-queue-len").innerText = queue.queue_length ?? 0;
+        document.getElementById("stat-active-sessions").innerText = sessions.active_sessions ?? 0;
+        updateStuckUsers(queue.users || []);
+
+        // Server status
+        if (srvData.error) {
+            renderServerStatus({ status: "error", message: "Network/API failure reaching admin server" });
+        } else {
+            renderServerStatus(srvData);
         }
 
-        if (srvRes && srvRes.ok) {
-            const srvData = await srvRes.json();
-            renderServerStatus(srvData);
-        } else {
-            renderServerStatus({status: "error"});
-        }
     } catch (e) {
-        console.error("Stats refresh failed", e);
+        console.error("Stats refresh failed catastrophically", e);
     }
-    setTimeout(refreshStats, 5000); // More frequent updates for debugging
+    setTimeout(refreshStats, 5000);
 }
 
 function renderServerStatus(data) {
@@ -286,20 +298,22 @@ function updateStuckUsers(users) {
 async function inspectUser() {
     const uid = document.getElementById("inspect-user-id").value.trim();
     if (!uid) return;
-    
+
     try {
         const res = await fetch(`/admin/user/${uid}`, { headers: { "Authorization": `Bearer ${token}` } });
         const data = await res.json();
-        
+
         document.getElementById("ui-state").innerText = data.state;
         document.getElementById("ui-partner").innerText = data.partner_id || "None";
-        document.getElementById("ui-chat-start").innerText = data.chat_start_ts ? new Date(data.chat_start_ts * 1000).toLocaleString() : "N/A";
-        
+        document.getElementById("ui-chat-start").innerText = data.chat_start_ts
+            ? new Date(data.chat_start_ts * 1000).toLocaleString() : "N/A";
+
         const dbInfo = document.getElementById("ui-db-info");
-        if (data.db) {
+        if (data.db && !data.db_error) {
             dbInfo.innerHTML = `
                 <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); font-size: 0.8rem;">
-                    <strong>DB PROFILE:</strong><br>
+                    <strong>DB PROFILE</strong>
+                    <span style="font-size:0.7rem; color:var(--text-dim); margin-left:6px;">id: ${data.db_id_used ?? '?'}</span><br>
                     Coins: ${data.db?.coins ?? 0} | Karma: ${data.db?.karma ?? 0} | Level: ${data.db?.level ?? 1}<br>
                     Gender: ${data.db?.gender ?? 'Unknown'} | Location: ${data.db?.location ?? 'Unknown'}<br>
                     VIP: ${data.db?.vip_status ? '🌟 YES' : 'NO'}<br>
@@ -309,12 +323,21 @@ async function inspectUser() {
                 </div>
             `;
         } else {
-            dbInfo.innerHTML = "<div class='tag danger'>User not in DB</div>";
+            // Show the actual error so admin can diagnose the problem
+            const errMsg = data.db_error || 'User not found in DB';
+            dbInfo.innerHTML = `
+                <div style="margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); font-size:0.8rem;">
+                    <span class="tag danger">⚠️ DB Miss</span>
+                    <div style="margin-top:6px; font-family:'JetBrains Mono'; font-size:0.72rem; color:var(--danger); word-break:break-all;">${errMsg}</div>
+                    <div style="margin-top:4px; color:var(--text-dim); font-size:0.72rem;">Lookup ID tried: ${data.db_id_used ?? 'none'}</div>
+                </div>
+            `;
         }
     } catch (e) {
-        alert("Failed to inspect user");
+        alert("Failed to inspect user: " + e);
     }
 }
+
 
 async function forceDisconnect() {
     const uid = document.getElementById("inspect-user-id").value.trim();

@@ -53,3 +53,8 @@ class UnifiedState:
     def is_safe_output_state(cls, state: str) -> bool:
         """Used by the Reconciler to determine if a state is UI-safe."""
         return state in {cls.CHAT_ACTIVE, cls.CHAT_END, cls.VOTING}
+
+    @classmethod
+    def is_client_settable(cls, state: str) -> bool:
+        """States that a user can manually navigate to via buttons."""
+        return state in {cls.HOME, cls.PREFERENCES, cls.PROFILE, cls.STATS, cls.REG_GENDER, cls.SEARCHING}

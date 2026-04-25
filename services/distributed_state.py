@@ -20,6 +20,73 @@ class DistributedState:
         self._fallback_store = {} # Memory fallback if Redis not configured
         self._lock = asyncio.Lock()          # General fallback store lock
         self._action_lock = asyncio.Lock()   # Separate lock for action lock ops (M1 fix)
+
+    async def validate_session(self, user_id: Any, repair: bool = False) -> bool:
+        """Validates state consistency (e.g. CHAT_ACTIVE must have a partner)."""
+        state = await self.get_user_state(user_id)
+        if state == "CHAT_ACTIVE":
+            partner = await self.get_partner(user_id)
+            if not partner:
+                if repair:
+                    await self.set_user_state(user_id, "HOME")
+                return False
+        return True
+
+    async def acquire_action_lock(self, user_id: Any, ttl: int = 5) -> bool:
+        """Atomic lock to prevent duplicate concurrent actions."""
+        key = f"sm:lock:{user_id}"
+        if self.redis:
+            return bool(await self.redis.set(key, "1", ex=ttl, nx=True))
+        else:
+            async with self._lock:
+                if key in self._fallback_store:
+                    data = self._fallback_store[key]
+                    if isinstance(data, dict) and time.time() < data.get("expiry", 0):
+                        return False
+                self._fallback_store[key] = {"val": "1", "expiry": time.time() + ttl}
+                return True
+
+    async def release_action_lock(self, user_id: Any):
+        key = f"sm:lock:{user_id}"
+        if self.redis:
+            await self.redis.delete(key)
+        else:
+            async with self._lock:
+                self._fallback_store.pop(key, None)
+
+    async def set_session_state(self, u1: Any, u2: Any, state: str):
+        """Sets a state for a shared session."""
+        if not u2: return
+        su1, su2 = str(u1), str(u2)
+        key = f"sm:session:{min(su1, su2)}:{max(su1, su2)}"
+        if self.redis:
+            await self.redis.set(key, state, ex=3600)
+        else:
+            async with self._lock:
+                self._fallback_store[key] = state
+
+    async def get_session_state(self, u1: Any, u2: Any = None) -> Optional[str]:
+        """Gets shared state."""
+        if not u2:
+            u2 = await self.get_partner(u1)
+        if not u2: return None
+        su1, su2 = str(u1), str(u2)
+        key = f"sm:session:{min(su1, su2)}:{max(su1, su2)}"
+        if self.redis:
+            return await self.redis.get(key)
+        else:
+            async with self._lock:
+                return self._fallback_store.get(key)
+
+    async def clear_session_state(self, u1: Any, u2: Any):
+        if not u2: return
+        su1, su2 = str(u1), str(u2)
+        key = f"sm:session:{min(su1, su2)}:{max(su1, su2)}"
+        if self.redis:
+            await self.redis.delete(key)
+        else:
+            async with self._lock:
+                self._fallback_store.pop(key, None)
         
     async def connect(self):
         redis_url = os.getenv("REDIS_URL")
