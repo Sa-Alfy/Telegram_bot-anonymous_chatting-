@@ -126,9 +126,8 @@ class MessengerAdapter(BaseAdapter):
         elif msg.get("attachments"):
             from services.distributed_state import distributed_state
             from database.repositories.user_repository import UserRepository
-            # Must sanitize ID for DistributedState lookup
-            sid = UserRepository._sanitize_id(uid)
-            state = await distributed_state.get_user_state(sid)
+            # Use raw uid (msg_PSID) for DistributedState lookup to match Engine keys
+            state = await distributed_state.get_user_state(uid)
             if state == UnifiedState.CHAT_ACTIVE:
                 att = msg["attachments"][0]
                 m_type = att.get("type", "image")
@@ -139,9 +138,8 @@ class MessengerAdapter(BaseAdapter):
         elif msg.get("text"):
             from services.distributed_state import distributed_state
             from database.repositories.user_repository import UserRepository
-            # Must sanitize ID for DistributedState lookup
-            sid = UserRepository._sanitize_id(uid)
-            state = await distributed_state.get_user_state(sid)
+            # Use raw uid (msg_PSID) for DistributedState lookup to match Engine keys
+            state = await distributed_state.get_user_state(uid)
             text = msg.get("text").strip()
             
             if state in {UnifiedState.REG_INTERESTS, UnifiedState.REG_LOCATION, UnifiedState.REG_BIO}:

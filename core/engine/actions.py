@@ -44,15 +44,6 @@ class ActionRouter:
 
         logger.info(f"Processing Event: {etype} for User:{uid} (Match:{mid})")
 
-        # Log Start Trace
-        EventLogger.log_event(
-            event=TelemetryEvent.ACTION_START,
-            layer="action_router",
-            status=TelemetryEvent.INFO,
-            user_id=uid,
-            data={"action": etype}
-        )
-
         result = {"success": False}
         
         # --- 1. TRANSITIONS ---
@@ -93,14 +84,6 @@ class ActionRouter:
                         p_info.get("match_id", "global"), 
                         p_info
                     )
-
-        EventLogger.log_event(
-            event=TelemetryEvent.ACTION_END,
-            layer="action_router",
-            status=TelemetryEvent.SUCCESS if result.get("success") else TelemetryEvent.FAIL,
-            user_id=uid,
-            data={"action": etype, "result_state": result.get("state")}
-        )
 
         return result
 
@@ -386,14 +369,81 @@ class ActionRouter:
                 next_state = UnifiedState.HOME
             keys = [f"sm:state:{uid}", idemp_key, f"sm:ver:u:{uid}"]
             code, msg, ver = await RedisScripts.execute(redis, RedisScripts.SET_STATE_LUA, keys, [uid, str(ts), next_state])
-            return {"success": code in {1, 2}, "state": next_state, "version": ver}
+        elif etype == "CONFIRM_REVEAL":
+            from services.user_service import UserService
+            from state.match_state import match_state
+            cost = payload.get("cost", 0)
+            c_uid = str(UserRepository._sanitize_id(uid))
+            partner_id = await match_state.get_partner(uid)
+            
+            if not partner_id:
+                return {"success": False, "error": "Partner disconnected."}
+            
+            if await UserService.deduct_coins(c_uid, cost):
+                partner = await UserRepository.get_by_telegram_id(partner_id)
+                # Reveal logic...
+                return {"success": True, "cost": cost, "partner_data": partner}
+            else:
+                return {"success": False, "error": f"You need {cost} coins for this reveal!"}
+
+        elif etype == "REVEAL_IDENTITY":
+            from state.match_state import match_state
+            from services.economy_service import EconomyService
+            c_uid = str(UserRepository._sanitize_id(uid))
+            partner_id = await match_state.get_partner(uid)
+            if not partner_id:
+                return {"success": False, "error": "Partner disconnected!"}
+            
+            # Message count check (Legacy: 50 messages)
+            from services.distributed_state import distributed_state
+            msg_count = await distributed_state.get_message_count(uid, partner_id)
+            if msg_count < 50:
+                return {"success": False, "error": f"🔒 Reveal Locked. You need 50 messages (Current: {msg_count})."}
+            
+            cost = await EconomyService.get_dynamic_cost(c_uid, "identity_reveal", partner_id)
+            return {"success": True, "cost": cost, "msg_count": msg_count}
 
         elif etype == "REPORT_USER":
             from state.match_state import match_state
+            from services.matchmaking import MatchmakingService
+            from services.user_service import UserService
             c_uid = str(UserRepository._sanitize_id(uid))
-            partner_id = await match_state.get_partner(int(c_uid))
-            if partner_id: return {"success": True, "reported_id": partner_id}
-            else: return {"success": False, "error": "No partner to report."}
+            partner_id = await match_state.get_partner(uid) # Use raw uid for state lookup
+            if partner_id:
+                # 1. Disconnect both users
+                stats = await MatchmakingService.disconnect(uid)
+                # 2. Record the report
+                await UserService.report_user(c_uid, partner_id, "Reported via Unified Engine")
+                # 3. Telemetry
+                EventLogger.log_event(event="USER_REPORTED", layer="engine", status=TelemetryEvent.WARNING, user_id=c_uid, data={"reported_id": partner_id})
+                return {"success": True, "reported_id": partner_id, "state": UnifiedState.VOTING}
+            else:
+                return {"success": False, "error": "No partner to report."}
+
+        elif etype == "SUBMIT_VOTE":
+            from database.repositories.vote_repository import VoteRepository
+            c_uid = UserRepository._sanitize_id(uid)
+            # Match metadata contains target_id or we derive it from match_id
+            v_type = payload.get("type")
+            v_val = payload.get("value")
+            
+            # Extract target_id from mid (format m_id1_id2)
+            u1, u2 = mid.replace("m_", "").split("_")
+            target_id = int(u2) if int(u1) == int(c_uid) else int(u1)
+            
+            vote_type = v_val if v_type == "reputation" else None
+            gender_vote = v_val if v_type == "identity" else None
+            
+            await VoteRepository.submit_vote(
+                voter_id=int(c_uid),
+                voted_id=int(target_id),
+                vote_type=vote_type,
+                gender_vote=gender_vote
+            )
+            return {"success": True, "voted": True}
+
+        elif etype == "SHOW_PREFS":
+            return {"success": True, "show_prefs": True}
 
         elif etype == "BLOCK_USER":
             from state.match_state import match_state
@@ -415,7 +465,41 @@ class ActionRouter:
             await UserRepository.delete_user(c_uid)
             keys = [f"sm:state:{uid}", idemp_key, f"sm:ver:u:{uid}"]
             await RedisScripts.execute(redis, RedisScripts.SET_STATE_LUA, keys, [uid, str(ts), UnifiedState.HOME])
-            return {"success": True, "deleted": True}
+        elif etype == "KARMA_BOOST":
+            from state.match_state import match_state
+            c_uid = str(UserRepository._sanitize_id(uid))
+            partner_id = await match_state.get_partner(uid)
+            if not partner_id:
+                return {"success": False, "error": "You are not in a chat!"}
+            
+            partner = await UserRepository.get_by_telegram_id(partner_id)
+            partner_karma = partner.get("karma", 0) if partner else 0
+            return {"success": True, "partner_karma": partner_karma}
+        elif etype == "SEND_GIFT":
+            from services.economy_service import EconomyService, GIFT_TYPES
+            from services.user_service import UserService
+            gift_key = payload.get("gift_key")
+            c_uid = str(UserRepository._sanitize_id(uid))
+            partner_id = await match_state.get_partner(uid)
+            
+            if not partner_id:
+                return {"success": False, "error": "Partner disconnected."}
+            
+            result = await EconomyService.send_gift(c_uid, partner_id, gift_key)
+            if result["success"]:
+                gift = GIFT_TYPES.get(gift_key, {"name": "Gift"})
+                # Notify partner via Adapter
+                await PlatformAdapter.send_cross_platform(
+                    app_state.telegram_app, partner_id, 
+                    f"🎁 **You received a gift!**\nYour partner sent you a {gift['name']}!", 
+                    None
+                )
+                return {"success": True, "gift": gift_key, "reveal_data": result.get("reveal_data")}
+            else:
+                return {"success": False, "error": result.get("message", "Gift failed.")}
+        
+        elif etype == "SHOW_GIFTS":
+            return {"success": True, "show_gifts": True}
 
         # DUAL-RELAY NOTE: This handles engine-routed messages (Messenger + cross-platform).
         # Telegram-originated messages are relayed in handlers/chat.py directly.
@@ -466,6 +550,30 @@ class ActionRouter:
                         return {"success": True}
                     except Exception as e:
                         return {"success": False, "error": "Delivery failed"}
+
+        elif etype == "SEND_MEDIA":
+            from state.match_state import match_state
+            from utils.platform_adapter import PlatformAdapter
+            c_uid = str(UserRepository._sanitize_id(uid))
+            partner_id = await match_state.get_partner(uid)
+            if not partner_id:
+                return {"success": False, "error": "❌ Partner disconnected."}
+            
+            m_type = payload.get("media_type")
+            file_id = payload.get("file_id")
+            url = payload.get("url")
+            caption = payload.get("caption", "")
+            
+            try:
+                # Use PlatformAdapter to handle cross-platform delivery
+                await PlatformAdapter.send_cross_platform(
+                    app_state.telegram_app, partner_id, caption, 
+                    media_type=m_type, media_url=url or file_id
+                )
+                return {"success": True}
+            except Exception as e:
+                logger.error(f"Engine media relay failed: {e}")
+                return {"success": False, "error": "Delivery failed"}
 
         elif etype == "KARMA_BOOST":
             from state.match_state import match_state

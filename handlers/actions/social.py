@@ -212,27 +212,21 @@ class SocialHandler:
 
     @staticmethod
     async def handle_report_confirm(client: Client, user_id: int) -> Dict[str, Any]:
-        """Immediately reports the partner and disconnects."""
-        from services.matchmaking import MatchmakingService
-        from services.user_service import UserService
+        """Immediately reports the partner via the Unified Engine."""
+        import app_state
         from database.repositories.user_repository import UserRepository
         from adapters.telegram.keyboards import end_menu
         
-        partner_id = await match_state.get_partner(user_id)
-        if not partner_id:
-            return {"alert": "❌ No active partner to report.", "show_alert": True}
-
-        stats = await MatchmakingService.disconnect(user_id)
-        if not stats:
-            return {"alert": "❌ Could not disconnect.", "show_alert": True}
-        is_blocked = await UserService.report_user(user_id, partner_id, "Reported via button (no reason given)")
+        result = await app_state.engine.process_event({
+            "event_type": "REPORT_USER",
+            "user_id": str(user_id)
+        })
+        
+        if not result.get("success"):
+            return {"alert": result.get("error", "Report failed."), "show_alert": True}
         
         user = await UserRepository.get_by_telegram_id(user_id)
         coins = user.get("coins", 0) if user else 0
-        
-        # Notify partner
-        partner_text = "❌ **Chat ended.**\nYour partner has left the conversation."
-        await update_user_ui(client, partner_id, partner_text, end_menu())
         
         return {
             "text": f"🚨 **Report Submitted.**\nThe user has been flagged for review.\n\n💰 **Your Balance:** {coins} coins",

@@ -59,6 +59,9 @@ class TelegramAdapter(BaseAdapter):
                     return self.create_event("SUBMIT_VOTE", uid, mid, {"type": sig, "value": val})
             elif action == "KARMA_BOOST":
                 return self.create_event("KARMA_BOOST", uid)
+            elif action.startswith("confirm_reveal_"):
+                cost = int(action.split("_")[-1])
+                return self.create_event("CONFIRM_REVEAL", uid, payload={"cost": cost})
             elif action == "gift_menu":
                 return self.create_event("SHOW_GIFTS", uid)
             elif action == "open_reactions":

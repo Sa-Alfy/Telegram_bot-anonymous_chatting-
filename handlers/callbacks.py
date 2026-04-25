@@ -328,12 +328,6 @@ async def on_callback(client: Client, query: CallbackQuery):
             elif action_key.startswith("decline_friend_"):
                 sender_id = raw.replace("decline_friend_", "")
                 response = await SocialHandler.handle_decline_friend(client, uid_int, sender_id)
-            elif action_key.startswith("confirm_reveal_"):
-                cost = int(action_key.split("_")[-1])
-                response = await EconomyHandler.handle_confirm_reveal(client, uid_int, cost)
-            elif action_key.startswith("send_gift_"):
-                gift_key = action_key.replace("send_gift_", "")
-                response = await SocialHandler.handle_send_gift(client, uid_int, gift_key)
             else:
                 logger.warning(f"Unhandled callback: {raw}")
                 return await query.answer("This button isn't available right now.", show_alert=True)
