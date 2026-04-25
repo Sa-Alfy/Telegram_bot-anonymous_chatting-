@@ -1,3 +1,28 @@
+"""
+===============================================================================
+File: core/telemetry.py
+Description: Distributed tracing, logging, and state invariant monitoring.
+
+How it works:
+This file provides the observability layer for the Unified Engine. It uses
+Python's contextvars to maintain a unique 'trace_id' for every user request,
+allowing logs from multiple services to be correlated. It also includes the
+InvariantEngine, which monitors state transitions to catch and log "impossible"
+system states (e.g., a user in CHAT_ACTIVE without a partner).
+
+Architecture & Patterns:
+- Contextual Tracing: Uses contextvars to propagate trace IDs without polluting
+  function signatures.
+- Invariant Monitoring: A proactive defensive programming pattern that alerts
+  on logic violations before they cause cascade failures.
+- Event Categorization: Standardizes system events via the TelemetryEvent class.
+
+How to modify:
+- To add a new system rule: Update InvariantEngine.check_state_transition().
+- To log a new event type: Add a constant to the TelemetryEvent class.
+===============================================================================
+"""
+
 import contextvars
 import time
 import json
@@ -6,7 +31,7 @@ import logging
 from typing import Optional, Any, Dict
 from utils.logger import logger as base_logger
 
-# Context variables for tracing
+# Thread-safe context variables to track the current execution trace and user
 trace_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="")
 user_id_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("user_id", default=None)
 

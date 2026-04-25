@@ -1,12 +1,44 @@
+"""
+===============================================================================
+File: state/match_state.py
+Description: The state coordinator bridging memory, Redis, and business logic.
+
+How it works:
+MatchState is the central hub for real-time user tracking. It provides a 
+high-level API for:
+1. State Transitions: Validating moves between states (e.g., HOME to SEARCHING).
+2. UI Tracking: Managing Telegram message IDs to allow for clean UI updates 
+   without spamming the user's chat history.
+3. Redis Integration: Most state lookups (partner ID, current state) are 
+   delegated to the DistributedState (Redis) layer for cross-platform sync.
+
+Architecture & Patterns:
+- Singleton Pattern: Ensures a single point of truth for state lookups.
+- Bridge Pattern: Maintains compatibility between legacy Telegram logic and the
+  new Unified Engine architecture.
+- Deterministic FSM: Leverages UnifiedState.TRANSITIONS to prevent invalid
+  system states.
+
+How to modify:
+- To add a new state alias: Update the UserState class.
+- To track new UI metadata: Add a tracking dictionary to the MatchState class
+  initialization and create a corresponding getter/setter.
+- IMPORTANT: For persistent session logic, always modify DistributedState 
+  first; MatchState should primarily act as the coordinator.
+===============================================================================
+"""
+
 import asyncio
 import time
 from typing import Dict, List, Set, Optional, Tuple, Any
 from utils.logger import logger
 from services.distributed_state import distributed_state
-
 from core.engine.state_machine import UnifiedState
 
 class UserState:
+    """
+    User-facing state aliases and transition validation rules.
+    """
     HOME            = UnifiedState.HOME
     SEARCHING       = UnifiedState.SEARCHING
     MATCHED_PENDING = UnifiedState.MATCHED
@@ -15,7 +47,7 @@ class UserState:
     PROFILE_EDIT    = "PROFILE_EDIT"
     CONTENT_REVIEW  = "CONTENT_REVIEW"
 
-    # Define strict allowed transitions
+    # Define strict allowed transitions (Source of Truth: UnifiedState)
     ALLOWED_TRANSITIONS = UnifiedState.TRANSITIONS
     
     @staticmethod

@@ -1,14 +1,23 @@
 """
-DEPRECATED MODULE — state/memory.py
+===============================================================================
+File: state/memory.py
+Description: [DEPRECATED] Legacy in-memory state storage.
 
-All state has been migrated to state/match_state.MatchState
-which is backed by services/distributed_state.DistributedState (Redis + fallback).
+How it works:
+This module was used to store user states and queues in local RAM before the
+system migrated to a distributed architecture. It now serves only as a 
+placeholder to prevent ImportErrors during the refactoring process.
 
-If you are importing from this module, update your import to use:
-    from state.match_state import match_state
+Architecture & Patterns:
+- Legacy Stub: No longer used for live operations.
+- Warning System: Issues a DeprecationWarning on import.
 
-This file is kept to prevent ImportError from any legacy path, but the
-variables below are stubs that will NOT be kept in sync with the live system.
+How to modify:
+- DO NOT ADD NEW LOGIC HERE.
+- All state management must happen in state/match_state.py or 
+  services/distributed_state.py.
+- If you find a file importing from here, refactor it to use MatchState.
+===============================================================================
 """
 import warnings
 warnings.warn(

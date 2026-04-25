@@ -1,3 +1,31 @@
+"""
+===============================================================================
+File: core/signal_collector.py
+Description: The data acquisition layer for user behavioral intelligence.
+
+How it works:
+This module is responsible for capturing raw interaction "signals" from users.
+It defines a structured data model (UserSignals) that tracks metrics such as
+message counts, chat duration, rapid skips, and reports. These signals are
+stored in Redis (production) or in-memory (testing) and are later consumed
+by the BehaviorClassifier to assess user behavior.
+
+Architecture & Patterns:
+- Data Transfer Object (DTO): The UserSignals Pydantic model ensures data 
+  consistency and easy serialization.
+- Strategy Pattern: The BaseSignalStore interface allows swapping between 
+  InMemory and Redis storage without changing the collector logic.
+- Singleton Pattern: A global signal_collector instance provides a unified 
+  entry point for recording behavior across the app.
+
+How to modify:
+- To track a new behavior: Add a field to UserSignals and a corresponding 
+  'record_X' method in the SignalCollector class.
+- To change session logic: Modify the '_end_session' helper to adjust how 
+  good/bad sessions are classified.
+===============================================================================
+"""
+
 import time
 import json
 import hashlib
@@ -14,7 +42,9 @@ from core.config import (
 from utils.logger import logger
 
 class UserSignals(BaseModel):
-    """Pydantic model containing a user's behavioral signals."""
+    """
+    Structured model representing a user's behavioral footprint.
+    """
     
     # Base metrics
     session_count: int = 0

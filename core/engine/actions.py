@@ -1,4 +1,26 @@
-# core/engine/actions.py
+"""
+===============================================================================
+File: core/engine/actions.py
+Description: The central event router and state transition engine for the bot.
+
+How it works:
+This file contains the ActionRouter, which processes every user interaction
+(e.g., clicking a button, sending a command). It translates these events into
+atomic state changes in Redis using Lua scripts and coordinates between
+services (Matchmaking, User, Economy).
+
+Architecture & Patterns:
+- Router Pattern: Decouples platform-specific updates from business logic.
+- Idempotency: Uses MD5 hash keys to ensure an event is only processed once.
+- Service Integration: Orchestrates MatchmakingService and UserRepository.
+
+How to modify:
+- To add a new user action: Define a new event type (etype) in _handle_event.
+- Safety: Always use cls.generate_idemp_key for new state-changing actions.
+- Dependency Management: Import services INSIDE the specific 'elif' block to
+  prevent circular import issues.
+===============================================================================
+"""
 
 import time
 import hashlib
@@ -12,12 +34,15 @@ from core.telemetry import EventLogger, TelemetryEvent, with_trace_id
 import app_state
 
 class ActionRouter:
-    """Idempotent Event Router for the Unified Matchmaking system.
-    PRODUCTION HARDENED: Sequencing, Atomic Timeouts, and Render-ACK flow.
+    """
+    The master controller for all stateful bot interactions.
+    Handles searching, chatting, voting, and profile management with
+    idempotency and atomic state guarantees.
     """
 
     @staticmethod
     def generate_idemp_key(user_id: str, event_type: str, match_id: Optional[str], timestamp: int) -> str:
+        """Creates a unique key to prevent the same action from firing twice."""
         raw = f"{user_id}:{event_type}:{match_id or 'none'}:{timestamp}"
         h = hashlib.md5(raw.encode()).hexdigest()
         return f"sm:idemp:{h}"

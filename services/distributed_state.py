@@ -1,3 +1,30 @@
+"""
+===============================================================================
+File: services/distributed_state.py
+Description: The primary interface for Redis-backed state management.
+
+How it works:
+This class acts as a global singleton that manages all transient, high-speed
+data required for the bot's operations. This includes user states (FSM),
+the matchmaking queue, session metadata, and concurrency locks. It handles
+the raw communication with Redis and provides a fail-safe in-memory store
+as a fallback.
+
+Architecture & Patterns:
+- Singleton Pattern: Ensures only one Redis connection pool exists.
+- Proxy/Abstraction Layer: Hides the complexity of Redis key management and
+  Lua script execution from the business logic layer.
+- Thread-Safe Concurrency: Uses asyncio.Lock and Redis NX (set-if-not-exists)
+  to prevent race conditions in multi-threaded environments.
+
+How to modify:
+- To store a new transient value: Define a key prefix (e.g., 'sm:my_key:') and
+  add a corresponding async getter/setter method.
+- To modify matchmaking logic: Update the queue management methods like 
+  'add_to_queue' or 'pop_from_queue'.
+===============================================================================
+"""
+
 import os
 import time
 import asyncio
@@ -5,8 +32,10 @@ import json
 from typing import Optional, Any
 from utils.logger import logger
 
-
 class DistributedState:
+    """
+    The "Source of Truth" for real-time user state and session tracking.
+    """
     _instance = None
     
     def __new__(cls):

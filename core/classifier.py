@@ -1,9 +1,37 @@
+"""
+===============================================================================
+File: core/classifier.py
+Description: The rule engine for user behavioral classification.
+
+How it works:
+This module evaluates the raw signals collected by the SignalCollector and
+maps them to specific behavioral profiles (e.g., 'FAST_SKIPPER', 'TOXIC_USER').
+The logic is stateless and relies on predefined thresholds and "decay" 
+mechanisms (where good behavior slowly cancels out historical bad behavior).
+
+Architecture & Patterns:
+- Rule Engine Pattern: Consolidates all heuristic "judgment" logic into a
+  single, easily adjustable module.
+- Enum-based Categories: Uses the BehaviorProfile Enum to provide strongly-typed
+  labels that other services can consume.
+- Stateless Evaluation: The 'classify' method is a pure function, making it 
+  easy to test and debug.
+
+How to modify:
+- To add a new persona: Add a constant to the BehaviorProfile Enum.
+- To adjust classification logic: Update the thresholds or rules inside the
+  'classify' method.
+===============================================================================
+"""
+
 from enum import Enum
 from core.signal_collector import UserSignals
 from core.config import BOT_SUSPECT_THRESHOLD, GOOD_SESSION_PENALTY_DIVISOR
 
 class BehaviorProfile(Enum):
-    NEW_USER = "NEW_USER"                     # Just joined, needs guidance
+    """
+    Standardized labels representing different user behavior types.
+    """
     ACTIVE_CONVERSATIONALIST = "ACTIVE_CONVERSATIONALIST" # Deep chats, engaged
     EXPLORER = "EXPLORER"                     # High match count, solid duration
     PASSIVE_USER = "PASSIVE_USER"             # Few messages sent

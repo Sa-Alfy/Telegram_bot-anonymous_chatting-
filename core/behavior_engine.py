@@ -1,10 +1,38 @@
+"""
+===============================================================================
+File: core/behavior_engine.py
+Description: The intelligence layer for tracking user behavior and adapting UX.
+
+How it works:
+The BehaviorEngine acts as a high-level facade for the behavioral tracking
+system. it records "signals" (e.g., messages sent, rapid skips, reports) and
+uses the BehaviorClassifier to determine a user's behavioral profile. These
+profiles then influence system adaptation, such as matchmaking priority, 
+cooldown periods, and safety warnings.
+
+Architecture & Patterns:
+- Facade Pattern: Provides a simplified interface to the collector, classifier,
+  and adaptation subsystems.
+- Signal Processing: Aggregates real-time interaction data to build a 
+  behavioral model of the user.
+
+How to modify:
+- To track a new metric: Add a 'record_X' method that calls the underlying
+  signal_collector.
+- To change UX impact: Modify methods like 'get_next_cooldown' or 
+  'get_match_score' to adjust how profiles influence the system.
+===============================================================================
+"""
+
 from typing import Optional
 from core.signal_collector import signal_collector
 from core.classifier import BehaviorClassifier, BehaviorProfile
 from core.adaptation import SystemAdaptation
 
 class BehaviorEngine:
-    """Facade for the Behavioral Intelligence System."""
+    """
+    Central hub for recording user signals and fetching behavioral adaptations.
+    """
 
     collector = signal_collector
 

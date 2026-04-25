@@ -48,10 +48,15 @@ class Database:
                 await conn.execute(schema)
             logger.info("Database schema initialized.")
 
+    async def _ensure_pool(self):
+        if self._pool is None:
+            await self.connect()
+
     async def execute(self, query: str, params: tuple = ()):
         """Executes a query.
         Returns a mock cursor-like object with a rowcount attribute for compatibility.
         """
+        await self._ensure_pool()
         async with self._pool.acquire() as conn:
             status = await conn.execute(query, *params)
             # asyncpg execute returns a status string like "UPDATE 1" or "INSERT 0 1"
@@ -68,16 +73,19 @@ class Database:
 
     async def fetchone(self, query: str, params: tuple = ()):
         """Fetches a single row. Returns asyncpg.Record (dict-like)."""
+        await self._ensure_pool()
         async with self._pool.acquire() as conn:
             return await conn.fetchrow(query, *params)
 
     async def fetchall(self, query: str, params: tuple = ()):
         """Fetches all rows. Returns list of asyncpg.Record (dict-like)."""
+        await self._ensure_pool()
         async with self._pool.acquire() as conn:
             return await conn.fetch(query, *params)
             
     async def fetchval(self, query: str, params: tuple = ()):
         """Fetches a single value, useful for RETURNING clauses."""
+        await self._ensure_pool()
         async with self._pool.acquire() as conn:
             return await conn.fetchval(query, *params)
 
@@ -93,6 +101,7 @@ class Database:
         """C10: Async context manager for atomic multi-statement transactions.
         Usage: async with db.transaction() as conn: await conn.execute(...)
         """
+        await self._ensure_pool()
         async with self._pool.acquire() as conn:
             async with conn.transaction():
                 yield conn

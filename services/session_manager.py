@@ -1,3 +1,28 @@
+"""
+===============================================================================
+File: services/session_manager.py
+Description: Background worker for automatic session cleanup and timeout.
+
+How it works:
+This file contains the session manager background task. It periodically
+scans all active chats in Redis and checks the 'last_active' timestamp of
+both participants. if both users have been idle for longer than the 
+'inactivity_limit', the session is automatically terminated to free up
+matchmaking slots and prevent state leakage.
+
+Architecture & Patterns:
+- Background Worker: Runs as a long-lived coroutine started at boot.
+- Polling Pattern: Periodically wakes up to audit the current state of 
+  active sessions.
+- Graceful Termination: Leverages the existing MatchmakingService.disconnect
+  flow to ensure users are rewarded for their partial session.
+
+How to modify:
+- To change the timeout: Update 'inactivity_limit' (in seconds).
+- To change audit frequency: Adjust the 'asyncio.sleep()' duration.
+===============================================================================
+"""
+
 import asyncio
 import time
 from pyrogram import Client
@@ -12,7 +37,9 @@ from utils.logger import logger
 from utils.ui_formatters import get_progression_text
 
 async def start_session_manager(client: Client):
-    """Background task to automatically disconnect inactive chat pairs."""
+    """
+    Background loop that audts and clears abandoned chat sessions.
+    """
     logger.info("Session Manager started.")
     
     while True:
@@ -31,11 +58,14 @@ async def start_session_manager(client: Client):
             # The old code read match_state.active_chats which is always
             # empty when Redis is active — so inactivity disconnect never fired.
             if distributed_state.redis:
-                keys = await distributed_state.redis.keys("chat:*")
+                keys = await distributed_state.redis.keys("sm:partner:*")
                 seen_pairs = set()
                 chats_snapshot = []
                 for key in keys:
-                    uid = int(key.split(":")[1])
+                    uid_str = key.split(":")[-1]
+                    if not uid_str.isdigit():
+                        continue
+                    uid = int(uid_str)
                     if uid in seen_pairs:
                         continue
                     pid = await distributed_state.get_partner(uid)
@@ -44,8 +74,7 @@ async def start_session_manager(client: Client):
                         seen_pairs.add(uid)
                         seen_pairs.add(pid)
             else:
-                async with match_state._lock:
-                    chats_snapshot = list(match_state.active_chats.items())
+                chats_snapshot = []
 
             for user_id, partner_id in chats_snapshot:
                 if user_id in processed_users:

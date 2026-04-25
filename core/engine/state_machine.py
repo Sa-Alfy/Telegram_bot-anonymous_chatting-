@@ -1,7 +1,32 @@
-# core/engine/state_machine.py
+"""
+===============================================================================
+File: core/engine/state_machine.py
+Description: The deterministic source of truth for all user lifecycle states.
+
+How it works:
+This file defines the UnifiedState class, which contains all possible user
+states (e.g., SEARCHING, CHAT_ACTIVE) and the valid transition paths between
+them. This FSM (Finite State Machine) ensures that the bot's state management
+is consistent across both Telegram and Messenger platforms.
+
+Architecture & Patterns:
+- Finite State Machine (FSM): Maps every user stage to a specific state.
+- Single Source of Truth: Centralizes state constants to prevent "magic strings"
+  from appearing in the business logic.
+- Transition Validation: Provides a 'TRANSITIONS' map that the engine uses to
+  verify if a requested state change is logically sound.
+
+How to modify:
+- To add a new state: Add a new constant to UnifiedState (e.g., MINI_GAME).
+- To add a transition: Update the 'TRANSITIONS' dictionary to allow moving
+  from an existing state to the new one (and back).
+===============================================================================
+"""
 
 class UnifiedState:
-    """Deterministic states for the Unified Matchmaking system."""
+    """
+    Registry of all possible user states and their valid transitions.
+    """
     HOME = "HOME"
     PREFERENCES = "PREFERENCES"
     SEARCHING = "SEARCHING"

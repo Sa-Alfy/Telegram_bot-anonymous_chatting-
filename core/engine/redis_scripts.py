@@ -1,12 +1,36 @@
-# core/engine/redis_scripts.py
+"""
+===============================================================================
+File: core/engine/redis_scripts.py
+Description: Atomic Lua scripts for Redis-based state transitions.
+
+How it works:
+This class holds a library of Lua scripts that are executed atomically within
+Redis. These scripts handle complex operations that involve multiple keys
+(e.g., matching two users, disconnecting, voting) to ensure data integrity
+and prevent race conditions.
+
+Architecture & Patterns:
+- Atomic Operations: Leverages Redis Lua execution for ACID-like transactions.
+- Centralized Logic: All low-level state mutation logic is consolidated here.
+- Idempotency & Versioning: Scripts handle idempotency checks and increment
+  version numbers for client-side state synchronization.
+
+How to modify:
+- To add a new atomic operation: Define a new LUA string constant.
+- Important: Always use KEYS[] for Redis keys and ARGV[] for data values.
+- Testing: Lua scripts are sensitive; verify with integration tests after
+  any modification.
+===============================================================================
+"""
 
 import time
 from typing import Tuple, List, Optional
 from utils.logger import logger
 
 class RedisScripts:
-    """Lua script library for atomic Unified Matchmaking state transitions.
-    PRODUCTION HARDENED: Match-level versioning, atomic audit logs, and vote locks.
+    """
+    Registry of Lua scripts for atomic matchmaking and session management.
+    Ensures that state changes across multiple Redis keys are consistent.
     """
 
     # 0. SET PREFERENCES (Transition from HOME)

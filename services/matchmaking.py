@@ -1,3 +1,30 @@
+"""
+===============================================================================
+File: services/matchmaking.py
+Description: The business logic layer for user queuing and session management.
+
+How it works:
+This service is the primary coordinator for the chat lifecycle. It handles:
+1. Queuing: Adding users to the search pool with priority and preference logic.
+2. Initialization: Setting up the match metadata once two users are paired.
+3. Disconnection: Atomically ending sessions, calculating rewards (XP/Coins),
+   and updating user streaks in the database.
+
+Architecture & Patterns:
+- Service Layer: Orchestrates multiple repositories and the Redis state engine.
+- Atomic Disconnect: Relies on match_state.disconnect to ensure session
+  cleanup is idempotent and safe across platforms.
+- Reward Engine: Integrates with UserService and EconomyService to distribute
+  perks based on chat duration and behavior.
+
+How to modify:
+- To adjust XP/Coin rewards: Update the calculation logic inside 'disconnect'.
+- To change queuing behavior: Modify 'add_to_queue' or 'initialize_match'.
+- Dependency Note: Uses 'match_state' for Redis-level tracking and 'UserRepository'
+  for persistent PostgreSQL storage.
+===============================================================================
+"""
+
 import asyncio
 import time
 from typing import Optional, Dict, Any
@@ -11,6 +38,9 @@ from services.event_manager import get_active_event, add_event_points
 from utils.logger import logger
 
 class MatchmakingService:
+    """
+    High-level orchestrator for user matchmaking, session starts, and rewards.
+    """
     @staticmethod
     async def add_to_queue(user_id: int, gender_pref: str = "Any") -> bool:
         """Adds a user to the matchmaking queue, storing their gender and preference."""

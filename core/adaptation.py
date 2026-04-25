@@ -1,3 +1,29 @@
+"""
+===============================================================================
+File: core/adaptation.py
+Description: The system's "reaction" engine for user behavior.
+
+How it works:
+This module translates abstract BehaviorProfiles into concrete system changes.
+It calculates matchmaking priorities, determines reward multipliers (XP/Coins),
+selects appropriate UX hints to display in the chat, and enforces cooldowns.
+It essentially defines "how the bot treats the user" based on their history.
+
+Architecture & Patterns:
+- Policy Pattern: Encapsulates the specific business rules for how the system
+  adapts to different user types.
+- Scoring Engine: Uses weighted formulas (reputation, XP, behavior) to 
+  determine a user's relative priority in the system.
+- Decoupled UX: Provides hints that the platform adapters can choose to 
+  display, keeping the UI logic clean.
+
+How to modify:
+- To change a system penalty/reward: Modify the formulas in methods like
+  'get_match_score' or 'get_reward_multiplier'.
+- To add a new UX nudge: Update 'get_ux_hint' to map a profile to a string.
+===============================================================================
+"""
+
 from typing import List, Optional
 from core.classifier import BehaviorProfile
 from core.signal_collector import UserSignals
@@ -7,7 +33,9 @@ from core.config import (
 )
 
 class SystemAdaptation:
-    """Translates user BehaviorProfiles into concrete system logic adaptations."""
+    """
+    Translates observed behavioral profiles into actionable system logic.
+    """
 
     @staticmethod
     def get_match_score(profiles: List[BehaviorProfile], signals: UserSignals, base_reputation: int = 100, xp: int = 0) -> float:

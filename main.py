@@ -173,7 +173,10 @@ async def start_reconciler_loop():
                 await app_state.reconciler.reconcile_user(uid)
 
             # Reconcile active chat users
-            active_uids = list(match_state.active_chats.keys())
+            active_uids = []
+            if distributed_state.redis:
+                keys = await distributed_state.redis.keys("sm:partner:*")
+                active_uids = [key.split(":")[-1] for key in keys if key.split(":")[-1].isdigit()]
             for uid in active_uids:
                 await app_state.reconciler.reconcile_user(uid)
                 
@@ -347,7 +350,17 @@ async def main():
         logger.info("Shutdown signal received. Initiating graceful shutdown...")
     finally:
         # Notify all active users about restart
-        active_users = set(match_state.active_chats.keys()) | set(match_state.waiting_queue)
+        from services.distributed_state import distributed_state
+        from services.matchmaking import MatchmakingService
+        
+        active_chat_uids = []
+        waiting_queue = []
+        if distributed_state.redis:
+            partner_keys = await distributed_state.redis.keys("sm:partner:*")
+            active_chat_uids = [key.split(":")[-1] for key in partner_keys if key.split(":")[-1].isdigit()]
+            waiting_queue = await distributed_state.get_queue_candidates()
+            
+        active_users = set(active_chat_uids) | set(waiting_queue)
         if active_users:
             logger.info(f"📢 Notifying {len(active_users)} active users of restart...")
 
@@ -365,8 +378,7 @@ async def main():
                 pass
 
         # Disconnect all active sessions
-        from services.matchmaking import MatchmakingService
-        for uid in list(match_state.active_chats.keys()):
+        for uid in active_chat_uids:
             try:
                 await MatchmakingService.disconnect(uid)
             except Exception:
