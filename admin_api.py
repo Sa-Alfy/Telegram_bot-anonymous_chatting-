@@ -371,7 +371,13 @@ async def get_server_status(_=Depends(verify_token)):
             except Exception as e:
                 last_error = str(e)
     
-    return {"status": "error", "message": f"Main Server Unreachable (Tried ports {ports_to_try}). {last_error}"}
+    error_detail = f"Main Server Unreachable (Tried local ports {ports_to_try})."
+    if "Connection refused" in last_error or "111" in last_error:
+        error_detail += " 💡 HINT: If your Admin Panel and Bot run in separate containers, you MUST set the 'BOT_SERVER_URL' environment variable in the Admin Panel to point to your Bot's public URL (e.g. https://my-bot.onrender.com)."
+    else:
+        error_detail += f" {last_error}"
+
+    return {"status": "error", "message": error_detail}
 
 @app.post("/admin/broadcast")
 async def broadcast_message(request: Request, _=Depends(verify_token)):
